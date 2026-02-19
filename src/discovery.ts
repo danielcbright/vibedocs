@@ -116,15 +116,25 @@ export async function discoverProjects(): Promise<ProjectInfo[]> {
     let hasDocsFolder = false
     let tree: FileNode[] = []
 
+    // Always include root-level .md files (CLAUDE.md, README.md, etc.)
+    const rootFiles = await getRootMarkdownFiles(projectDir)
+
     try {
       const s = await stat(docsDir)
       if (s.isDirectory()) {
         hasDocsFolder = true
-        tree = await buildTree(docsDir, projectDir)
+        const docsChildren = await buildTree(docsDir, projectDir)
+        // Root files first, then docs/ as an expandable folder
+        tree = [
+          ...rootFiles,
+          ...(docsChildren.length > 0
+            ? [{ name: 'docs', path: 'docs', type: 'folder' as const, children: docsChildren }]
+            : []),
+        ]
       }
     } catch {
-      // No docs/ folder — fall back to root-level .md files
-      tree = await getRootMarkdownFiles(projectDir)
+      // No docs/ folder — root-level .md files only
+      tree = rootFiles
     }
 
     if (tree.length > 0) {
