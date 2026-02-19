@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Docs Browser</title>
+  <link rel="stylesheet" href="/style.css" />
+  <!-- Mermaid for diagram rendering -->
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+<body>
+  <div id="app">
+    <!-- Sidebar -->
+    <aside id="sidebar">
+      <div id="sidebar-header">
+        <span class="sidebar-logo">📚</span>
+        <span class="sidebar-title">Docs Browser</span>
+        <button id="theme-toggle" title="Toggle theme">☀️</button>
+      </div>
+      <div id="sidebar-search">
+        <input type="text" id="search-input" placeholder="Filter files…" autocomplete="off" />
+      </div>
+      <nav id="sidebar-projects">
+        <div class="sidebar-loading">Loading projects…</div>
+      </nav>
+    </aside>
+
+    <!-- Main content -->
+    <main id="main">
+      <div id="topbar">
+        <button id="sidebar-toggle" title="Toggle sidebar">☰</button>
+        <div id="breadcrumb"></div>
+        <div id="connection-status" title="Live reload status"></div>
+      </div>
+
+      <div id="content-wrapper">
+        <article id="content">
+          <div class="welcome">
+            <h1>📚 Docs Browser</h1>
+            <p>Select a document from the sidebar to get started.</p>
+          </div>
+        </article>
+
+        <aside id="toc-panel">
+          <div id="toc-header">On this page</div>
+          <nav id="toc"></nav>
+        </aside>
+      </div>
+    </main>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

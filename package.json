@@ -1,0 +1,30 @@
+{
+  "name": "docs-browser",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1",
+    "@shikijs/rehype": "^1",
+    "chokidar": "^3",
+    "hono": "^4",
+    "rehype-autolink-headings": "^7",
+    "rehype-slug": "^6",
+    "rehype-stringify": "^10",
+    "remark-gfm": "^4",
+    "remark-parse": "^11",
+    "remark-rehype": "^11",
+    "unified": "^11",
+    "unist-util-visit": "^5",
+    "ws": "^8"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "@types/ws": "^8",
+    "tsx": "^4",
+    "typescript": "^5"
+  }
+}
