@@ -39,7 +39,7 @@ vibedocs is a self-hosted documentation browser with a **Hono backend** and **Re
 └─────────────────────────────────────────────────────────┘
                          │
                          ▼
-              ~/claudebot/projects/*/
+              $VIBEDOCS_ROOT/*/
               (markdown files on disk)
 ```
 
@@ -65,7 +65,7 @@ The main entry point. Uses Hono for routing on port 8080.
 
 ### discovery.ts - Project Discovery
 
-Scans `~/claudebot/projects/` for directories containing `.md` files. Builds a recursive file tree structure for each project. Excludes `node_modules`, `.git`, `dist`, and other non-documentation directories.
+Scans the configured root directory (`VIBEDOCS_ROOT`) for directories containing `.md` files. Builds a recursive file tree structure for each project. Excludes `node_modules`, `.git`, `dist`, and other non-documentation directories.
 
 **Key types:**
 - `FileNode` - `{ name, path, type: 'file' | 'folder', children? }`
@@ -162,7 +162,7 @@ sidebar, command, dialog, breadcrumb, scroll-area, collapsible, button, input, t
 5. Returns `{ html, toc }` → React renders HTML + TOC panel
 
 ### Live Reload
-1. Chokidar watches `~/claudebot/projects/**/*.md`
+1. Chokidar watches `$VIBEDOCS_ROOT/**/*.md`
 2. File change → broadcasts `{ type: 'reload' }` via WebSocket
 3. `use-websocket` hook receives message → triggers `use-document` refresh
 4. File add/remove → broadcasts `{ type: 'refresh-tree' }` → triggers `use-projects` refresh

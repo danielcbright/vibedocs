@@ -12,7 +12,7 @@ import { buildSearchIndex, search } from './search.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const FRONTEND_DIST = path.join(__dirname, '..', 'frontend', 'dist')
-const PORT = 8080
+const PORT = parseInt(process.env.VIBEDOCS_PORT || process.env.PORT || '8080', 10)
 
 const app = new Hono()
 
@@ -189,7 +189,7 @@ const watchGlob = path.join(PROJECTS_DIR, '**/*.md')
 chokidar
   .watch(watchGlob, {
     ignoreInitial: true,
-    ignored: ['**/node_modules/**', '**/.git/**', '**/vibedocs/**'],
+    ignored: ['**/node_modules/**', '**/.git/**'],
   })
   .on('change', (filePath: string) => {
     console.log(`  ↺  changed: ${filePath.replace(PROJECTS_DIR + '/', '')}`)

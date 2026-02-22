@@ -1,18 +1,21 @@
 [Unit]
-Description=VibeDocs - Workspace Documentation Server
+Description=VibeDocs - Documentation Server
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/dbright/claudebot/projects/vibedocs
-ExecStart=/home/dbright/claudebot/projects/vibedocs/node_modules/.bin/tsx src/server.ts
+# CONFIGURE: Set to your VibeDocs installation directory
+WorkingDirectory=/path/to/vibedocs
+# CONFIGURE: Set to your tsx binary (run: which tsx or npx which tsx)
+ExecStart=/path/to/vibedocs/node_modules/.bin/tsx src/server.ts
 Restart=on-failure
 RestartSec=5
 KillSignal=SIGTERM
 TimeoutStopSec=10
 Environment=NODE_ENV=production
-Environment=PATH=/home/dbright/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# CONFIGURE: Set to the directory containing your project folders
+Environment=VIBEDOCS_ROOT=/path/to/your/projects
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=vibedocs

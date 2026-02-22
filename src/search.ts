@@ -13,7 +13,7 @@ let index: IndexEntry[] = []
 
 const EXCLUDED_DIRS = new Set([
   'node_modules', '.git', '.next', 'dist', 'build', 'out',
-  'coverage', 'tmp', 'temp', '_archived', 'vibedocs',
+  'coverage', 'tmp', 'temp', '_archived',
   '.project-template', 'test-projects',
 ])
 

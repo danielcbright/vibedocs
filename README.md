@@ -1,100 +1,102 @@
 # VibeDocs
 
-Self-hosted documentation browser for the claudebot workspace. Reads markdown from all project `docs/` folders and renders them with rich formatting.
+Self-hosted markdown documentation browser with live reload, syntax highlighting, and full-text search.
 
-## Overview
+**Built entirely with [Claude Code](https://claude.ai/code)**
 
-A Hono backend + React frontend that auto-discovers all projects under `~/claudebot/projects/`, renders their markdown files with syntax highlighting, diagrams, and a table of contents, and live-reloads the browser when files change.
+![VibeDocs Screenshot](docs/screenshot.png)
 
-## Tech Stack
+## Features
 
-- **Runtime:** Node.js v24
-- **Backend:** Hono 4 + @hono/node-server
-- **Frontend:** React 19 + TypeScript + Vite + shadcn/ui + Tailwind CSS v4
-- **Markdown:** unified / remark / rehype pipeline
-- **Syntax Highlighting:** Shiki (github-dark / github-light)
-- **Diagrams:** Mermaid.js (client-side)
-- **Live Reload:** chokidar + WebSocket (ws)
+- **Auto-discovery** — point at a directory of projects and VibeDocs finds all markdown files
+- **Live reload** — edits to `.md` files appear instantly via WebSocket
+- **Syntax highlighting** — Shiki with dual light/dark themes (github-light / github-dark)
+- **Mermaid diagrams** — fenced ` ```mermaid ` blocks render as diagrams
+- **Full-text search** — Ctrl+K command palette with instant results
+- **Table of contents** — auto-generated from headings with scroll-spy
+- **Dark/light/system themes** — toggle with one click
+- **Collapsible sidebar** — file tree with filtering, resizable panel
+- **GFM support** — tables, task lists, strikethrough, autolinks
 
-## Prerequisites
-
-- Node.js >= 24.0.0
-
-## Installation
+## Quick Start
 
 ```bash
-cd ~/claudebot/projects/vibedocs
+git clone https://github.com/danielcbright/vibedocs.git
+cd vibedocs
 npm install
-npm run build   # Build the frontend
+npm run build
 ```
+
+Run it, pointing at a directory that contains project folders:
+
+```bash
+VIBEDOCS_ROOT=/path/to/your/projects npm start
+```
+
+Open http://localhost:8080.
+
+## Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `VIBEDOCS_ROOT` | current working directory | Root directory to scan for projects |
+| `VIBEDOCS_PORT` or `PORT` | `8080` | Port to listen on |
+
+## Directory Structure
+
+VibeDocs expects `VIBEDOCS_ROOT` to contain project directories, each with markdown files:
+
+```
+$VIBEDOCS_ROOT/
+├── project-a/
+│   ├── README.md
+│   ├── CLAUDE.md
+│   └── docs/
+│       ├── getting-started.md
+│       └── api-reference.md
+├── project-b/
+│   ├── README.md
+│   └── docs/
+│       └── architecture.md
+└── ...
+```
+
+Each subdirectory becomes a "project" in the sidebar. Root-level `.md` files and everything under `docs/` are displayed.
 
 ## Development
 
 ```bash
-npm run dev   # Start both Hono (8080) and Vite dev server (5173)
+npm run dev   # Starts Hono backend (8080) + Vite dev server (5173)
 ```
 
-- **Frontend dev server:** http://localhost:5173 (with hot reload)
-- **Backend API:** http://localhost:8080
-
-The Vite dev server proxies `/api/*` requests to the Hono backend.
-
-### Individual servers
+The Vite dev server proxies `/api/*` to the backend, giving you hot module reload for frontend changes and auto-restart for backend changes.
 
 ```bash
-npm run dev:server    # Backend only (port 8080)
-npm run dev:frontend  # Vite dev server only (port 5173)
+npm run dev:server    # Backend only
+npm run dev:frontend  # Frontend only
 ```
 
-## Production
+## Tech Stack
 
-```bash
-npm run build   # Build frontend to frontend/dist/
-npm start       # Serve everything from Hono on port 8080
-```
+- **Backend:** [Hono](https://hono.dev/) + TypeScript + Node.js
+- **Frontend:** React 19 + Vite + [shadcn/ui](https://ui.shadcn.com/) + Tailwind CSS v4
+- **Markdown:** unified / remark / rehype pipeline
+- **Syntax Highlighting:** [Shiki](https://shiki.style/)
+- **Diagrams:** [Mermaid.js](https://mermaid.js.org/) (client-side)
+- **Live Reload:** [chokidar](https://github.com/paulmillr/chokidar) + WebSocket
 
-## Project Structure
+## Deployment
 
-```
-src/
-  server.ts       - Hono server, WebSocket, file watcher, SPA fallback
-  markdown.ts     - remark/rehype/shiki rendering pipeline
-  discovery.ts    - Project and file tree discovery
-  search.ts       - Full-text search index
-frontend/
-  src/
-    App.tsx         - Root layout with sidebar + content + TOC
-    components/     - React components (sidebar, content, search, etc.)
-    hooks/          - Custom hooks (projects, document, websocket, search)
-    lib/            - Utilities (cn helper)
-    index.css       - Tailwind + markdown prose styles
-  components.json   - shadcn/ui configuration
-  vite.config.ts    - Vite config with API proxy
-```
+VibeDocs is designed to run as a persistent service. A systemd unit file is included in `systemd/vibedocs.service` — edit the paths and run `scripts/setup-service.sh` to install it.
 
-## Features
+See `scripts/promote.sh` for a build-validate-restart workflow.
 
-- Auto-discovers all workspace projects
-- Handles `docs/` folders and root-level markdown
-- Shiki syntax highlighting (dual light/dark themes)
-- Mermaid diagram rendering
-- Auto-generated table of contents with scroll-spy
-- WebSocket live reload on `.md` file changes
-- Full-text search with Ctrl+K command palette
-- Collapsible sidebar with file tree filtering
-- Dark/light/system theme modes
-- Hash-based URL routing
-- Resizable sidebar panel
+## How Claude Built This
 
-## Status
+VibeDocs was built entirely using [Claude Code](https://claude.ai/code) — Anthropic's agentic coding tool. Every line of code, from the Hono backend and unified markdown pipeline to the React frontend with shadcn/ui components, was generated through conversational prompts with Claude.
 
-**Current Version:** 0.2.0
-**Status:** Active Development
-**Last Updated:** 2026-02-21
-**Port:** 8080
+The project started as a simple documentation viewer and grew iteratively: discovery and rendering first, then search, live reload, theming, table of contents, and UI polish — all driven by natural language requests. The `CLAUDE.md` file in this repo serves as project memory, helping Claude understand the codebase architecture across sessions.
 
----
+## License
 
-**Part of:** `/home/dbright/claudebot/` workspace
-**Repository:** https://github.com/danielcbright/vibedocs
-**Maintained by:** danielcbright
+[MIT](LICENSE)
