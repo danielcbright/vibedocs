@@ -1,4 +1,13 @@
-# VibeDocs
+```
+                     (
+              )      )\ )
+ (   (  (  ( /(   ( (()/(
+ )\  )\ )\ )\()) ))\ /(_))  (   (  (
+((_)((_|(_|(_)\ /((_|_))_   )\  )\ )\
+\ \ / / (_) |(_|_))  |   \ ((_)((_|(_)
+ \ V /  | | '_ Y -_) | |) / _ Y _|(_-<
+  \_/   |_|_.__|___| |___/\___|__|/__/
+```
 
 Self-hosted markdown documentation browser with live reload, syntax highlighting, and full-text search.
 
