@@ -94,7 +94,7 @@ export function DocContent({ html, loading, error, project, docPath, connected, 
     return (
       <div className="flex flex-1 items-center justify-center text-muted-foreground">
         <div className="text-center">
-          <h2 className="text-lg font-medium mb-1">Welcome to Docs Browser</h2>
+          <h2 className="text-lg font-medium mb-1">Welcome to VibeDocs</h2>
           <p className="text-sm">Select a document from the sidebar to get started.</p>
           <p className="text-xs mt-4 text-muted-foreground/60">
             Press <kbd className="px-1.5 py-0.5 rounded border text-[10px] font-mono">Ctrl+K</kbd> to search

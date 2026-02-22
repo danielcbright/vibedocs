@@ -5,7 +5,7 @@ export const PROJECTS_DIR = '/home/dbright/claudebot/projects'
 
 const EXCLUDED_DIRS = new Set([
   'node_modules', '.git', '.next', 'dist', 'build', 'out',
-  'coverage', 'tmp', 'temp', '_archived', 'docs-browser',
+  'coverage', 'tmp', 'temp', '_archived', 'vibedocs',
   '.project-template', 'test-projects',
 ])
 
