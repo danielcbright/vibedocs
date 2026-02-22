@@ -3,11 +3,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-SERVICE_FILE="$PROJECT_DIR/systemd/docs-browser.service"
+SERVICE_FILE="$PROJECT_DIR/systemd/vibedocs.service"
 USER_SYSTEMD_DIR="$HOME/.config/systemd/user"
-SERVICE_LINK="$USER_SYSTEMD_DIR/docs-browser.service"
+SERVICE_LINK="$USER_SYSTEMD_DIR/vibedocs.service"
 
-echo "=== docs-browser: Service Setup ==="
+echo "=== vibedocs: Service Setup ==="
 echo ""
 
 # 1. Verify service file exists
@@ -38,12 +38,12 @@ loginctl enable-linger "$(whoami)"
 # 4. Reload systemd and enable service
 echo "[4/4] Reloading systemd and enabling service..."
 systemctl --user daemon-reload
-systemctl --user enable docs-browser
+systemctl --user enable vibedocs
 
 echo ""
 echo "=== Setup Complete ==="
 echo ""
 echo "The service is now installed and enabled (will start on boot)."
-echo "To start it now:  systemctl --user start docs-browser"
-echo "To check status:  systemctl --user status docs-browser"
-echo "To view logs:     journalctl --user -u docs-browser -f"
+echo "To start it now:  systemctl --user start vibedocs"
+echo "To check status:  systemctl --user status vibedocs"
+echo "To view logs:     journalctl --user -u vibedocs -f"

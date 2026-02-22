@@ -2,7 +2,7 @@
 
 ## Overview
 
-docs-browser is a self-hosted documentation browser with a **Hono backend** and **React + shadcn/ui frontend**. It auto-discovers markdown files across all workspace projects and renders them with syntax highlighting, diagrams, and live reload.
+vibedocs is a self-hosted documentation browser with a **Hono backend** and **React + shadcn/ui frontend**. It auto-discovers markdown files across all workspace projects and renders them with syntax highlighting, diagrams, and live reload.
 
 ## System Diagram
 

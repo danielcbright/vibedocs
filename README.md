@@ -1,4 +1,4 @@
-# docs-browser
+# VibeDocs
 
 Self-hosted documentation browser for the claudebot workspace. Reads markdown from all project `docs/` folders and renders them with rich formatting.
 
@@ -23,7 +23,7 @@ A Hono backend + React frontend that auto-discovers all projects under `~/claude
 ## Installation
 
 ```bash
-cd ~/claudebot/projects/docs-browser
+cd ~/claudebot/projects/vibedocs
 npm install
 npm run build   # Build the frontend
 ```
@@ -96,5 +96,5 @@ frontend/
 ---
 
 **Part of:** `/home/dbright/claudebot/` workspace
-**Repository:** https://github.com/danielcbright/docs-browser
+**Repository:** https://github.com/danielcbright/vibedocs
 **Maintained by:** danielcbright

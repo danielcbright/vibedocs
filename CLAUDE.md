@@ -1,11 +1,24 @@
-# CLAUDE.md - docs-browser
+# CLAUDE.md - VibeDocs
 
 ## Project Overview
 
-Self-hosted documentation browser for the claudebot workspace. Hono backend + React frontend that auto-discovers markdown files across all `~/claudebot/projects/` and renders them with rich formatting.
+VibeDocs — self-hosted documentation browser for the claudebot workspace. Hono backend + React frontend that auto-discovers markdown files across all `~/claudebot/projects/` and renders them with rich formatting.
 
 **Port:** 8080
 **Status:** Active Development (v0.2.0)
+**Service:** Runs as a systemd user service (`vibedocs`), always on, starts on boot.
+
+## Deployment Model
+
+This app runs **continuously on the host** on port 8080. The user relies on it daily to browse project documentation, plans, and markdown files across the workspace.
+
+- The systemd service serves `frontend/dist/` (pre-built) via the Hono backend.
+- `frontend/dist/` is **only updated through `./scripts/promote.sh`** — not by `npm run build` alone.
+- **After ANY code change (backend or frontend), you MUST promote:**
+  ```bash
+  ./scripts/promote.sh    # builds, validates, restarts service, health-checks
+  ```
+- If you skip promotion, the running service serves stale content.
 
 ## Tech Stack
 
@@ -33,7 +46,7 @@ frontend/               # Frontend (Vite React app)
   vite.config.ts        # Vite config with API proxy
   components.json       # shadcn/ui config
 systemd/
-  docs-browser.service  # systemd user service unit file
+  vibedocs.service    # systemd user service unit file
 scripts/
   setup-service.sh      # One-time service installation
   promote.sh            # Build → validate → restart promotion script
@@ -57,14 +70,14 @@ The app runs as a **systemd user service** that starts on boot via lingering.
 
 ```bash
 # Service control
-systemctl --user status docs-browser     # Check status
-systemctl --user restart docs-browser    # Restart
-systemctl --user stop docs-browser       # Stop (e.g. before dev)
-systemctl --user start docs-browser      # Start
+systemctl --user status vibedocs     # Check status
+systemctl --user restart vibedocs    # Restart
+systemctl --user stop vibedocs       # Stop (e.g. before dev)
+systemctl --user start vibedocs      # Start
 
 # Logs
-journalctl --user -u docs-browser -f     # Follow logs
-journalctl --user -u docs-browser -n 50  # Last 50 lines
+journalctl --user -u vibedocs -f     # Follow logs
+journalctl --user -u vibedocs -n 50  # Last 50 lines
 ```
 
 ### Promotion Workflow
@@ -80,12 +93,16 @@ Use `./scripts/promote.sh` to deploy changes to the running service:
 
 ### Developer Workflow
 
+**The full cycle is: stop service → develop → promote. Never leave the service stopped or stale.**
+
 ```bash
-# Start developing (stop service to free port 8080)
-systemctl --user stop docs-browser
+# 1. Stop service first (port 8080 conflict otherwise)
+systemctl --user stop vibedocs
+
+# 2. Develop with hot reload
 npm run dev                              # Vite HMR on 5173, Hono on 8080
 
-# When ready to promote (Ctrl+C dev first)
+# 3. When done (Ctrl+C), ALWAYS promote to update the running service
 ./scripts/promote.sh                     # Build + validate + restart service
 ```
 
@@ -109,6 +126,13 @@ This symlinks the unit file, enables lingering, and enables the service.
 - **WebSocket messages:** `{ type: 'reload' }` for file changes, `{ type: 'refresh-tree' }` for add/remove
 - **SPA fallback:** In production, all non-API GET requests return `frontend/dist/index.html`
 - **Search index:** Rebuilt in-memory on startup and on file watcher events
+
+## Gotchas
+
+- **Port 8080 conflict:** The systemd service and `npm run dev` both use port 8080. Always `systemctl --user stop vibedocs` before dev mode.
+- **`frontend/dist/` is not auto-built:** `npm run build` alone does NOT restart the service. Always use `./scripts/promote.sh`.
+- **Service runs on boot:** After reboot, the service starts automatically — no manual intervention needed.
+- **Two package.jsons:** Root has backend deps; `frontend/package.json` has frontend deps. `promote.sh` handles both.
 
 ## Development Notes
 
