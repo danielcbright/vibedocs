@@ -13,6 +13,8 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+frontend/dist/
+frontend/node_modules/
 
 # Logs
 *.log
