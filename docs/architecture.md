@@ -6,41 +6,32 @@ vibedocs is a self-hosted documentation browser with a **Hono backend** and **Re
 
 ## System Diagram
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Browser (React SPA)                   │
-│                                                         │
-│  ┌──────────┐  ┌──────────────────┐  ┌───────────────┐ │
-│  │ Sidebar  │  │  Content Area    │  │  TOC Panel    │ │
-│  │ (tree)   │  │  (rendered HTML) │  │  (scroll-spy) │ │
-│  └──────────┘  └──────────────────┘  └───────────────┘ │
-│  ┌──────────────────────────────────────────────────┐   │
-│  │         Search Dialog (Ctrl+K)                    │   │
-│  └──────────────────────────────────────────────────┘   │
-└────────────────────────┬────────────────────────────────┘
-                         │ HTTP + WebSocket
-                         ▼
-┌─────────────────────────────────────────────────────────┐
-│                  Hono Server (port 8080)                 │
-│                                                         │
-│  ┌─────────────┐  ┌──────────────┐  ┌───────────────┐  │
-│  │ API Routes  │  │ Static Files │  │  WebSocket    │  │
-│  │ /api/*      │  │ SPA fallback │  │  (live reload)│  │
-│  └──────┬──────┘  └──────────────┘  └───────┬───────┘  │
-│         │                                    │          │
-│  ┌──────▼──────┐  ┌──────────────┐  ┌───────▼───────┐  │
-│  │ Discovery   │  │   Markdown   │  │   Chokidar    │  │
-│  │ (file tree) │  │   Pipeline   │  │   (watcher)   │  │
-│  └─────────────┘  └──────────────┘  └───────────────┘  │
-│  ┌─────────────┐                                        │
-│  │   Search    │                                        │
-│  │   (index)   │                                        │
-│  └─────────────┘                                        │
-└─────────────────────────────────────────────────────────┘
-                         │
-                         ▼
-              $VIBEDOCS_ROOT/*/
-              (markdown files on disk)
+```mermaid
+graph LR
+    subgraph Browser["Browser (React SPA)"]
+        direction TB
+        UI["Sidebar | Content | TOC"]
+        Search["Search (Ctrl+K)"]
+    end
+
+    subgraph Server["Hono Server :8080"]
+        direction TB
+        API["/api/* routes"]
+        Static["Static / SPA"]
+        WS["WebSocket"]
+        subgraph Core["Core Modules"]
+            direction LR
+            Discovery["Discovery"]
+            MD["Markdown"]
+            Idx["Search Index"]
+            Watch["Chokidar"]
+        end
+        API --> Core
+        WS --> Watch
+    end
+
+    Browser -- "HTTP + WS" --> Server
+    Core -- "reads" --> Disk[("$VIBEDOCS_ROOT\n(markdown on disk)")]
 ```
 
 ## Backend (src/)
