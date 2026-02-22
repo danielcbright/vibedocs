@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 FRONTEND_DIR="$PROJECT_DIR/frontend"
 
-echo "=== docs-browser: Promotion ==="
+echo "=== vibedocs: Promotion ==="
 echo ""
 
 # [1/6] Check git status
@@ -66,9 +66,9 @@ fi
 echo "      Build valid: index.html + ${JS_COUNT} JS + ${CSS_COUNT} CSS files."
 
 # [5/6] Restart systemd service
-echo "[5/6] Restarting docs-browser service..."
+echo "[5/6] Restarting vibedocs service..."
 systemctl --user daemon-reload
-systemctl --user restart docs-browser
+systemctl --user restart vibedocs
 echo "      Service restarted."
 
 # [6/6] Health check
@@ -86,8 +86,8 @@ for i in $(seq 1 $RETRIES); do
         echo "      FAILED: Health check did not pass after $((RETRIES * DELAY))s."
         echo ""
         echo "      Debug commands:"
-        echo "        systemctl --user status docs-browser"
-        echo "        journalctl --user -u docs-browser --no-pager -n 30"
+        echo "        systemctl --user status vibedocs"
+        echo "        journalctl --user -u vibedocs --no-pager -n 30"
         exit 1
     fi
     sleep "$DELAY"
@@ -96,6 +96,6 @@ done
 echo ""
 echo "=== Promotion Complete ==="
 echo ""
-echo "  Status:  systemctl --user status docs-browser"
-echo "  Logs:    journalctl --user -u docs-browser -f"
+echo "  Status:  systemctl --user status vibedocs"
+echo "  Logs:    journalctl --user -u vibedocs -f"
 echo "  URL:     http://localhost:8080"
