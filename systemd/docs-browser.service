@@ -1,0 +1,21 @@
+[Unit]
+Description=Docs Browser - Workspace Documentation Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/dbright/claudebot/projects/docs-browser
+ExecStart=/home/dbright/claudebot/projects/docs-browser/node_modules/.bin/tsx src/server.ts
+Restart=on-failure
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=10
+Environment=NODE_ENV=production
+Environment=PATH=/home/dbright/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=docs-browser
+
+[Install]
+WantedBy=default.target
