@@ -159,7 +159,7 @@ app.get('*', async (c) => {
 const server = serve(
   { fetch: app.fetch, port: PORT },
   () => {
-    console.log(`\n📚 Docs Browser running at http://localhost:${PORT}\n`)
+    console.log(`\n📚 VibeDocs running at http://localhost:${PORT}\n`)
   }
 )
 
@@ -189,7 +189,7 @@ const watchGlob = path.join(PROJECTS_DIR, '**/*.md')
 chokidar
   .watch(watchGlob, {
     ignoreInitial: true,
-    ignored: ['**/node_modules/**', '**/.git/**', '**/docs-browser/**'],
+    ignored: ['**/node_modules/**', '**/.git/**', '**/vibedocs/**'],
   })
   .on('change', (filePath: string) => {
     console.log(`  ↺  changed: ${filePath.replace(PROJECTS_DIR + '/', '')}`)

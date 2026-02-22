@@ -146,7 +146,7 @@ export function AppSidebar({ projects, activeProject, activePath, onNavigate }: 
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <BookOpen className="h-5 w-5 text-sidebar-primary" />
-            <span className="font-semibold text-sm">Docs Browser</span>
+            <span className="font-semibold text-sm">VibeDocs</span>
           </div>
           <ThemeToggle />
         </div>
