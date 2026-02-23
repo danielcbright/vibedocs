@@ -45,6 +45,8 @@ The main entry point. Uses Hono for routing on port 8080.
 - `GET /api/render/:project/*` - Renders markdown to HTML + TOC (calls `markdown.ts`)
 - `GET /api/raw/:project/*` - Returns raw markdown content (for copy button)
 - `GET /api/search?q=` - Full-text search across all indexed files (calls `search.ts`)
+- `POST /api/upload/:project/*` - Upload files to a project folder (calls `upload.ts`)
+- `GET /api/file/:project/*` - Serve non-markdown files with correct content types
 
 **Static File Serving (production):**
 - Serves `frontend/dist/` assets for all non-API routes
@@ -56,11 +58,20 @@ The main entry point. Uses Hono for routing on port 8080.
 
 ### discovery.ts - Project Discovery
 
-Scans the configured root directory (`VIBEDOCS_ROOT`) for directories containing `.md` files. Builds a recursive file tree structure for each project. Excludes `node_modules`, `.git`, `dist`, and other non-documentation directories.
+Scans the configured root directory (`VIBEDOCS_ROOT`) for directories containing files. Builds a recursive file tree structure for each project. Excludes `node_modules`, `.git`, `dist`, and other non-documentation directories.
 
 **Key types:**
-- `FileNode` - `{ name, path, type: 'file' | 'folder', children? }`
+- `FileNode` - `{ name, path, type: 'file' | 'folder', children?, isAsset? }`
 - `ProjectInfo` - `{ name, hasDocsFolder, tree: FileNode[] }`
+
+The tree includes all file types. Non-markdown files have `isAsset: true` so the frontend can show distinct icons and open them in a new tab instead of rendering inline. Root-level discovery (`getRootMarkdownFiles`) remains markdown-only to keep project top-level clean.
+
+### upload.ts - File Upload
+
+Handles file upload logic independent of the HTTP framework.
+
+- `resolveUploadDir(projectsDir, project, folderPath)` - Resolves and validates the target directory with two-layer path traversal protection (validates both project name and folder path)
+- `safeWriteFile(targetDir, originalName, data)` - Writes a file with filename sanitization (`path.basename`) and automatic conflict renaming (`file-1.ext`, `file-2.ext`, up to 100 suffixes)
 
 ### markdown.ts - Rendering Pipeline
 
@@ -153,11 +164,11 @@ sidebar, command, dialog, breadcrumb, scroll-area, collapsible, button, input, t
 5. Returns `{ html, toc }` → React renders HTML + TOC panel
 
 ### Live Reload
-1. Chokidar watches `$VIBEDOCS_ROOT/**/*.md`
-2. File change → broadcasts `{ type: 'reload' }` via WebSocket
-3. `use-websocket` hook receives message → triggers `use-document` refresh
-4. File add/remove → broadcasts `{ type: 'refresh-tree' }` → triggers `use-projects` refresh
-5. Search index is also rebuilt on file changes
+1. Chokidar watches `$VIBEDOCS_ROOT/**/*` (all files)
+2. Markdown change → broadcasts `{ type: 'reload' }` via WebSocket + rebuilds search index
+3. Non-markdown change → broadcasts `{ type: 'refresh-tree' }` only
+4. `use-websocket` hook receives message → triggers `use-document` or `use-projects` refresh
+5. File upload endpoint also broadcasts `{ type: 'refresh-tree' }` after successful upload
 
 ### Search
 1. User presses Ctrl+K → search dialog opens
