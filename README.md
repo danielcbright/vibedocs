@@ -24,6 +24,7 @@ Self-hosted markdown documentation browser with live reload, syntax highlighting
 - **Full-text search** — Ctrl+K command palette with instant results
 - **Table of contents** — auto-generated from headings with scroll-spy
 - **Dark/light/system themes** — toggle with one click
+- **File upload** — upload files to any folder via the sidebar, with auto-rename on conflict
 - **Collapsible sidebar** — file tree with filtering, resizable panel
 - **GFM support** — tables, task lists, strikethrough, autolinks
 
@@ -83,6 +84,7 @@ The Vite dev server proxies `/api/*` to the backend, giving you hot module reloa
 ```bash
 npm run dev:server    # Backend only
 npm run dev:frontend  # Frontend only
+npm test              # Run tests
 ```
 
 ## Tech Stack

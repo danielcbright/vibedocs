@@ -3,19 +3,37 @@
   "version": "0.1.0",
   "type": "module",
   "description": "Self-hosted markdown documentation browser with live reload, syntax highlighting, and full-text search",
-  "keywords": ["documentation", "markdown", "self-hosted", "hono", "react", "live-reload", "shiki", "mermaid"],
+  "keywords": [
+    "documentation",
+    "markdown",
+    "self-hosted",
+    "hono",
+    "react",
+    "live-reload",
+    "shiki",
+    "mermaid"
+  ],
   "author": "Daniel Bright",
   "license": "MIT",
-  "repository": { "type": "git", "url": "https://github.com/danielcbright/vibedocs.git" },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/danielcbright/vibedocs.git"
+  },
   "homepage": "https://github.com/danielcbright/vibedocs",
-  "bugs": { "url": "https://github.com/danielcbright/vibedocs/issues" },
-  "engines": { "node": ">=20.0.0" },
+  "bugs": {
+    "url": "https://github.com/danielcbright/vibedocs/issues"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "dev": "concurrently \"tsx watch src/server.ts\" \"cd frontend && npx vite\"",
     "dev:server": "tsx watch src/server.ts",
     "dev:frontend": "cd frontend && npx vite",
     "build": "cd frontend && npm install && npx vite build",
-    "start": "tsx src/server.ts"
+    "start": "tsx src/server.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@hono/node-server": "^1",
@@ -28,15 +46,16 @@
     "remark-gfm": "^4",
     "remark-parse": "^11",
     "remark-rehype": "^11",
+    "tsx": "^4",
     "unified": "^11",
     "unist-util-visit": "^5",
-    "ws": "^8",
-    "tsx": "^4"
+    "ws": "^8"
   },
   "devDependencies": {
     "@types/node": "^22",
     "@types/ws": "^8",
     "concurrently": "^9.2.1",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.0.18"
   }
 }
