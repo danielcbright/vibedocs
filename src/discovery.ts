@@ -49,9 +49,7 @@ async function buildTree(dir: string, projectRoot: string): Promise<FileNode[]> 
     if (s.isDirectory()) {
       if (EXCLUDED_DIRS.has(entry)) continue
       const children = await buildTree(fullPath, projectRoot)
-      if (children.length > 0) {
-        nodes.push({ name: entry, path: relPath, type: 'folder', children })
-      }
+      nodes.push({ name: entry, path: relPath, type: 'folder', children })
     } else if (s.isFile()) {
       if (s.size === 0) continue  // skip empty files
       const isMd = entry.endsWith('.md') || entry.endsWith('.markdown')
