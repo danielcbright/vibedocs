@@ -268,7 +268,11 @@ function broadcast(message: object) {
 
 // ── File watcher ──────────────────────────────────────────────────────────────
 
-const watchGlob = path.join(PROJECTS_DIR, '**/*.md')
+const watchGlob = path.join(PROJECTS_DIR, '**/*')
+
+function isMarkdown(filePath: string): boolean {
+  return filePath.endsWith('.md') || filePath.endsWith('.markdown')
+}
 
 chokidar
   .watch(watchGlob, {
@@ -277,19 +281,26 @@ chokidar
   })
   .on('change', (filePath: string) => {
     console.log(`  ↺  changed: ${filePath.replace(PROJECTS_DIR + '/', '')}`)
-    broadcast({ type: 'reload', path: filePath })
-    // Rebuild search index on change
-    buildSearchIndex()
+    if (isMarkdown(filePath)) {
+      broadcast({ type: 'reload', path: filePath })
+      buildSearchIndex()
+    } else {
+      broadcast({ type: 'refresh-tree' })
+    }
   })
   .on('add', (filePath: string) => {
     console.log(`  +  added:   ${filePath.replace(PROJECTS_DIR + '/', '')}`)
     broadcast({ type: 'refresh-tree' })
-    buildSearchIndex()
+    if (isMarkdown(filePath)) {
+      buildSearchIndex()
+    }
   })
   .on('unlink', (filePath: string) => {
     console.log(`  -  removed: ${filePath.replace(PROJECTS_DIR + '/', '')}`)
     broadcast({ type: 'refresh-tree' })
-    buildSearchIndex()
+    if (isMarkdown(filePath)) {
+      buildSearchIndex()
+    }
   })
 
 // Build initial search index
