@@ -25,9 +25,10 @@ VibeDocs — self-hosted markdown documentation browser. Hono backend + React fr
 ```
 src/                    # Backend (Hono server)
   server.ts             # HTTP server, API routes, WebSocket, SPA fallback
-  discovery.ts          # Project/file tree discovery
+  discovery.ts          # Project/file tree discovery (all file types, isAsset flag)
   markdown.ts           # Markdown rendering pipeline (remark/rehype/shiki)
   search.ts             # In-memory full-text search index
+  upload.ts             # File upload: path validation, conflict renaming, safe writes
 frontend/               # Frontend (Vite React app)
   src/
     App.tsx             # Root layout (sidebar + content + TOC)
@@ -38,6 +39,8 @@ frontend/               # Frontend (Vite React app)
     index.css           # Tailwind + theme vars + markdown prose styles
   vite.config.ts        # Vite config with API proxy
   components.json       # shadcn/ui config
+tests/                  # Backend tests (vitest)
+vitest.config.ts        # Vitest config
 systemd/
   vibedocs.service      # systemd user service unit file (template)
 scripts/
@@ -55,23 +58,30 @@ npm run dev:server    # Backend only
 npm run dev:frontend  # Vite dev server only
 npm run build         # Build frontend to frontend/dist/
 npm start             # Production: serve everything from Hono
+npm test              # Run tests (vitest)
+npm run test:watch    # Run tests in watch mode
 ```
 
 ## API Routes
 
-- `GET /api/projects` - Project list with file trees
+- `GET /api/projects` - Project list with file trees (includes `isAsset` flag for non-markdown files)
 - `GET /api/render/:project/*` - Render markdown to HTML + TOC
 - `GET /api/raw/:project/*` - Raw markdown content
 - `GET /api/search?q=` - Full-text search
+- `POST /api/upload/:project/*` - Upload files to a project folder (multipart form data)
+- `GET /api/file/:project/*` - Serve non-markdown files (images, PDFs, etc.)
 
 ## Key Patterns
 
 - **Hash routing:** URLs use `#project/path/to/file.md` format
 - **Dual-theme Shiki:** CSS variables (`--shiki-light`/`--shiki-dark`) toggle with `.dark` class
 - **Mermaid:** Client-side rendering via CDN ESM import, re-initializes on theme change
-- **WebSocket messages:** `{ type: 'reload' }` for file changes, `{ type: 'refresh-tree' }` for add/remove
+- **WebSocket messages:** `{ type: 'reload' }` for markdown changes, `{ type: 'refresh-tree' }` for any file add/remove
 - **SPA fallback:** In production, all non-API GET requests return `frontend/dist/index.html`
-- **Search index:** Rebuilt in-memory on startup and on file watcher events
+- **Search index:** Rebuilt in-memory on startup and on markdown file watcher events
+- **File upload:** `src/upload.ts` handles path validation (two-layer traversal protection), filename sanitization via `path.basename()`, and conflict auto-renaming (`file-1.ext`, `file-2.ext`, up to 100 suffixes)
+- **Discovery:** `buildTree()` includes all file types; non-markdown files get `isAsset: true` flag. Root-level discovery stays markdown-only.
+- **File watcher:** Watches all files (`**/*`), but only rebuilds search index for markdown changes
 
 ## Deployment
 

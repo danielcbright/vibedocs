@@ -5,6 +5,7 @@ export interface FileNode {
   path: string
   type: "file" | "folder"
   children?: FileNode[]
+  isAsset?: boolean
 }
 
 export interface ProjectInfo {

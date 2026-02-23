@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { serve } from '@hono/node-server'
-import { readFile, access } from 'fs/promises'
+import { readFile, access, stat as fsStat } from 'fs/promises'
 import { fileURLToPath } from 'url'
 import path from 'path'
 import chokidar from 'chokidar'
@@ -9,6 +9,7 @@ import type { Server } from 'net'
 import { discoverProjects, resolveDocPath, PROJECTS_DIR } from './discovery.js'
 import { renderFile, extractToc } from './markdown.js'
 import { buildSearchIndex, search } from './search.js'
+import { resolveUploadDir, safeWriteFile } from './upload.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const FRONTEND_DIST = path.join(__dirname, '..', 'frontend', 'dist')
@@ -99,7 +100,98 @@ app.get('/api/search', (c) => {
   return c.json({ data: results })
 })
 
-// ── Static files (production: serve frontend/dist/) ──────────────────────────
+app.post('/api/upload/:project/*', async (c) => {
+  const project = c.req.param('project')
+  const fullPath = new URL(c.req.url).pathname
+  const prefix = `/api/upload/${encodeURIComponent(project)}/`
+  const folderPath = fullPath.startsWith(prefix)
+    ? decodeURIComponent(fullPath.slice(prefix.length))
+    : (c.req.param('*') || '')
+
+  const targetDir = resolveUploadDir(PROJECTS_DIR, project, folderPath)
+  if (!targetDir) {
+    return c.json({ error: 'Invalid path' }, 400)
+  }
+
+  try {
+    const s = await fsStat(targetDir)
+    if (!s.isDirectory()) {
+      return c.json({ error: 'Target is not a directory' }, 400)
+    }
+  } catch {
+    return c.json({ error: 'Target folder not found' }, 404)
+  }
+
+  const body = await c.req.parseBody({ all: true })
+  const files = body['files']
+  if (!files) {
+    return c.json({ error: 'No files provided' }, 400)
+  }
+
+  const fileList = Array.isArray(files) ? files : [files]
+  const uploaded = fileList.filter((f): f is File => f instanceof File)
+  if (uploaded.length === 0) {
+    return c.json({ error: 'No files provided' }, 400)
+  }
+
+  const results: Awaited<ReturnType<typeof safeWriteFile>>[] = []
+  try {
+    for (const file of uploaded) {
+      const buffer = Buffer.from(await file.arrayBuffer())
+      const result = await safeWriteFile(targetDir, file.name, buffer)
+      results.push(result)
+    }
+    // Trigger sidebar refresh for all clients
+    broadcast({ type: 'refresh-tree' })
+    return c.json({ data: results })
+  } catch (err: any) {
+    console.error('Upload error:', err)
+    return c.json({ error: err.message || 'Upload failed', partialData: results }, 500)
+  }
+})
+
+app.get('/api/file/:project/*', async (c) => {
+  const project = c.req.param('project')
+  const fullPath = new URL(c.req.url).pathname
+  const prefix = `/api/file/${encodeURIComponent(project)}/`
+  const filePath = fullPath.startsWith(prefix)
+    ? decodeURIComponent(fullPath.slice(prefix.length))
+    : (c.req.param('*') || '')
+
+  if (!project || !filePath) {
+    return c.json({ error: 'Missing project or path' }, 400)
+  }
+
+  // Extract directory and filename, validate directory via resolveUploadDir
+  const dirPart = path.dirname(filePath)
+  const filePart = path.basename(filePath)
+  const resolvedDir = resolveUploadDir(PROJECTS_DIR, project, dirPart === '.' ? '' : dirPart)
+  if (!resolvedDir) {
+    return c.json({ error: 'Invalid path' }, 400)
+  }
+  const resolved = path.join(resolvedDir, filePart)
+
+  // Defense-in-depth: verify resolved path stays within project
+  if (!resolved.startsWith(resolvedDir + path.sep) && resolved !== resolvedDir) {
+    return c.json({ error: 'Invalid path' }, 400)
+  }
+
+  try {
+    const content = await readFile(resolved)
+    const ext = path.extname(resolved).toLowerCase()
+    const contentType = CONTENT_TYPES[ext] || 'application/octet-stream'
+    return new Response(content, {
+      headers: { 'Content-Type': contentType },
+    })
+  } catch (err: any) {
+    if (err.code === 'ENOENT') {
+      return c.json({ error: 'File not found' }, 404)
+    }
+    return c.json({ error: 'Failed to read file' }, 500)
+  }
+})
+
+// ── Content types ─────────────────────────────────────────────────────────────
 
 const CONTENT_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -109,10 +201,18 @@ const CONTENT_TYPES: Record<string, string> = {
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
   '.ico': 'image/x-icon',
+  '.pdf': 'application/pdf',
+  '.txt': 'text/plain; charset=utf-8',
+  '.md': 'text/markdown; charset=utf-8',
   '.woff': 'font/woff',
   '.woff2': 'font/woff2',
 }
+
+// ── Static files (production: serve frontend/dist/) ──────────────────────────
 
 async function serveStatic(filePath: string): Promise<Response | null> {
   try {
@@ -184,7 +284,11 @@ function broadcast(message: object) {
 
 // ── File watcher ──────────────────────────────────────────────────────────────
 
-const watchGlob = path.join(PROJECTS_DIR, '**/*.md')
+const watchGlob = path.join(PROJECTS_DIR, '**/*')
+
+function isMarkdown(filePath: string): boolean {
+  return filePath.endsWith('.md') || filePath.endsWith('.markdown')
+}
 
 chokidar
   .watch(watchGlob, {
@@ -193,19 +297,26 @@ chokidar
   })
   .on('change', (filePath: string) => {
     console.log(`  ↺  changed: ${filePath.replace(PROJECTS_DIR + '/', '')}`)
-    broadcast({ type: 'reload', path: filePath })
-    // Rebuild search index on change
-    buildSearchIndex()
+    if (isMarkdown(filePath)) {
+      broadcast({ type: 'reload', path: filePath })
+      buildSearchIndex()
+    } else {
+      broadcast({ type: 'refresh-tree' })
+    }
   })
   .on('add', (filePath: string) => {
     console.log(`  +  added:   ${filePath.replace(PROJECTS_DIR + '/', '')}`)
     broadcast({ type: 'refresh-tree' })
-    buildSearchIndex()
+    if (isMarkdown(filePath)) {
+      buildSearchIndex()
+    }
   })
   .on('unlink', (filePath: string) => {
     console.log(`  -  removed: ${filePath.replace(PROJECTS_DIR + '/', '')}`)
     broadcast({ type: 'refresh-tree' })
-    buildSearchIndex()
+    if (isMarkdown(filePath)) {
+      buildSearchIndex()
+    }
   })
 
 // Build initial search index
