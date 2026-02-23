@@ -13,7 +13,7 @@ Self-hosted markdown documentation browser with live reload, syntax highlighting
 
 **Built entirely with [Claude Code](https://claude.ai/code)**
 
-![VibeDocs Screenshot](docs/screenshot.png)
+![VibeDocs Demo](docs/vibedocs-demo.gif)
 
 ## Features
 
