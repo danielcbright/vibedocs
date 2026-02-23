@@ -18,6 +18,7 @@ export interface FileNode {
   path: string  // relative to project root
   type: 'file' | 'folder'
   children?: FileNode[]
+  isAsset?: boolean
 }
 
 export interface ProjectInfo {
@@ -55,9 +56,15 @@ async function buildTree(dir: string, projectRoot: string): Promise<FileNode[]> 
       if (children.length > 0) {
         nodes.push({ name: entry, path: relPath, type: 'folder', children })
       }
-    } else if (entry.endsWith('.md') || entry.endsWith('.markdown')) {
+    } else if (s.isFile()) {
       if (s.size === 0) continue  // skip empty files
-      nodes.push({ name: entry, path: relPath, type: 'file' })
+      const isMd = entry.endsWith('.md') || entry.endsWith('.markdown')
+      nodes.push({
+        name: entry,
+        path: relPath,
+        type: 'file',
+        ...(!isMd && { isAsset: true }),
+      })
     }
   }
 
@@ -155,3 +162,5 @@ export function resolveDocPath(project: string, docPath: string): string | null 
 
   return resolved
 }
+
+export { buildTree as buildTreePublic }
