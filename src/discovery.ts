@@ -9,7 +9,7 @@ const EXCLUDED_DIRS = new Set([
   '.project-template', 'test-projects',
 ])
 
-const EXCLUDED_ROOT_MD = new Set([
+const EXCLUDED_ROOT_MD = new Set<string>([
   // Non-documentation files that happen to be markdown
 ])
 

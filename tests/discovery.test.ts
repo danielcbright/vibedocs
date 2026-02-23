@@ -1,14 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdir, writeFile, rm } from 'fs/promises'
+import { mkdir, writeFile, rm, mkdtemp } from 'fs/promises'
 import path from 'path'
 import os from 'os'
 
 let tmpDir: string
 
 beforeEach(async () => {
-  tmpDir = await import('fs/promises').then(fs =>
-    fs.mkdtemp(path.join(os.tmpdir(), 'vibedocs-discovery-test-'))
-  )
+  tmpDir = await mkdtemp(path.join(os.tmpdir(), 'vibedocs-discovery-test-'))
 })
 
 afterEach(async () => {
