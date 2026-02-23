@@ -9,10 +9,6 @@ const EXCLUDED_DIRS = new Set([
   '.project-template', 'test-projects',
 ])
 
-const EXCLUDED_ROOT_MD = new Set<string>([
-  // Non-documentation files that happen to be markdown
-])
-
 export interface FileNode {
   name: string
   path: string  // relative to project root
@@ -71,33 +67,6 @@ async function buildTree(dir: string, projectRoot: string): Promise<FileNode[]> 
   return nodes
 }
 
-async function getRootMarkdownFiles(projectDir: string): Promise<FileNode[]> {
-  let entries: string[]
-  try {
-    entries = await readdir(projectDir)
-  } catch {
-    return []
-  }
-
-  const files: FileNode[] = []
-  for (const entry of entries.sort()) {
-    if (entry.startsWith('.')) continue
-    if (!entry.endsWith('.md') && !entry.endsWith('.markdown')) continue
-    if (EXCLUDED_ROOT_MD.has(entry)) continue
-
-    const fullPath = path.join(projectDir, entry)
-    try {
-      const s = await stat(fullPath)
-      if (s.isFile() && s.size > 0) {
-        files.push({ name: entry, path: entry, type: 'file' })
-      }
-    } catch {
-      continue
-    }
-  }
-  return files
-}
-
 export async function discoverProjects(): Promise<ProjectInfo[]> {
   let entries: string[]
   try {
@@ -121,28 +90,12 @@ export async function discoverProjects(): Promise<ProjectInfo[]> {
 
     const docsDir = path.join(projectDir, 'docs')
     let hasDocsFolder = false
-    let tree: FileNode[] = []
-
-    // Always include root-level .md files (CLAUDE.md, README.md, etc.)
-    const rootFiles = await getRootMarkdownFiles(projectDir)
-
     try {
       const s = await stat(docsDir)
-      if (s.isDirectory()) {
-        hasDocsFolder = true
-        const docsChildren = await buildTree(docsDir, projectDir)
-        // Root files first, then docs/ as an expandable folder
-        tree = [
-          ...rootFiles,
-          ...(docsChildren.length > 0
-            ? [{ name: 'docs', path: 'docs', type: 'folder' as const, children: docsChildren }]
-            : []),
-        ]
-      }
-    } catch {
-      // No docs/ folder — root-level .md files only
-      tree = rootFiles
-    }
+      hasDocsFolder = s.isDirectory()
+    } catch {}
+
+    const tree = await buildTree(projectDir, projectDir)
 
     if (tree.length > 0) {
       projects.push({ name, hasDocsFolder, tree })
