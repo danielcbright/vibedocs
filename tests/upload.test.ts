@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdir, writeFile, rm, readFile } from 'fs/promises'
+import { mkdir, writeFile, rm, readFile, mkdtemp } from 'fs/promises'
 import path from 'path'
 import os from 'os'
 import { resolveUploadDir, safeWriteFile } from '../src/upload.js'
@@ -7,9 +7,7 @@ import { resolveUploadDir, safeWriteFile } from '../src/upload.js'
 let tmpDir: string
 
 beforeEach(async () => {
-  tmpDir = await import('fs/promises').then(fs =>
-    fs.mkdtemp(path.join(os.tmpdir(), 'vibedocs-test-'))
-  )
+  tmpDir = await mkdtemp(path.join(os.tmpdir(), 'vibedocs-test-'))
   // Create a project structure: tmpDir/myproject/docs/
   await mkdir(path.join(tmpDir, 'myproject', 'docs'), { recursive: true })
 })

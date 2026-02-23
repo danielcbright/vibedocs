@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdir, writeFile, rm, readFile, stat } from 'fs/promises'
+import { mkdir, writeFile, rm, readFile, stat, mkdtemp } from 'fs/promises'
 import path from 'path'
 import os from 'os'
 import { Hono } from 'hono'
@@ -7,8 +7,46 @@ import { resolveUploadDir, safeWriteFile } from '../src/upload.js'
 
 let tmpDir: string
 
+const CONTENT_TYPES: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.md': 'text/markdown; charset=utf-8',
+  '.txt': 'text/plain; charset=utf-8',
+}
+
 function createTestApp(projectsDir: string) {
   const app = new Hono()
+
+  app.get('/api/file/:project/*', async (c) => {
+    const project = c.req.param('project')
+    const fullPath = new URL(c.req.url).pathname
+    const prefix = `/api/file/${encodeURIComponent(project)}/`
+    const filePath = fullPath.startsWith(prefix)
+      ? decodeURIComponent(fullPath.slice(prefix.length))
+      : (c.req.param('*') || '')
+
+    if (!project || !filePath) return c.json({ error: 'Missing project or path' }, 400)
+
+    const dirPart = path.dirname(filePath)
+    const filePart = path.basename(filePath)
+    const resolvedDir = resolveUploadDir(projectsDir, project, dirPart === '.' ? '' : dirPart)
+    if (!resolvedDir) return c.json({ error: 'Invalid path' }, 400)
+    const resolved = path.join(resolvedDir, filePart)
+
+    if (!resolved.startsWith(resolvedDir + path.sep) && resolved !== resolvedDir) {
+      return c.json({ error: 'Invalid path' }, 400)
+    }
+
+    try {
+      const content = await readFile(resolved)
+      const ext = path.extname(resolved).toLowerCase()
+      const contentType = CONTENT_TYPES[ext] || 'application/octet-stream'
+      return new Response(content, { headers: { 'Content-Type': contentType } })
+    } catch (err: any) {
+      if (err.code === 'ENOENT') return c.json({ error: 'File not found' }, 404)
+      return c.json({ error: 'Failed to read file' }, 500)
+    }
+  })
 
   app.post('/api/upload/:project/*', async (c) => {
     const project = c.req.param('project')
@@ -50,9 +88,7 @@ function createTestApp(projectsDir: string) {
 }
 
 beforeEach(async () => {
-  tmpDir = await import('fs/promises').then(fs =>
-    fs.mkdtemp(path.join(os.tmpdir(), 'vibedocs-server-test-'))
-  )
+  tmpDir = await mkdtemp(path.join(os.tmpdir(), 'vibedocs-server-test-'))
   await mkdir(path.join(tmpDir, 'myproject', 'docs'), { recursive: true })
 })
 
@@ -125,5 +161,41 @@ describe('POST /api/upload/:project/*', () => {
     expect(res.status).toBe(200)
     const json = await res.json()
     expect(json.data[0].savedName).toBe('exist-1.md')
+  })
+})
+
+describe('GET /api/file/:project/*', () => {
+  it('serves an existing file with correct content-type', async () => {
+    await writeFile(path.join(tmpDir, 'myproject', 'docs', 'screenshot.png'), 'fake-png-data')
+    const app = createTestApp(tmpDir)
+
+    const res = await app.request('/api/file/myproject/docs/screenshot.png')
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Content-Type')).toBe('image/png')
+    const body = await res.text()
+    expect(body).toBe('fake-png-data')
+  })
+
+  it('returns 404 for nonexistent file', async () => {
+    const app = createTestApp(tmpDir)
+
+    const res = await app.request('/api/file/myproject/docs/nope.png')
+    expect(res.status).toBe(404)
+  })
+
+  it('rejects path traversal attempts', async () => {
+    const app = createTestApp(tmpDir)
+
+    const res = await app.request('/api/file/myproject/..%2F..%2Fetc/passwd')
+    expect(res.status).toBe(400)
+  })
+
+  it('uses fallback content-type for unknown extensions', async () => {
+    await writeFile(path.join(tmpDir, 'myproject', 'docs', 'data.xyz'), 'binary-stuff')
+    const app = createTestApp(tmpDir)
+
+    const res = await app.request('/api/file/myproject/docs/data.xyz')
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Content-Type')).toBe('application/octet-stream')
   })
 })

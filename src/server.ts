@@ -134,8 +134,8 @@ app.post('/api/upload/:project/*', async (c) => {
     return c.json({ error: 'No files provided' }, 400)
   }
 
+  const results: Awaited<ReturnType<typeof safeWriteFile>>[] = []
   try {
-    const results = []
     for (const file of uploaded) {
       const buffer = Buffer.from(await file.arrayBuffer())
       const result = await safeWriteFile(targetDir, file.name, buffer)
@@ -146,7 +146,7 @@ app.post('/api/upload/:project/*', async (c) => {
     return c.json({ data: results })
   } catch (err: any) {
     console.error('Upload error:', err)
-    return c.json({ error: err.message || 'Upload failed' }, 500)
+    return c.json({ error: err.message || 'Upload failed', partialData: results }, 500)
   }
 })
 
@@ -171,6 +171,11 @@ app.get('/api/file/:project/*', async (c) => {
   }
   const resolved = path.join(resolvedDir, filePart)
 
+  // Defense-in-depth: verify resolved path stays within project
+  if (!resolved.startsWith(resolvedDir + path.sep) && resolved !== resolvedDir) {
+    return c.json({ error: 'Invalid path' }, 400)
+  }
+
   try {
     const content = await readFile(resolved)
     const ext = path.extname(resolved).toLowerCase()
@@ -186,7 +191,7 @@ app.get('/api/file/:project/*', async (c) => {
   }
 })
 
-// ── Static files (production: serve frontend/dist/) ──────────────────────────
+// ── Content types ─────────────────────────────────────────────────────────────
 
 const CONTENT_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -206,6 +211,8 @@ const CONTENT_TYPES: Record<string, string> = {
   '.woff': 'font/woff',
   '.woff2': 'font/woff2',
 }
+
+// ── Static files (production: serve frontend/dist/) ──────────────────────────
 
 async function serveStatic(filePath: string): Promise<Response | null> {
   try {
