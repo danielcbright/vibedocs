@@ -37,3 +37,6 @@ coverage/
 # Temporary
 tmp/
 temp/
+
+# Worktrees
+.worktrees/
