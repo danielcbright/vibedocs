@@ -318,6 +318,14 @@ chokidar
       buildSearchIndex()
     }
   })
+  .on('addDir', (dirPath: string) => {
+    console.log(`  +  dir:     ${dirPath.replace(PROJECTS_DIR + '/', '')}`)
+    broadcast({ type: 'refresh-tree' })
+  })
+  .on('unlinkDir', (dirPath: string) => {
+    console.log(`  -  dir:     ${dirPath.replace(PROJECTS_DIR + '/', '')}`)
+    broadcast({ type: 'refresh-tree' })
+  })
 
 // Build initial search index
 buildSearchIndex()
