@@ -162,11 +162,14 @@ app.get('/api/file/:project/*', async (c) => {
     return c.json({ error: 'Missing project or path' }, 400)
   }
 
-  const projectDir = path.join(PROJECTS_DIR, project)
-  const resolved = path.resolve(projectDir, filePath)
-  if (!resolved.startsWith(projectDir + path.sep) && resolved !== projectDir) {
+  // Extract directory and filename, validate directory via resolveUploadDir
+  const dirPart = path.dirname(filePath)
+  const filePart = path.basename(filePath)
+  const resolvedDir = resolveUploadDir(PROJECTS_DIR, project, dirPart === '.' ? '' : dirPart)
+  if (!resolvedDir) {
     return c.json({ error: 'Invalid path' }, 400)
   }
+  const resolved = path.join(resolvedDir, filePart)
 
   try {
     const content = await readFile(resolved)
@@ -193,7 +196,13 @@ const CONTENT_TYPES: Record<string, string> = {
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
   '.ico': 'image/x-icon',
+  '.pdf': 'application/pdf',
+  '.txt': 'text/plain; charset=utf-8',
+  '.md': 'text/markdown; charset=utf-8',
   '.woff': 'font/woff',
   '.woff2': 'font/woff2',
 }

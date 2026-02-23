@@ -48,13 +48,19 @@ export async function safeWriteFile(
   originalName: string,
   data: Buffer
 ): Promise<WriteResult> {
-  const ext = path.extname(originalName)
+  // Strip directory components to prevent path traversal via filename
+  const safeName = path.basename(originalName)
+  if (!safeName) {
+    throw new Error(`Invalid filename: "${originalName}"`)
+  }
+
+  const ext = path.extname(safeName)
   const base = ext
-    ? originalName.slice(0, -ext.length)
-    : originalName
+    ? safeName.slice(0, -ext.length)
+    : safeName
 
   // Check original name first, then try suffixes -1 through -100
-  let candidate = originalName
+  let candidate = safeName
   let fullPath = path.join(targetDir, candidate)
 
   if (await fileExists(fullPath)) {
@@ -75,7 +81,7 @@ export async function safeWriteFile(
   await writeFile(fullPath, data)
 
   return {
-    originalName,
+    originalName: safeName,
     savedName: candidate,
     path: candidate,
   }
