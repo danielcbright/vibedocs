@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { serve } from '@hono/node-server'
-import { readFile, access } from 'fs/promises'
+import { readFile, access, stat as fsStat } from 'fs/promises'
 import { fileURLToPath } from 'url'
 import path from 'path'
 import chokidar from 'chokidar'
@@ -9,6 +9,7 @@ import type { Server } from 'net'
 import { discoverProjects, resolveDocPath, PROJECTS_DIR } from './discovery.js'
 import { renderFile, extractToc } from './markdown.js'
 import { buildSearchIndex, search } from './search.js'
+import { resolveUploadDir, safeWriteFile } from './upload.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const FRONTEND_DIST = path.join(__dirname, '..', 'frontend', 'dist')
@@ -97,6 +98,89 @@ app.get('/api/search', (c) => {
   }
   const results = search(q)
   return c.json({ data: results })
+})
+
+app.post('/api/upload/:project/*', async (c) => {
+  const project = c.req.param('project')
+  const fullPath = new URL(c.req.url).pathname
+  const prefix = `/api/upload/${encodeURIComponent(project)}/`
+  const folderPath = fullPath.startsWith(prefix)
+    ? decodeURIComponent(fullPath.slice(prefix.length))
+    : (c.req.param('*') || '')
+
+  const targetDir = resolveUploadDir(PROJECTS_DIR, project, folderPath)
+  if (!targetDir) {
+    return c.json({ error: 'Invalid path' }, 400)
+  }
+
+  try {
+    const s = await fsStat(targetDir)
+    if (!s.isDirectory()) {
+      return c.json({ error: 'Target is not a directory' }, 400)
+    }
+  } catch {
+    return c.json({ error: 'Target folder not found' }, 404)
+  }
+
+  const body = await c.req.parseBody({ all: true })
+  const files = body['files']
+  if (!files) {
+    return c.json({ error: 'No files provided' }, 400)
+  }
+
+  const fileList = Array.isArray(files) ? files : [files]
+  const uploaded = fileList.filter((f): f is File => f instanceof File)
+  if (uploaded.length === 0) {
+    return c.json({ error: 'No files provided' }, 400)
+  }
+
+  try {
+    const results = []
+    for (const file of uploaded) {
+      const buffer = Buffer.from(await file.arrayBuffer())
+      const result = await safeWriteFile(targetDir, file.name, buffer)
+      results.push(result)
+    }
+    // Trigger sidebar refresh for all clients
+    broadcast({ type: 'refresh-tree' })
+    return c.json({ data: results })
+  } catch (err: any) {
+    console.error('Upload error:', err)
+    return c.json({ error: err.message || 'Upload failed' }, 500)
+  }
+})
+
+app.get('/api/file/:project/*', async (c) => {
+  const project = c.req.param('project')
+  const fullPath = new URL(c.req.url).pathname
+  const prefix = `/api/file/${encodeURIComponent(project)}/`
+  const filePath = fullPath.startsWith(prefix)
+    ? decodeURIComponent(fullPath.slice(prefix.length))
+    : (c.req.param('*') || '')
+
+  if (!project || !filePath) {
+    return c.json({ error: 'Missing project or path' }, 400)
+  }
+
+  const projectDir = path.join(PROJECTS_DIR, project)
+  const resolved = path.resolve(projectDir, filePath)
+  if (!resolved.startsWith(projectDir + path.sep) && resolved !== projectDir) {
+    return c.json({ error: 'Invalid path' }, 400)
+  }
+
+  try {
+    const content = await readFile(resolved)
+    const ext = path.extname(resolved).toLowerCase()
+    const contentType = CONTENT_TYPES[ext] || 'application/octet-stream'
+    return new Response(content, {
+      headers: { 'Content-Type': contentType },
+    })
+  } catch (err: any) {
+    if (err.code === 'ENOENT') {
+      return c.json({ error: 'File not found' }, 404)
+    }
+    return c.json({ error: 'Failed to read file' }, 500)
+  }
 })
 
 // ── Static files (production: serve frontend/dist/) ──────────────────────────
