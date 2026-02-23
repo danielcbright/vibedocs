@@ -78,4 +78,14 @@ describe('safeWriteFile', () => {
     const result = await safeWriteFile(targetDir, 'img.png', Buffer.from('v3'))
     expect(result.savedName).toBe('img-3.png')
   })
+
+  it('strips directory components from filename', async () => {
+    const targetDir = path.join(tmpDir, 'myproject', 'docs')
+    const result = await safeWriteFile(targetDir, '../../etc/passwd', Buffer.from('safe'))
+    expect(result.savedName).toBe('passwd')
+    expect(result.originalName).toBe('passwd')
+    // File should be in targetDir, not elsewhere
+    const content = await readFile(path.join(targetDir, 'passwd'), 'utf-8')
+    expect(content).toBe('safe')
+  })
 })
