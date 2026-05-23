@@ -1,5 +1,6 @@
 import { readdir, stat } from 'fs/promises'
 import path from 'path'
+import { VibedocsError } from './errors.js'
 
 export const PROJECTS_DIR = process.env.VIBEDOCS_ROOT || process.cwd()
 
@@ -103,13 +104,22 @@ export async function discoverProjects(): Promise<ProjectInfo[]> {
   return projects
 }
 
-export function resolveDocPath(project: string, docPath: string): string | null {
+/**
+ * Resolve a markdown document path inside a project. Throws
+ * `VibedocsError('traversal')` if the path escapes the project root and
+ * `VibedocsError('invalid')` if the file isn't a markdown extension.
+ */
+export function resolveDocPath(project: string, docPath: string): string {
   // Sanitize: prevent path traversal
   const projectDir = path.join(PROJECTS_DIR, project)
   const resolved = path.resolve(projectDir, docPath)
 
-  if (!resolved.startsWith(projectDir + path.sep) && resolved !== projectDir) return null
-  if (!resolved.endsWith('.md') && !resolved.endsWith('.markdown')) return null
+  if (!resolved.startsWith(projectDir + path.sep) && resolved !== projectDir) {
+    throw new VibedocsError('traversal', 'Invalid path')
+  }
+  if (!resolved.endsWith('.md') && !resolved.endsWith('.markdown')) {
+    throw new VibedocsError('invalid', 'Invalid path')
+  }
 
   return resolved
 }

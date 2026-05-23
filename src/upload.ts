@@ -1,19 +1,25 @@
 import { writeFile, access } from 'fs/promises'
 import path from 'path'
+import { VibedocsError } from './errors.js'
 
 const MAX_CONFLICT_SUFFIX = 100
 
+/**
+ * Resolve an upload target directory inside a project, with two-layer
+ * path-traversal defense. Throws `VibedocsError('traversal')` if the resolved
+ * path escapes either the projects root or the project root.
+ */
 export function resolveUploadDir(
   projectsDir: string,
   project: string,
   folderPath: string
-): string | null {
+): string {
   const resolvedProjectsDir = path.resolve(projectsDir)
   const projectDir = path.resolve(resolvedProjectsDir, project)
 
   // Project directory must be within the projects root
   if (!projectDir.startsWith(resolvedProjectsDir + path.sep)) {
-    return null
+    throw new VibedocsError('traversal', 'Invalid path')
   }
 
   const target = folderPath
@@ -22,7 +28,7 @@ export function resolveUploadDir(
 
   // Target must be within the project directory
   if (!target.startsWith(projectDir + path.sep) && target !== projectDir) {
-    return null
+    throw new VibedocsError('traversal', 'Invalid path')
   }
 
   return target
@@ -51,7 +57,7 @@ export async function safeWriteFile(
   // Strip directory components to prevent path traversal via filename
   const safeName = path.basename(originalName)
   if (!safeName) {
-    throw new Error(`Invalid filename: "${originalName}"`)
+    throw new VibedocsError('invalid', `Invalid filename: "${originalName}"`)
   }
 
   const ext = path.extname(safeName)
@@ -74,11 +80,15 @@ export async function safeWriteFile(
       }
     }
     if (!found) {
-      throw new Error(`Too many naming conflicts for "${originalName}"`)
+      throw new VibedocsError('conflict', `Too many naming conflicts for "${originalName}"`)
     }
   }
 
-  await writeFile(fullPath, data)
+  try {
+    await writeFile(fullPath, data)
+  } catch (err) {
+    throw new VibedocsError('io', 'Failed to write file', { cause: err })
+  }
 
   return {
     originalName: safeName,

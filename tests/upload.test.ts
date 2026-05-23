@@ -3,6 +3,7 @@ import { mkdir, writeFile, rm, readFile, mkdtemp } from 'fs/promises'
 import path from 'path'
 import os from 'os'
 import { resolveUploadDir, safeWriteFile } from '../src/upload.js'
+import { VibedocsError } from '../src/errors.js'
 
 let tmpDir: string
 
@@ -27,19 +28,34 @@ describe('resolveUploadDir', () => {
     expect(result).toBe(path.join(tmpDir, 'myproject'))
   })
 
-  it('rejects path traversal with ..', () => {
-    const result = resolveUploadDir(tmpDir, 'myproject', '../otherproject')
-    expect(result).toBeNull()
+  it('throws VibedocsError(traversal) on .. path', () => {
+    expect(() => resolveUploadDir(tmpDir, 'myproject', '../otherproject'))
+      .toThrowError(VibedocsError)
+    try {
+      resolveUploadDir(tmpDir, 'myproject', '../otherproject')
+    } catch (err) {
+      expect((err as VibedocsError).code).toBe('traversal')
+    }
   })
 
-  it('rejects path traversal in project name', () => {
-    const result = resolveUploadDir(tmpDir, '../etc', 'docs')
-    expect(result).toBeNull()
+  it('throws VibedocsError(traversal) on .. in project name', () => {
+    try {
+      resolveUploadDir(tmpDir, '../etc', 'docs')
+      throw new Error('expected throw')
+    } catch (err) {
+      expect(err).toBeInstanceOf(VibedocsError)
+      expect((err as VibedocsError).code).toBe('traversal')
+    }
   })
 
-  it('rejects absolute paths in folder', () => {
-    const result = resolveUploadDir(tmpDir, 'myproject', '/etc/passwd')
-    expect(result).toBeNull()
+  it('throws VibedocsError(traversal) on absolute paths in folder', () => {
+    try {
+      resolveUploadDir(tmpDir, 'myproject', '/etc/passwd')
+      throw new Error('expected throw')
+    } catch (err) {
+      expect(err).toBeInstanceOf(VibedocsError)
+      expect((err as VibedocsError).code).toBe('traversal')
+    }
   })
 })
 

@@ -4,6 +4,7 @@ import path from 'path'
 import os from 'os'
 import { Hono } from 'hono'
 import { resolveUploadDir, safeWriteFile } from '../src/upload.js'
+import { VibedocsError, registerErrorHandler } from '../src/errors.js'
 
 let tmpDir: string
 
@@ -16,6 +17,7 @@ const CONTENT_TYPES: Record<string, string> = {
 
 function createTestApp(projectsDir: string) {
   const app = new Hono()
+  registerErrorHandler(app)
 
   app.get('/api/file/:project/*', async (c) => {
     const project = c.req.param('project')
@@ -30,11 +32,10 @@ function createTestApp(projectsDir: string) {
     const dirPart = path.dirname(filePath)
     const filePart = path.basename(filePath)
     const resolvedDir = resolveUploadDir(projectsDir, project, dirPart === '.' ? '' : dirPart)
-    if (!resolvedDir) return c.json({ error: 'Invalid path' }, 400)
     const resolved = path.join(resolvedDir, filePart)
 
     if (!resolved.startsWith(resolvedDir + path.sep) && resolved !== resolvedDir) {
-      return c.json({ error: 'Invalid path' }, 400)
+      throw new VibedocsError('traversal', 'Invalid path')
     }
 
     try {
@@ -43,8 +44,8 @@ function createTestApp(projectsDir: string) {
       const contentType = CONTENT_TYPES[ext] || 'application/octet-stream'
       return new Response(content, { headers: { 'Content-Type': contentType } })
     } catch (err: any) {
-      if (err.code === 'ENOENT') return c.json({ error: 'File not found' }, 404)
-      return c.json({ error: 'Failed to read file' }, 500)
+      if (err.code === 'ENOENT') throw new VibedocsError('not-found', 'File not found', { cause: err })
+      throw new VibedocsError('io', 'Failed to read file', { cause: err })
     }
   })
 
@@ -57,14 +58,14 @@ function createTestApp(projectsDir: string) {
       : (c.req.param('*') || '')
 
     const targetDir = resolveUploadDir(projectsDir, project, folderPath)
-    if (!targetDir) return c.json({ error: 'Invalid path' }, 400)
 
+    let s: Awaited<ReturnType<typeof stat>>
     try {
-      const s = await stat(targetDir)
-      if (!s.isDirectory()) return c.json({ error: 'Target is not a directory' }, 400)
-    } catch {
-      return c.json({ error: 'Target folder not found' }, 404)
+      s = await stat(targetDir)
+    } catch (err) {
+      throw new VibedocsError('not-found', 'Target folder not found', { cause: err })
     }
+    if (!s.isDirectory()) throw new VibedocsError('invalid', 'Target is not a directory')
 
     const body = await c.req.parseBody({ all: true })
     const files = body['files']
