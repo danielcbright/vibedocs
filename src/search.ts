@@ -9,13 +9,28 @@ interface IndexEntry {
   content: string // lowercase for matching
 }
 
-let index: IndexEntry[] = []
-
 const EXCLUDED_DIRS = new Set([
   'node_modules', '.git', '.next', 'dist', 'build', 'out',
   'coverage', 'tmp', 'temp', '_archived',
   '.project-template', 'test-projects',
 ])
+
+export interface SearchResult {
+  project: string
+  path: string
+  filename: string
+  snippet: string
+}
+
+export interface IndexStore {
+  readonly version: number
+  search(query: string, maxResults?: number): SearchResult[]
+  rebuild(): Promise<number>
+}
+
+export interface IndexStoreOptions {
+  projectsDir?: string
+}
 
 async function collectFiles(dir: string, projectName: string, projectRoot: string): Promise<IndexEntry[]> {
   const entries: IndexEntry[] = []
@@ -61,20 +76,19 @@ async function collectFiles(dir: string, projectName: string, projectRoot: strin
   return entries
 }
 
-export async function buildSearchIndex(): Promise<void> {
-  const newIndex: IndexEntry[] = []
+async function collectAll(rootDir: string): Promise<IndexEntry[]> {
+  const all: IndexEntry[] = []
   let projects: string[]
 
   try {
-    projects = await readdir(PROJECTS_DIR)
+    projects = await readdir(rootDir)
   } catch {
-    index = []
-    return
+    return all
   }
 
   for (const name of projects.sort()) {
     if (name.startsWith('.') || EXCLUDED_DIRS.has(name)) continue
-    const projectDir = path.join(PROJECTS_DIR, name)
+    const projectDir = path.join(rootDir, name)
 
     try {
       const s = await stat(projectDir)
@@ -84,46 +98,55 @@ export async function buildSearchIndex(): Promise<void> {
     }
 
     const files = await collectFiles(projectDir, name, projectDir)
-    newIndex.push(...files)
+    all.push(...files)
   }
 
-  index = newIndex
-  console.log(`  🔍 Search index: ${index.length} files indexed`)
+  return all
 }
 
-export interface SearchResult {
-  project: string
-  path: string
-  filename: string
-  snippet: string
-}
+export function createIndexStore(options: IndexStoreOptions = {}): IndexStore {
+  const rootDir = options.projectsDir ?? PROJECTS_DIR
+  let entries: IndexEntry[] = []
+  let version = 0
 
-export function search(query: string, maxResults = 20): SearchResult[] {
-  const q = query.toLowerCase().trim()
-  if (!q) return []
+  return {
+    get version() {
+      return version
+    },
 
-  const results: SearchResult[] = []
+    search(query: string, maxResults = 20): SearchResult[] {
+      const q = query.toLowerCase().trim()
+      if (!q) return []
 
-  for (const entry of index) {
-    const pos = entry.content.indexOf(q)
-    if (pos === -1) continue
+      const results: SearchResult[] = []
 
-    // Extract snippet with context
-    const start = Math.max(0, pos - 50)
-    const end = Math.min(entry.content.length, pos + q.length + 50)
-    let snippet = entry.content.slice(start, end).replace(/\n/g, ' ').trim()
-    if (start > 0) snippet = '...' + snippet
-    if (end < entry.content.length) snippet = snippet + '...'
+      for (const entry of entries) {
+        const pos = entry.content.indexOf(q)
+        if (pos === -1) continue
 
-    results.push({
-      project: entry.project,
-      path: entry.path,
-      filename: entry.filename,
-      snippet,
-    })
+        const start = Math.max(0, pos - 50)
+        const end = Math.min(entry.content.length, pos + q.length + 50)
+        let snippet = entry.content.slice(start, end).replace(/\n/g, ' ').trim()
+        if (start > 0) snippet = '...' + snippet
+        if (end < entry.content.length) snippet = snippet + '...'
 
-    if (results.length >= maxResults) break
+        results.push({
+          project: entry.project,
+          path: entry.path,
+          filename: entry.filename,
+          snippet,
+        })
+
+        if (results.length >= maxResults) break
+      }
+
+      return results
+    },
+
+    async rebuild(): Promise<number> {
+      entries = await collectAll(rootDir)
+      version += 1
+      return version
+    },
   }
-
-  return results
 }
