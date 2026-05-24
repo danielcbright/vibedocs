@@ -91,7 +91,7 @@ export function MobileToc({ toc }: MobileTocProps) {
                       handleNavigate(item.id)
                     }}
                     className={cn(
-                      "block text-sm py-2 transition-colors hover:text-foreground",
+                      "flex items-center text-sm py-2 transition-colors hover:text-foreground tap-row tap-active-feedback rounded-md",
                       item.level === 2 && "pl-0",
                       item.level === 3 && "pl-3",
                       item.level >= 4 && "pl-6",
