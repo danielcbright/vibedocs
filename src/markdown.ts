@@ -21,6 +21,14 @@ interface HtmlNode extends Node {
   value: string
 }
 
+// hast (rehype) element shape — we only touch the bits we need.
+interface HastElement extends Node {
+  type: 'element'
+  tagName: string
+  properties?: Record<string, unknown>
+  children: HastElement[]
+}
+
 // Remark plugin: transform ```mermaid blocks into passthrough <div class="mermaid">
 function remarkMermaid() {
   return (tree: Node) => {
@@ -33,6 +41,31 @@ function remarkMermaid() {
       if (parent && index !== undefined && index !== null) {
         parent.children.splice(index, 1, htmlNode)
       }
+    })
+  }
+}
+
+// Rehype plugin: wrap each <table> in <div class="table-wrap"> so the CSS
+// horizontal-scroll affordance has a real scroll container to attach to on
+// narrow viewports. See frontend/src/index.css `.table-wrap` rules.
+function rehypeWrapTables() {
+  return (tree: Node) => {
+    visit(tree, 'element', (node: HastElement, index, parent: any) => {
+      if (node.tagName !== 'table') return
+      if (!parent || index === undefined || index === null) return
+      // Don't double-wrap if a previous pass already added the wrapper.
+      if (parent.type === 'element' && parent.tagName === 'div'
+        && Array.isArray((parent as HastElement).properties?.className)
+        && ((parent as HastElement).properties!.className as string[]).includes('table-wrap')) {
+        return
+      }
+      const wrapper: HastElement = {
+        type: 'element',
+        tagName: 'div',
+        properties: { className: ['table-wrap'] },
+        children: [node],
+      }
+      parent.children.splice(index, 1, wrapper)
     })
   }
 }
@@ -53,6 +86,7 @@ async function buildProcessor() {
       // Don't error on unknown languages — fall back to plain text
       fallbackLanguage: 'text',
     })
+    .use(rehypeWrapTables)
     .use(rehypeSlug)
     .use(rehypeAutolinkHeadings, {
       behavior: 'wrap',
