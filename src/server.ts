@@ -8,7 +8,8 @@ import { WebSocketServer, WebSocket } from 'ws'
 import type { Server } from 'net'
 import { discoverProjects, resolveDocPath, PROJECTS_DIR } from './discovery.js'
 import { renderFile, extractToc } from './markdown.js'
-import { buildSearchIndex, search } from './search.js'
+import { createIndexStore } from './search.js'
+import { registerSearchRoute } from './server-routes.js'
 import { resolveUploadDir, safeWriteFile } from './upload.js'
 import {
   reloadMessage,
@@ -22,6 +23,7 @@ const FRONTEND_DIST = path.join(__dirname, '..', 'frontend', 'dist')
 const PORT = parseInt(process.env.VIBEDOCS_PORT || process.env.PORT || '8080', 10)
 
 const app = new Hono()
+const searchStore = createIndexStore({ projectsDir: PROJECTS_DIR })
 
 // Single error-translation point: VibedocsError → mapped status; anything else → 500.
 // Routes throw typed errors instead of building HTTP responses inline.
@@ -86,14 +88,7 @@ app.get('/api/raw/:project/*', async (c) => {
   })
 })
 
-app.get('/api/search', (c) => {
-  const q = c.req.query('q') || ''
-  if (q.trim().length < 2) {
-    return c.json({ data: [] })
-  }
-  const results = search(q)
-  return c.json({ data: results })
-})
+registerSearchRoute(app, searchStore)
 
 app.post('/api/upload/:project/*', async (c) => {
   const project = c.req.param('project')
@@ -273,6 +268,14 @@ function isMarkdown(filePath: string): boolean {
   return filePath.endsWith('.md') || filePath.endsWith('.markdown')
 }
 
+function rebuildSearchIndex(): void {
+  searchStore.rebuild().then((v) => {
+    console.log(`  🔍 Search index v${v}: rebuilt`)
+  }).catch((err) => {
+    console.error('Search rebuild failed:', err)
+  })
+}
+
 chokidar
   .watch(watchGlob, {
     ignoreInitial: true,
@@ -282,7 +285,7 @@ chokidar
     console.log(`  ↺  changed: ${filePath.replace(PROJECTS_DIR + '/', '')}`)
     if (isMarkdown(filePath)) {
       broadcast(reloadMessage(filePath))
-      buildSearchIndex()
+      rebuildSearchIndex()
     } else {
       broadcast(refreshTreeMessage())
     }
@@ -291,14 +294,14 @@ chokidar
     console.log(`  +  added:   ${filePath.replace(PROJECTS_DIR + '/', '')}`)
     broadcast(refreshTreeMessage())
     if (isMarkdown(filePath)) {
-      buildSearchIndex()
+      rebuildSearchIndex()
     }
   })
   .on('unlink', (filePath: string) => {
     console.log(`  -  removed: ${filePath.replace(PROJECTS_DIR + '/', '')}`)
     broadcast(refreshTreeMessage())
     if (isMarkdown(filePath)) {
-      buildSearchIndex()
+      rebuildSearchIndex()
     }
   })
   .on('addDir', (dirPath: string) => {
@@ -311,4 +314,4 @@ chokidar
   })
 
 // Build initial search index
-buildSearchIndex()
+rebuildSearchIndex()
