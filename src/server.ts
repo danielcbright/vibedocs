@@ -6,7 +6,13 @@ import path from 'path'
 import chokidar from 'chokidar'
 import { WebSocketServer, WebSocket } from 'ws'
 import type { Server } from 'net'
-import { discoverProjects, resolveDocPath, PROJECTS_DIR } from './discovery.js'
+import {
+  discoverProjects,
+  resolveDocPath,
+  filterProjects,
+  parseFileTypeFilter,
+  PROJECTS_DIR,
+} from './discovery.js'
 import { renderFile, extractToc } from './markdown.js'
 import { createIndexStore } from './search.js'
 import { registerSearchRoute } from './server-routes.js'
@@ -32,8 +38,9 @@ registerErrorHandler(app)
 // ── API ───────────────────────────────────────────────────────────────────────
 
 app.get('/api/projects', async (c) => {
+  const fileType = parseFileTypeFilter(c.req.query('fileType'))
   const projects = await discoverProjects()
-  return c.json({ data: projects })
+  return c.json({ data: filterProjects(projects, fileType) })
 })
 
 app.get('/api/render/:project/*', async (c) => {

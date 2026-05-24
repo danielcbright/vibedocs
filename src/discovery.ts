@@ -125,3 +125,55 @@ export function resolveDocPath(project: string, docPath: string): string {
 }
 
 export { buildTree as buildTreePublic }
+
+export type FileTypeFilter = 'all' | 'markdown' | 'assets'
+
+/**
+ * Filter a file tree by file type.
+ * - 'all': return tree unchanged
+ * - 'markdown': keep only non-asset files; drop folders that end up empty
+ * - 'assets': keep only asset files; drop folders that end up empty
+ *
+ * Pure function. Does not mutate input.
+ */
+export function filterTreeByType(nodes: FileNode[], mode: FileTypeFilter): FileNode[] {
+  if (mode === 'all') return nodes
+
+  const keepAsset = mode === 'assets'
+  const result: FileNode[] = []
+
+  for (const node of nodes) {
+    if (node.type === 'folder') {
+      const children = filterTreeByType(node.children || [], mode)
+      if (children.length > 0) {
+        result.push({ ...node, children })
+      }
+    } else {
+      const isAsset = node.isAsset === true
+      if (keepAsset ? isAsset : !isAsset) {
+        result.push(node)
+      }
+    }
+  }
+
+  return result
+}
+
+/**
+ * Coerce a raw query-param value into a valid FileTypeFilter.
+ * Unknown / missing values fall back to 'all' so the API stays backward compatible.
+ */
+export function parseFileTypeFilter(raw: string | undefined): FileTypeFilter {
+  return raw === 'markdown' || raw === 'assets' ? raw : 'all'
+}
+
+/**
+ * Apply a file-type filter across all projects. Projects whose tree becomes
+ * empty after filtering are dropped from the result.
+ */
+export function filterProjects(projects: ProjectInfo[], mode: FileTypeFilter): ProjectInfo[] {
+  if (mode === 'all') return projects
+  return projects
+    .map((p) => ({ ...p, tree: filterTreeByType(p.tree, mode) }))
+    .filter((p) => p.tree.length > 0)
+}

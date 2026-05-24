@@ -26,11 +26,15 @@ import { BookOpen, ChevronRight, File, FileText, Folder, Image, Search, Upload }
 import { ThemeToggle } from "@/components/theme-toggle"
 import type { ProjectInfo, FileNode } from "@/hooks/use-projects"
 
+type ViewMode = "docs" | "all"
+
 interface AppSidebarProps {
   projects: ProjectInfo[]
   activeProject: string | null
   activePath: string | null
   onNavigate: (project: string, path: string) => void
+  viewMode: ViewMode
+  onViewModeChange: (mode: ViewMode) => void
 }
 
 const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"])
@@ -55,26 +59,6 @@ async function uploadFiles(project: string, folderPath: string, files: FileList)
     throw new Error(err.error || 'Upload failed')
   }
   return res.json()
-}
-
-function isMarkdownFile(name: string): boolean {
-  return name.endsWith('.md') || name.endsWith('.markdown')
-}
-
-/** Filter tree to only markdown files, removing empty folders */
-function filterMarkdownOnly(nodes: FileNode[]): FileNode[] {
-  const result: FileNode[] = []
-  for (const node of nodes) {
-    if (node.type === "folder") {
-      const filtered = filterMarkdownOnly(node.children || [])
-      if (filtered.length > 0) {
-        result.push({ ...node, children: filtered })
-      }
-    } else if (!node.isAsset) {
-      result.push(node)
-    }
-  }
-  return result
 }
 
 function matchesFilter(node: FileNode, filter: string): boolean {
@@ -232,11 +216,15 @@ function FileTreeItem({
   )
 }
 
-type ViewMode = "docs" | "all"
-
-export function AppSidebar({ projects, activeProject, activePath, onNavigate }: AppSidebarProps) {
+export function AppSidebar({
+  projects,
+  activeProject,
+  activePath,
+  onNavigate,
+  viewMode,
+  onViewModeChange,
+}: AppSidebarProps) {
   const [filter, setFilter] = useState("")
-  const [viewMode, setViewMode] = useState<ViewMode>("docs")
   const [uploadStatus, setUploadStatus] = useState<{ message: string; type: "success" | "error" } | null>(null)
   const toolbarFileInputRef = useRef<HTMLInputElement>(null)
 
@@ -263,14 +251,9 @@ export function AppSidebar({ projects, activeProject, activePath, onNavigate }: 
     e.target.value = ""
   }, [uploadTarget])
 
-  // Filter projects tree based on view mode
-  const filteredProjects = useMemo(() => {
-    if (viewMode === "all") return projects
-    return projects.map((p) => ({
-      ...p,
-      tree: filterMarkdownOnly(p.tree),
-    })).filter((p) => p.tree.length > 0)
-  }, [projects, viewMode])
+  // The server already filters the tree based on the active view mode (?fileType=).
+  // We just render what it gave us.
+  const filteredProjects = projects
 
   return (
     <div className="h-full flex flex-col border-r bg-sidebar text-sidebar-foreground overflow-hidden">
@@ -312,7 +295,7 @@ export function AppSidebar({ projects, activeProject, activePath, onNavigate }: 
                   ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
                   : "text-muted-foreground hover:text-sidebar-foreground"
               }`}
-              onClick={() => setViewMode("docs")}
+              onClick={() => onViewModeChange("docs")}
             >
               Docs
             </button>
@@ -323,7 +306,7 @@ export function AppSidebar({ projects, activeProject, activePath, onNavigate }: 
                   ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
                   : "text-muted-foreground hover:text-sidebar-foreground"
               }`}
-              onClick={() => setViewMode("all")}
+              onClick={() => onViewModeChange("all")}
             >
               All
             </button>
