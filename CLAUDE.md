@@ -1,5 +1,12 @@
 # CLAUDE.md - VibeDocs
 
+<!-- argus
+port: 8080
+name: vibedocs
+health_path: /healthz
+description: Markdown docs renderer for workspace projects
+-->
+
 ## Project Overview
 
 VibeDocs — self-hosted markdown documentation browser. Hono backend + React frontend that auto-discovers markdown files across project directories and renders them with rich formatting.
@@ -24,22 +31,27 @@ VibeDocs — self-hosted markdown documentation browser. Hono backend + React fr
 
 ```
 src/                    # Backend (Hono server)
-  server.ts             # HTTP server, API routes, WebSocket, SPA fallback
+  server.ts             # HTTP server, route wiring, WebSocket, SPA fallback
+  server-routes.ts      # Route handlers extracted for testability
   discovery.ts          # Project/file tree discovery (all file types, isAsset flag)
-  markdown.ts           # Markdown rendering pipeline (remark/rehype/shiki)
-  search.ts             # In-memory full-text search index
-  upload.ts             # File upload: path validation, conflict renaming, safe writes
+  markdown.ts           # Markdown render pipeline (remark/rehype/shiki + remarkMermaid + rehypeWrapTables)
+  search.ts             # In-memory full-text search index (factory, versioned)
+  upload.ts             # safeWriteFile(targetDir: SafePath, ...): conflict renaming + safe writes
+  path-resolver.ts      # PathResolver: validates project+path → SafePath; throws VibedocsError
+  errors.ts             # VibedocsError taxonomy + registerErrorHandler (single HTTP translation point)
+  shared/ws-messages.ts # Typed WS message envelope (shared with frontend)
 frontend/               # Frontend (Vite React app)
   src/
-    App.tsx             # Root layout (sidebar + content + TOC)
-    components/         # React components
-    components/ui/      # shadcn/ui components (auto-generated)
-    hooks/              # Custom hooks (projects, document, websocket, search)
+    App.tsx             # Root layout: mobile (hamburger drawer + bottom-sheet TOC) / desktop (3-panel resizable). navigateSmart resolves folder/empty paths to first markdown file.
+    components/         # app-sidebar, doc-content, breadcrumb-nav, toc-panel, mobile-toc, search-dialog, theme-toggle, connection-status
+    components/ui/      # shadcn/ui primitives (auto-generated)
+    hooks/              # use-projects, use-document, use-websocket, use-search, use-mobile, use-raw-document
     lib/utils.ts        # cn() utility
-    index.css           # Tailwind + theme vars + markdown prose styles
+    lib/mermaid-loader.ts / mermaid-shim.ts / mermaid-render.ts  # Lazy mermaid renderer (prod-chunk-shape discipline)
+    index.css           # Tailwind + theme vars + prose styles + scroll-shadow + `@media (hover: none)` tap-target utilities
   vite.config.ts        # Vite config with API proxy
   components.json       # shadcn/ui config
-tests/                  # Backend tests (vitest)
+tests/                  # Backend tests (vitest) — includes mermaid-bundle.test.ts which inspects dist artifacts
 vitest.config.ts        # Vitest config
 systemd/
   vibedocs.service      # systemd user service unit file (template)
@@ -75,11 +87,14 @@ npm run test:watch    # Run tests in watch mode
 
 - **Hash routing:** URLs use `#project/path/to/file.md` format
 - **Dual-theme Shiki:** CSS variables (`--shiki-light`/`--shiki-dark`) toggle with `.dark` class
-- **Mermaid:** Client-side rendering via CDN ESM import, re-initializes on theme change
+- **Mermaid:** Self-hosted `mermaid` npm dep, lazy-imported via `frontend/src/lib/mermaid-shim.ts` only when a doc contains `.mermaid` divs (zero bundle cost on diagram-free pages). Per-diagram failures degrade to a `<pre>` with a "Diagram failed to render" label. Re-initializes on theme change. `tests/mermaid-bundle.test.ts` inspects dist artifacts to guard against the prod-build chunk-shape regression that motivated this approach.
 - **WebSocket messages:** `{ type: 'reload' }` for markdown changes, `{ type: 'refresh-tree' }` for any file add/remove
 - **SPA fallback:** In production, all non-API GET requests return `frontend/dist/index.html`
 - **Search index:** Rebuilt in-memory on startup and on markdown file watcher events
-- **File upload:** `src/upload.ts` handles path validation (two-layer traversal protection), filename sanitization via `path.basename()`, and conflict auto-renaming (`file-1.ext`, `file-2.ext`, up to 100 suffixes)
+- **Path validation:** `src/path-resolver.ts` — `PathResolver` returns a `SafePath` branded type that downstream FS calls require; throws typed `VibedocsError` (traversal / invalid / not-found) on failure. Two instances (`docResolver`, `assetResolver`) configured at server startup.
+- **File upload:** `src/upload.ts` `safeWriteFile(targetDir: SafePath, ...)` does filename sanitization via `path.basename()` and conflict auto-renaming (`file-1.ext`, `file-2.ext`, up to 100 suffixes). Path validation happens earlier at the resolver.
+- **Mobile tap-targets:** `frontend/src/index.css` `@media (hover: none) and (pointer: coarse)` block exposes `.tap-target` (44×44), `.tap-row` (44px min-height), `.tap-visible-on-touch` (overrides hover-revealed UI), `.tap-active-feedback` (visible :active background). Prefer these on new mobile-facing controls over bespoke responsive sizing.
+- **Navigation:** `frontend/src/App.tsx` `navigateSmart(project, path)` — file paths navigate directly; empty/folder paths resolve to the first markdown file under that scope via depth-first tree walk. Used by `DocContent` (so breadcrumb folder/project clicks land on a real doc). Sidebar uses plain `navigate` since its clicks always have full file paths.
 - **Discovery:** `buildTree()` includes all file types; non-markdown files get `isAsset: true` flag. Root-level discovery stays markdown-only.
 - **File watcher:** Watches all files (`**/*`), but only rebuilds search index for markdown changes
 
