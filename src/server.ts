@@ -15,6 +15,7 @@ import {
   refreshTreeMessage,
   type WsMessage,
 } from './shared/ws-messages.js'
+import { VibedocsError, registerErrorHandler } from './errors.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const FRONTEND_DIST = path.join(__dirname, '..', 'frontend', 'dist')
@@ -22,16 +23,15 @@ const PORT = parseInt(process.env.VIBEDOCS_PORT || process.env.PORT || '8080', 1
 
 const app = new Hono()
 
+// Single error-translation point: VibedocsError → mapped status; anything else → 500.
+// Routes throw typed errors instead of building HTTP responses inline.
+registerErrorHandler(app)
+
 // ── API ───────────────────────────────────────────────────────────────────────
 
 app.get('/api/projects', async (c) => {
-  try {
-    const projects = await discoverProjects()
-    return c.json({ data: projects })
-  } catch (err) {
-    console.error('Error discovering projects:', err)
-    return c.json({ error: 'Failed to discover projects' }, 500)
-  }
+  const projects = await discoverProjects()
+  return c.json({ data: projects })
 })
 
 app.get('/api/render/:project/*', async (c) => {
@@ -48,21 +48,16 @@ app.get('/api/render/:project/*', async (c) => {
   }
 
   const resolved = resolveDocPath(project, docPath)
-  if (!resolved) {
-    return c.json({ error: 'Invalid path' }, 400)
-  }
 
+  let html: string
   try {
-    const html = await renderFile(resolved)
-    const toc = extractToc(html)
-    return c.json({ data: { html, toc } })
+    html = await renderFile(resolved)
   } catch (err: any) {
-    if (err.code === 'ENOENT') {
-      return c.json({ error: 'File not found' }, 404)
-    }
-    console.error('Render error:', err)
-    return c.json({ error: 'Failed to render document' }, 500)
+    if (err?.code === 'ENOENT') throw new VibedocsError('not-found', 'File not found', { cause: err })
+    throw new VibedocsError('io', 'Failed to render document', { cause: err })
   }
+  const toc = extractToc(html)
+  return c.json({ data: { html, toc } })
 })
 
 app.get('/api/raw/:project/*', async (c) => {
@@ -78,22 +73,17 @@ app.get('/api/raw/:project/*', async (c) => {
   }
 
   const resolved = resolveDocPath(project, docPath)
-  if (!resolved) {
-    return c.json({ error: 'Invalid path' }, 400)
-  }
 
+  let content: string
   try {
-    const content = await readFile(resolved, 'utf-8')
-    return new Response(content, {
-      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-    })
+    content = await readFile(resolved, 'utf-8')
   } catch (err: any) {
-    if (err.code === 'ENOENT') {
-      return c.json({ error: 'File not found' }, 404)
-    }
-    console.error('Raw file error:', err)
-    return c.json({ error: 'Failed to read file' }, 500)
+    if (err?.code === 'ENOENT') throw new VibedocsError('not-found', 'File not found', { cause: err })
+    throw new VibedocsError('io', 'Failed to read file', { cause: err })
   }
+  return new Response(content, {
+    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+  })
 })
 
 app.get('/api/search', (c) => {
@@ -114,17 +104,15 @@ app.post('/api/upload/:project/*', async (c) => {
     : (c.req.param('*') || '')
 
   const targetDir = resolveUploadDir(PROJECTS_DIR, project, folderPath)
-  if (!targetDir) {
-    return c.json({ error: 'Invalid path' }, 400)
-  }
 
+  let s: Awaited<ReturnType<typeof fsStat>>
   try {
-    const s = await fsStat(targetDir)
-    if (!s.isDirectory()) {
-      return c.json({ error: 'Target is not a directory' }, 400)
-    }
-  } catch {
-    return c.json({ error: 'Target folder not found' }, 404)
+    s = await fsStat(targetDir)
+  } catch (err) {
+    throw new VibedocsError('not-found', 'Target folder not found', { cause: err })
+  }
+  if (!s.isDirectory()) {
+    throw new VibedocsError('invalid', 'Target is not a directory')
   }
 
   const body = await c.req.parseBody({ all: true })
@@ -140,19 +128,14 @@ app.post('/api/upload/:project/*', async (c) => {
   }
 
   const results: Awaited<ReturnType<typeof safeWriteFile>>[] = []
-  try {
-    for (const file of uploaded) {
-      const buffer = Buffer.from(await file.arrayBuffer())
-      const result = await safeWriteFile(targetDir, file.name, buffer)
-      results.push(result)
-    }
-    // Trigger sidebar refresh for all clients
-    broadcast(refreshTreeMessage())
-    return c.json({ data: results })
-  } catch (err: any) {
-    console.error('Upload error:', err)
-    return c.json({ error: err.message || 'Upload failed', partialData: results }, 500)
+  for (const file of uploaded) {
+    const buffer = Buffer.from(await file.arrayBuffer())
+    const result = await safeWriteFile(targetDir, file.name, buffer)
+    results.push(result)
   }
+  // Trigger sidebar refresh for all clients
+  broadcast(refreshTreeMessage())
+  return c.json({ data: results })
 })
 
 app.get('/api/file/:project/*', async (c) => {
@@ -171,14 +154,11 @@ app.get('/api/file/:project/*', async (c) => {
   const dirPart = path.dirname(filePath)
   const filePart = path.basename(filePath)
   const resolvedDir = resolveUploadDir(PROJECTS_DIR, project, dirPart === '.' ? '' : dirPart)
-  if (!resolvedDir) {
-    return c.json({ error: 'Invalid path' }, 400)
-  }
   const resolved = path.join(resolvedDir, filePart)
 
   // Defense-in-depth: verify resolved path stays within project
   if (!resolved.startsWith(resolvedDir + path.sep) && resolved !== resolvedDir) {
-    return c.json({ error: 'Invalid path' }, 400)
+    throw new VibedocsError('traversal', 'Invalid path')
   }
 
   try {
@@ -189,10 +169,8 @@ app.get('/api/file/:project/*', async (c) => {
       headers: { 'Content-Type': contentType },
     })
   } catch (err: any) {
-    if (err.code === 'ENOENT') {
-      return c.json({ error: 'File not found' }, 404)
-    }
-    return c.json({ error: 'Failed to read file' }, 500)
+    if (err?.code === 'ENOENT') throw new VibedocsError('not-found', 'File not found', { cause: err })
+    throw new VibedocsError('io', 'Failed to read file', { cause: err })
   }
 })
 

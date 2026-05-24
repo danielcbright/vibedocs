@@ -13,7 +13,8 @@ afterEach(async () => {
   await rm(tmpDir, { recursive: true, force: true })
 })
 
-import { buildTreePublic } from '../src/discovery.js'
+import { buildTreePublic, resolveDocPath } from '../src/discovery.js'
+import { VibedocsError } from '../src/errors.js'
 
 describe('buildTree with non-markdown files', () => {
   it('includes image files in the tree', async () => {
@@ -67,5 +68,32 @@ describe('buildTree with non-markdown files', () => {
     const tree = await buildTreePublic(docsDir, projectRoot)
     expect(tree).toHaveLength(1)
     expect(tree[0].name).toBe('notempty.txt')
+  })
+})
+
+describe('resolveDocPath', () => {
+  it('throws VibedocsError(traversal) when path escapes the project', () => {
+    try {
+      resolveDocPath('myproj', '../../etc/passwd.md')
+      throw new Error('expected throw')
+    } catch (err) {
+      expect(err).toBeInstanceOf(VibedocsError)
+      expect((err as VibedocsError).code).toBe('traversal')
+    }
+  })
+
+  it('throws VibedocsError(invalid) when path is not markdown', () => {
+    try {
+      resolveDocPath('myproj', 'docs/image.png')
+      throw new Error('expected throw')
+    } catch (err) {
+      expect(err).toBeInstanceOf(VibedocsError)
+      expect((err as VibedocsError).code).toBe('invalid')
+    }
+  })
+
+  it('returns the resolved path for a valid .md request', () => {
+    const result = resolveDocPath('myproj', 'docs/guide.md')
+    expect(result).toMatch(/myproj.*docs.*guide\.md$/)
   })
 })
