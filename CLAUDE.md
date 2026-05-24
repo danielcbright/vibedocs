@@ -75,7 +75,7 @@ npm run test:watch    # Run tests in watch mode
 
 - **Hash routing:** URLs use `#project/path/to/file.md` format
 - **Dual-theme Shiki:** CSS variables (`--shiki-light`/`--shiki-dark`) toggle with `.dark` class
-- **Mermaid:** Client-side rendering using the self-hosted `mermaid` npm package, lazy-imported only on docs that contain at least one `.mermaid` div. Per-diagram failures degrade to a `<pre>` with a "Diagram failed to render" label (see `frontend/src/lib/mermaid-render.ts`). Re-initializes on theme change.
+- **Mermaid:** Client-side rendering via CDN ESM import, re-initializes on theme change
 - **WebSocket messages:** `{ type: 'reload' }` for markdown changes, `{ type: 'refresh-tree' }` for any file add/remove
 - **SPA fallback:** In production, all non-API GET requests return `frontend/dist/index.html`
 - **Search index:** Rebuilt in-memory on startup and on markdown file watcher events
