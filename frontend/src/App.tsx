@@ -2,7 +2,11 @@ import { useState, useCallback, useEffect } from "react"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
 import { usePanelRef } from "react-resizable-panels"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
+import { Button } from "@/components/ui/button"
+import { Menu, Search, BookOpen } from "lucide-react"
 import { ThemeProvider } from "@/components/theme-provider"
+import { ThemeToggle } from "@/components/theme-toggle"
 import { AppSidebar } from "@/components/app-sidebar"
 import { DocContent } from "@/components/doc-content"
 import { TocPanel } from "@/components/toc-panel"
@@ -10,6 +14,7 @@ import { SearchDialog } from "@/components/search-dialog"
 import { useProjects, type FileTypeFilter } from "@/hooks/use-projects"
 import { useDocument } from "@/hooks/use-document"
 import { useWebSocket } from "@/hooks/use-websocket"
+import { useIsMobile } from "@/hooks/use-mobile"
 
 function parseHash(): { project: string | null; path: string | null } {
   const hash = window.location.hash.slice(1)
@@ -34,9 +39,12 @@ function DocsApp() {
   const [activePath, setActivePath] = useState<string | null>(null)
   const [reloadNonce, setReloadNonce] = useState(0)
   const [viewMode, setViewMode] = useState<ViewMode>("docs")
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
   const { projects, refresh: refreshProjects } = useProjects(VIEW_MODE_TO_FILE_TYPE[viewMode])
   const { html, toc, loading, error, refresh: refreshDoc } = useDocument(activeProject, activePath)
   const sidebarPanelRef = usePanelRef()
+  const isMobile = useIsMobile()
 
   // Parse hash on mount and on hash change
   useEffect(() => {
@@ -54,11 +62,21 @@ function DocsApp() {
     window.location.hash = `${project}/${path}`
   }, [])
 
-  // Ctrl+B to toggle sidebar
+  // On mobile, navigation should also close the drawer
+  const navigateAndCloseDrawer = useCallback((project: string, path: string) => {
+    navigate(project, path)
+    setMobileSidebarOpen(false)
+  }, [navigate])
+
+  // Ctrl+B toggles sidebar: mobile drawer when on mobile, resizable panel otherwise
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "b" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault()
+        if (isMobile) {
+          setMobileSidebarOpen((prev) => !prev)
+          return
+        }
         const panel = sidebarPanelRef.current
         if (panel) {
           if (panel.isCollapsed()) {
@@ -71,7 +89,7 @@ function DocsApp() {
     }
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [sidebarPanelRef])
+  }, [sidebarPanelRef, isMobile])
 
   // WebSocket live reload
   const { connected } = useWebSocket({
@@ -86,37 +104,40 @@ function DocsApp() {
 
   const hasToc = toc.length >= 2
 
-  return (
-    <div style={{ height: "100vh", overflow: "hidden" }}>
-      <ResizablePanelGroup direction="horizontal">
-        {/* Sidebar */}
-        <ResizablePanel
-          id="sidebar"
-          panelRef={sidebarPanelRef}
-          defaultSize="18%"
-          minSize={150}
-          maxSize="30%"
-          collapsible
-        >
-          <AppSidebar
-            projects={projects}
-            activeProject={activeProject}
-            activePath={activePath}
-            onNavigate={navigate}
-            viewMode={viewMode}
-            onViewModeChange={setViewMode}
-          />
-        </ResizablePanel>
-        <ResizableHandle withHandle />
-
-        {/* Main content */}
-        <ResizablePanel id="content" defaultSize="62%" minSize="30%">
-          <div className="flex flex-col h-full min-w-0 overflow-hidden">
-            <header className="flex h-12 items-center gap-2 border-b px-4 shrink-0">
-              <span className="text-sm text-muted-foreground">
-                {activeProject ? `${activeProject}` : "Documentation"}
+  if (isMobile) {
+    return (
+      <>
+        <div className="flex flex-col" style={{ height: "100dvh", overflow: "hidden" }}>
+          <header className="flex h-14 items-center gap-2 border-b px-3 shrink-0 bg-background">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-11 w-11 shrink-0"
+              aria-label="Open navigation menu"
+              data-testid="mobile-menu-trigger"
+              onClick={() => setMobileSidebarOpen(true)}
+            >
+              <Menu className="h-5 w-5" />
+            </Button>
+            <div className="flex items-center gap-2 min-w-0 flex-1">
+              <BookOpen className="h-5 w-5 text-sidebar-primary shrink-0" />
+              <span className="font-semibold text-sm truncate">
+                {activeProject ?? "VibeDocs"}
               </span>
-            </header>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-11 w-11 shrink-0"
+              aria-label="Search documentation"
+              data-testid="mobile-search-trigger"
+              onClick={() => setSearchOpen(true)}
+            >
+              <Search className="h-5 w-5" />
+            </Button>
+            <ThemeToggle />
+          </header>
+          <div className="flex-1 min-h-0 overflow-hidden">
             <DocContent
               html={html}
               loading={loading}
@@ -126,17 +147,101 @@ function DocsApp() {
               connected={connected}
               reloadNonce={reloadNonce}
               onNavigate={navigate}
+              mobileSearchTrigger={() => setSearchOpen(true)}
             />
           </div>
-        </ResizablePanel>
-        <ResizableHandle />
+        </div>
+        <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
+          <SheetContent
+            side="left"
+            className="w-[85vw] sm:max-w-sm p-0 bg-sidebar-background text-sidebar-foreground [&>button]:hidden"
+            data-testid="mobile-sidebar-sheet"
+          >
+            <SheetHeader className="sr-only">
+              <SheetTitle>Navigation</SheetTitle>
+              <SheetDescription>Project list and file tree.</SheetDescription>
+            </SheetHeader>
+            <AppSidebar
+              projects={projects}
+              activeProject={activeProject}
+              activePath={activePath}
+              onNavigate={navigateAndCloseDrawer}
+              viewMode={viewMode}
+              onViewModeChange={setViewMode}
+            />
+          </SheetContent>
+        </Sheet>
+        <SearchDialog
+          open={searchOpen}
+          onOpenChange={setSearchOpen}
+          onNavigate={(project, path) => {
+            window.location.hash = `${project}/${path}`
+          }}
+        />
+      </>
+    )
+  }
 
-        {/* TOC - always rendered, content conditional */}
-        <ResizablePanel id="toc" defaultSize="20%" minSize={120} maxSize="30%">
-          {hasToc ? <TocPanel toc={toc} /> : null}
-        </ResizablePanel>
-      </ResizablePanelGroup>
-    </div>
+  return (
+    <>
+      <div style={{ height: "100vh", overflow: "hidden" }}>
+        <ResizablePanelGroup direction="horizontal">
+          {/* Sidebar */}
+          <ResizablePanel
+            id="sidebar"
+            panelRef={sidebarPanelRef}
+            defaultSize="18%"
+            minSize={150}
+            maxSize="30%"
+            collapsible
+          >
+            <AppSidebar
+              projects={projects}
+              activeProject={activeProject}
+              activePath={activePath}
+              onNavigate={navigate}
+              viewMode={viewMode}
+              onViewModeChange={setViewMode}
+            />
+          </ResizablePanel>
+          <ResizableHandle withHandle />
+
+          {/* Main content */}
+          <ResizablePanel id="content" defaultSize="62%" minSize="30%">
+            <div className="flex flex-col h-full min-w-0 overflow-hidden">
+              <header className="flex h-12 items-center gap-2 border-b px-4 shrink-0">
+                <span className="text-sm text-muted-foreground">
+                  {activeProject ? `${activeProject}` : "Documentation"}
+                </span>
+              </header>
+              <DocContent
+                html={html}
+                loading={loading}
+                error={error}
+                project={activeProject}
+                docPath={activePath}
+                connected={connected}
+                reloadNonce={reloadNonce}
+                onNavigate={navigate}
+              />
+            </div>
+          </ResizablePanel>
+          <ResizableHandle />
+
+          {/* TOC - always rendered, content conditional */}
+          <ResizablePanel id="toc" defaultSize="20%" minSize={120} maxSize="30%">
+            {hasToc ? <TocPanel toc={toc} /> : null}
+          </ResizablePanel>
+        </ResizablePanelGroup>
+      </div>
+      <SearchDialog
+        open={searchOpen}
+        onOpenChange={setSearchOpen}
+        onNavigate={(project, path) => {
+          window.location.hash = `${project}/${path}`
+        }}
+      />
+    </>
   )
 }
 
@@ -145,9 +250,6 @@ export default function App() {
     <ThemeProvider>
       <TooltipProvider>
         <DocsApp />
-        <SearchDialog onNavigate={(project, path) => {
-          window.location.hash = `${project}/${path}`
-        }} />
       </TooltipProvider>
     </ThemeProvider>
   )

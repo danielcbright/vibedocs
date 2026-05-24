@@ -2,7 +2,7 @@ import { useEffect, useRef, useCallback } from "react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
-import { Copy, Check, AlertCircle } from "lucide-react"
+import { Copy, Check, AlertCircle, Search } from "lucide-react"
 import { useState } from "react"
 import { BreadcrumbNav } from "./breadcrumb-nav"
 import { ConnectionStatus } from "./connection-status"
@@ -23,9 +23,15 @@ interface DocContentProps {
    */
   reloadNonce?: number
   onNavigate?: (project: string, path: string) => void
+  /**
+   * When provided, the welcome screen renders a tappable "Search documentation"
+   * button instead of the keyboard-only "Press Ctrl+K to search" hint. Used on
+   * mobile where the keyboard hint is meaningless on touch devices.
+   */
+  mobileSearchTrigger?: () => void
 }
 
-export function DocContent({ html, loading, error, project, docPath, connected, reloadNonce, onNavigate }: DocContentProps) {
+export function DocContent({ html, loading, error, project, docPath, connected, reloadNonce, onNavigate, mobileSearchTrigger }: DocContentProps) {
   const contentRef = useRef<HTMLDivElement>(null)
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle")
   const { resolvedTheme } = useTheme()
@@ -88,13 +94,27 @@ export function DocContent({ html, loading, error, project, docPath, connected, 
 
   if (!project || !docPath) {
     return (
-      <div className="flex flex-1 items-center justify-center text-muted-foreground">
+      <div className="flex flex-1 items-center justify-center text-muted-foreground p-6">
         <div className="text-center">
           <h2 className="text-lg font-medium mb-1">Welcome to VibeDocs</h2>
           <p className="text-sm">Select a document from the sidebar to get started.</p>
-          <p className="text-xs mt-4 text-muted-foreground/60">
-            Press <kbd className="px-1.5 py-0.5 rounded border text-[10px] font-mono">Ctrl+K</kbd> to search
-          </p>
+          {mobileSearchTrigger ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-4 h-11 min-w-[160px] gap-2"
+              onClick={mobileSearchTrigger}
+              aria-label="Search documentation"
+              data-testid="welcome-search-button"
+            >
+              <Search className="h-4 w-4" />
+              <span>Search docs</span>
+            </Button>
+          ) : (
+            <p className="text-xs mt-4 text-muted-foreground/60">
+              Press <kbd className="px-1.5 py-0.5 rounded border text-[10px] font-mono">Ctrl+K</kbd> to search
+            </p>
+          )}
         </div>
       </div>
     )
