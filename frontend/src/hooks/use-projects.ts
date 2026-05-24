@@ -14,13 +14,15 @@ export interface ProjectInfo {
   tree: FileNode[]
 }
 
-export function useProjects() {
+export type FileTypeFilter = "all" | "markdown" | "assets"
+
+export function useProjects(fileType: FileTypeFilter = "all") {
   const [projects, setProjects] = useState<ProjectInfo[]>([])
   const [loading, setLoading] = useState(true)
 
   const refresh = useCallback(async () => {
     try {
-      const res = await fetch("/api/projects")
+      const res = await fetch(`/api/projects?fileType=${fileType}`)
       const json = await res.json()
       setProjects(json.data || [])
     } catch (err) {
@@ -28,7 +30,7 @@ export function useProjects() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [fileType])
 
   useEffect(() => {
     refresh()

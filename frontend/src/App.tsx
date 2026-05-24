@@ -7,7 +7,7 @@ import { AppSidebar } from "@/components/app-sidebar"
 import { DocContent } from "@/components/doc-content"
 import { TocPanel } from "@/components/toc-panel"
 import { SearchDialog } from "@/components/search-dialog"
-import { useProjects } from "@/hooks/use-projects"
+import { useProjects, type FileTypeFilter } from "@/hooks/use-projects"
 import { useDocument } from "@/hooks/use-document"
 import { useWebSocket } from "@/hooks/use-websocket"
 
@@ -22,11 +22,19 @@ function parseHash(): { project: string | null; path: string | null } {
   }
 }
 
+type ViewMode = "docs" | "all"
+
+const VIEW_MODE_TO_FILE_TYPE: Record<ViewMode, FileTypeFilter> = {
+  docs: "markdown",
+  all: "all",
+}
+
 function DocsApp() {
   const [activeProject, setActiveProject] = useState<string | null>(null)
   const [activePath, setActivePath] = useState<string | null>(null)
   const [reloadNonce, setReloadNonce] = useState(0)
-  const { projects, refresh: refreshProjects } = useProjects()
+  const [viewMode, setViewMode] = useState<ViewMode>("docs")
+  const { projects, refresh: refreshProjects } = useProjects(VIEW_MODE_TO_FILE_TYPE[viewMode])
   const { html, toc, loading, error, refresh: refreshDoc } = useDocument(activeProject, activePath)
   const sidebarPanelRef = usePanelRef()
 
@@ -95,6 +103,8 @@ function DocsApp() {
             activeProject={activeProject}
             activePath={activePath}
             onNavigate={navigate}
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
           />
         </ResizablePanel>
         <ResizableHandle withHandle />
