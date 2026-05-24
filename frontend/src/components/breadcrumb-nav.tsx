@@ -52,9 +52,8 @@ export function BreadcrumbNav({ project, docPath, onNavigate }: BreadcrumbNavPro
               href="#"
               onClick={(e) => {
                 e.preventDefault()
-                // Navigate to the first root-level file in this project
-                // For now, just clear to project level
-                window.location.hash = project
+                // Resolve to the first markdown file in the project (handled by onNavigate).
+                if (onNavigate) onNavigate(project, "")
               }}
             >
               {project}
@@ -79,11 +78,8 @@ export function BreadcrumbNav({ project, docPath, onNavigate }: BreadcrumbNavPro
                     href="#"
                     onClick={(e) => {
                       e.preventDefault()
-                      // Navigate to the folder level — append first child if it's a folder
-                      // For now just show the folder path in the hash
-                      if (onNavigate) {
-                        onNavigate(project, partialPath)
-                      }
+                      // Folder click — onNavigate resolves to the first markdown file under this folder.
+                      if (onNavigate) onNavigate(project, partialPath)
                     }}
                   >
                     {part}

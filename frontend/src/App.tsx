@@ -12,7 +12,7 @@ import { DocContent } from "@/components/doc-content"
 import { TocPanel } from "@/components/toc-panel"
 import { MobileToc } from "@/components/mobile-toc"
 import { SearchDialog } from "@/components/search-dialog"
-import { useProjects, type FileTypeFilter } from "@/hooks/use-projects"
+import { useProjects, type FileTypeFilter, type FileNode } from "@/hooks/use-projects"
 import { useDocument } from "@/hooks/use-document"
 import { useWebSocket } from "@/hooks/use-websocket"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -26,6 +26,34 @@ function parseHash(): { project: string | null; path: string | null } {
     project: hash.slice(0, slashIndex),
     path: hash.slice(slashIndex + 1),
   }
+}
+
+function isMarkdownPath(p: string): boolean {
+  return p.endsWith(".md") || p.endsWith(".markdown")
+}
+
+// Depth-first walk that returns the first markdown file under `nodes`.
+function findFirstMarkdown(nodes: FileNode[]): FileNode | null {
+  for (const n of nodes) {
+    if (n.type === "file" && !n.isAsset && isMarkdownPath(n.path)) return n
+    if (n.type === "folder" && n.children) {
+      const found = findFirstMarkdown(n.children)
+      if (found) return found
+    }
+  }
+  return null
+}
+
+// Find a node by its exact path in the tree, or null if not present.
+function findNodeAt(nodes: FileNode[], path: string): FileNode | null {
+  for (const n of nodes) {
+    if (n.path === path) return n
+    if (n.type === "folder" && n.children) {
+      const found = findNodeAt(n.children, path)
+      if (found) return found
+    }
+  }
+  return null
 }
 
 type ViewMode = "docs" | "all"
@@ -62,6 +90,29 @@ function DocsApp() {
   const navigate = useCallback((project: string, path: string) => {
     window.location.hash = `${project}/${path}`
   }, [])
+
+  // Resolves a navigation target. Files navigate directly. Empty/folder paths
+  // resolve to the first markdown file under that scope so breadcrumb clicks
+  // ("vibedocs", "docs") land on a real doc instead of a 400 from the renderer.
+  const navigateSmart = useCallback((project: string, path: string) => {
+    if (path && isMarkdownPath(path)) {
+      navigate(project, path)
+      return
+    }
+    const proj = projects.find((p) => p.name === project)
+    if (proj) {
+      const scope = path ? findNodeAt(proj.tree, path)?.children ?? null : proj.tree
+      if (scope) {
+        const first = findFirstMarkdown(scope)
+        if (first) {
+          navigate(project, first.path)
+          return
+        }
+      }
+    }
+    // Couldn't resolve — fall through (will likely render an error, but URL is consistent)
+    navigate(project, path)
+  }, [navigate, projects])
 
   // On mobile, navigation should also close the drawer
   const navigateAndCloseDrawer = useCallback((project: string, path: string) => {
@@ -147,7 +198,7 @@ function DocsApp() {
               docPath={activePath}
               connected={connected}
               reloadNonce={reloadNonce}
-              onNavigate={navigate}
+              onNavigate={navigateSmart}
               mobileSearchTrigger={() => setSearchOpen(true)}
             />
           </div>
@@ -224,7 +275,7 @@ function DocsApp() {
                 docPath={activePath}
                 connected={connected}
                 reloadNonce={reloadNonce}
-                onNavigate={navigate}
+                onNavigate={navigateSmart}
               />
             </div>
           </ResizablePanel>
