@@ -10,6 +10,7 @@ import { ThemeToggle } from "@/components/theme-toggle"
 import { AppSidebar } from "@/components/app-sidebar"
 import { DocContent } from "@/components/doc-content"
 import { TocPanel } from "@/components/toc-panel"
+import { MobileToc } from "@/components/mobile-toc"
 import { SearchDialog } from "@/components/search-dialog"
 import { useProjects, type FileTypeFilter } from "@/hooks/use-projects"
 import { useDocument } from "@/hooks/use-document"
@@ -151,6 +152,7 @@ function DocsApp() {
             />
           </div>
         </div>
+        {hasToc ? <MobileToc toc={toc} /> : null}
         <Sheet open={mobileSidebarOpen} onOpenChange={setMobileSidebarOpen}>
           <SheetContent
             side="left"
