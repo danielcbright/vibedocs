@@ -1,38 +1,9 @@
 import { writeFile, access } from 'fs/promises'
 import path from 'path'
 import { VibedocsError } from './errors.js'
+import type { SafePath } from './path-resolver.js'
 
 const MAX_CONFLICT_SUFFIX = 100
-
-/**
- * Resolve an upload target directory inside a project, with two-layer
- * path-traversal defense. Throws `VibedocsError('traversal')` if the resolved
- * path escapes either the projects root or the project root.
- */
-export function resolveUploadDir(
-  projectsDir: string,
-  project: string,
-  folderPath: string
-): string {
-  const resolvedProjectsDir = path.resolve(projectsDir)
-  const projectDir = path.resolve(resolvedProjectsDir, project)
-
-  // Project directory must be within the projects root
-  if (!projectDir.startsWith(resolvedProjectsDir + path.sep)) {
-    throw new VibedocsError('traversal', 'Invalid path')
-  }
-
-  const target = folderPath
-    ? path.resolve(projectDir, folderPath)
-    : projectDir
-
-  // Target must be within the project directory
-  if (!target.startsWith(projectDir + path.sep) && target !== projectDir) {
-    throw new VibedocsError('traversal', 'Invalid path')
-  }
-
-  return target
-}
 
 async function fileExists(filePath: string): Promise<boolean> {
   try {
@@ -50,7 +21,7 @@ export interface WriteResult {
 }
 
 export async function safeWriteFile(
-  targetDir: string,
+  targetDir: SafePath,
   originalName: string,
   data: Buffer
 ): Promise<WriteResult> {
