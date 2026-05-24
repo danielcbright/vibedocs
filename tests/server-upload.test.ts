@@ -3,8 +3,9 @@ import { mkdir, writeFile, rm, readFile, stat, mkdtemp } from 'fs/promises'
 import path from 'path'
 import os from 'os'
 import { Hono } from 'hono'
-import { resolveUploadDir, safeWriteFile } from '../src/upload.js'
+import { safeWriteFile } from '../src/upload.js'
 import { VibedocsError, registerErrorHandler } from '../src/errors.js'
+import { PathResolver } from '../src/path-resolver.js'
 
 let tmpDir: string
 
@@ -18,6 +19,7 @@ const CONTENT_TYPES: Record<string, string> = {
 function createTestApp(projectsDir: string) {
   const app = new Hono()
   registerErrorHandler(app)
+  const assetResolver = new PathResolver({ projectsDir })
 
   app.get('/api/file/:project/*', async (c) => {
     const project = c.req.param('project')
@@ -29,14 +31,7 @@ function createTestApp(projectsDir: string) {
 
     if (!project || !filePath) return c.json({ error: 'Missing project or path' }, 400)
 
-    const dirPart = path.dirname(filePath)
-    const filePart = path.basename(filePath)
-    const resolvedDir = resolveUploadDir(projectsDir, project, dirPart === '.' ? '' : dirPart)
-    const resolved = path.join(resolvedDir, filePart)
-
-    if (!resolved.startsWith(resolvedDir + path.sep) && resolved !== resolvedDir) {
-      throw new VibedocsError('traversal', 'Invalid path')
-    }
+    const resolved = assetResolver.resolve(project, filePath)
 
     try {
       const content = await readFile(resolved)
@@ -57,7 +52,7 @@ function createTestApp(projectsDir: string) {
       ? decodeURIComponent(fullPath.slice(prefix.length))
       : (c.req.param('*') || '')
 
-    const targetDir = resolveUploadDir(projectsDir, project, folderPath)
+    const targetDir = assetResolver.resolve(project, folderPath)
 
     let s: Awaited<ReturnType<typeof stat>>
     try {
