@@ -85,6 +85,23 @@
   }
 }
 
+/* ── ScrollArea viewport content sizing ──────────────────────────────────
+   Radix UI ScrollArea wraps its children in an internal `display: table`
+   div, which sizes to the natural max-content width of its children. With
+   markdown content that includes wide <pre> or <table> elements, this
+   causes the column to grow far beyond the viewport, pushing the page
+   into a redundant outer horizontal scroll and hiding the per-element
+   scroll affordances behind the visible right edge.
+
+   Forcing the wrapper to behave like a normal block keeps the prose
+   column constrained to the visible viewport, so wide <pre>/<table>
+   become the only horizontal-scroll containers (where our scroll-shadow
+   affordance is anchored). */
+[data-slot="scroll-area-viewport"] > div {
+  display: block !important;
+  min-width: 0 !important;
+}
+
 /* ── Markdown prose styles ────────────────────────────────────────────────── */
 
 .prose-content {
@@ -196,6 +213,85 @@
   font-size: inherit;
 }
 
+/* ── Horizontal-scroll affordance for overflowing pre / tables ────────────
+   Pure CSS "scroll shadow" indicator (Lea Verou's technique).
+
+   Four background-image layers per scroll container:
+     • Two solid-colour "covers" (left + right) with background-attachment:
+       local — these scroll with the content. When the user is at that
+       edge, the cover sits over the shadow and hides it.
+     • Two radial-gradient shadows (left + right) with background-attachment:
+       scroll — pinned to the viewport edge of the scroll container.
+
+   Result: a right-edge shadow appears whenever the content overflows and
+   isn't scrolled to the end. No JavaScript, no observer, fades naturally
+   when content fits or when scrolled to the edge. The primary purpose is
+   to hint scrollability on mobile where there is no persistent scrollbar.
+
+   Implementation note: we use background-image / -position / -size /
+   -repeat / -attachment as separate properties (not the `background`
+   shorthand) so we don't clobber the Shiki `background-color: !important`
+   that paints the code-block fill. */
+
+.prose-content pre,
+.prose-content .table-wrap,
+.prose-content .mermaid {
+  /* Cover colour must match the *container* background so the shadow
+     disappears against the page when scrolled to the edge. For `pre` the
+     container's visible fill is the Shiki theme bg; for `.table-wrap`
+     it's the page background; for `.mermaid` it's the card colour set on
+     the .mermaid rule itself. */
+  --scroll-cover: var(--color-background);
+  --scroll-shadow: rgba(0, 0, 0, 0.35);
+
+  background-image:
+    linear-gradient(to right, var(--scroll-cover) 30%, rgba(0, 0, 0, 0)),
+    linear-gradient(to left, var(--scroll-cover) 30%, rgba(0, 0, 0, 0)),
+    radial-gradient(ellipse at left, var(--scroll-shadow), rgba(0, 0, 0, 0) 75%),
+    radial-gradient(ellipse at right, var(--scroll-shadow), rgba(0, 0, 0, 0) 75%);
+  background-position: 0 0, 100% 0, 0 0, 100% 0;
+  background-size: 2em 100%, 2em 100%, 1.5em 100%, 1.5em 100%;
+  background-repeat: no-repeat;
+  background-attachment: local, local, scroll, scroll;
+}
+
+/* For pre code blocks the Shiki bg-color paints the underlying fill; the
+   covers need to match THAT bg, not the page bg, otherwise the cover looks
+   like a coloured stripe over the syntax-highlighted code. */
+.prose-content pre {
+  --scroll-cover: var(--shiki-light-bg, var(--color-background));
+}
+.dark .prose-content pre {
+  --scroll-cover: var(--shiki-dark-bg, var(--color-background));
+}
+
+.dark .prose-content .table-wrap,
+.dark .prose-content .mermaid {
+  --scroll-shadow: rgba(0, 0, 0, 0.6);
+}
+
+/* Mermaid renders with background: var(--color-card) on the .mermaid rule
+   below — match the cover so the shadow vanishes when at the edge. */
+.prose-content .mermaid {
+  --scroll-cover: var(--color-card);
+}
+
+/* Wrapper added by rehypeWrapTables — gives tables a real scroll container
+   so the overflow indicator above has something to attach to. */
+.prose-content .table-wrap {
+  overflow-x: auto;
+  margin-bottom: 1em;
+  border-radius: 8px;
+}
+.prose-content .table-wrap > table {
+  /* Let wide tables exceed the wrapper (so the wrapper's overflow-x kicks
+     in and the scroll-shadow becomes visible). Narrow tables still fill
+     the wrapper via min-width. */
+  width: max-content;
+  min-width: 100%;
+  margin-bottom: 0;
+}
+
 /* Tables */
 .prose-content table {
   width: 100%;
@@ -234,7 +330,9 @@
   justify-content: center;
   margin: 1.5em 0;
   padding: 1em;
-  background: var(--color-card);
+  /* `background-color` (not the `background` shorthand) so we don't
+     clobber the scroll-affordance background-image layers above. */
+  background-color: var(--color-card);
   border-radius: 8px;
   border: 1px solid var(--color-border);
   overflow-x: auto;
