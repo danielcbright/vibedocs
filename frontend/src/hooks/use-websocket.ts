@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react"
+import { parseWsMessage, type WsMessage } from "@shared/ws-messages"
 
 interface UseWebSocketOptions {
   onReload?: (path: string) => void
@@ -8,7 +9,7 @@ interface UseWebSocketOptions {
 export function useWebSocket({ onReload, onRefreshTree }: UseWebSocketOptions) {
   const [connected, setConnected] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
-  const reconnectTimer = useRef<ReturnType<typeof setTimeout>>()
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const onReloadRef = useRef(onReload)
   const onRefreshTreeRef = useRef(onRefreshTree)
 
@@ -26,15 +27,22 @@ export function useWebSocket({ onReload, onRefreshTree }: UseWebSocketOptions) {
     ws.onopen = () => setConnected(true)
 
     ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(event.data)
-        if (msg.type === "reload") {
+      const msg: WsMessage | null = parseWsMessage(event.data)
+      if (!msg) return
+
+      switch (msg.type) {
+        case "reload":
           onReloadRef.current?.(msg.path)
-        } else if (msg.type === "refresh-tree") {
+          break
+        case "refresh-tree":
           onRefreshTreeRef.current?.()
+          break
+        default: {
+          // Exhaustiveness check: adding a new variant to WsMessage forces
+          // a compile error here until it is handled above.
+          const _exhaustive: never = msg
+          void _exhaustive
         }
-      } catch {
-        // Ignore parse errors
       }
     }
 

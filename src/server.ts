@@ -10,6 +10,11 @@ import { discoverProjects, resolveDocPath, PROJECTS_DIR } from './discovery.js'
 import { renderFile, extractToc } from './markdown.js'
 import { buildSearchIndex, search } from './search.js'
 import { resolveUploadDir, safeWriteFile } from './upload.js'
+import {
+  reloadMessage,
+  refreshTreeMessage,
+  type WsMessage,
+} from './shared/ws-messages.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const FRONTEND_DIST = path.join(__dirname, '..', 'frontend', 'dist')
@@ -142,7 +147,7 @@ app.post('/api/upload/:project/*', async (c) => {
       results.push(result)
     }
     // Trigger sidebar refresh for all clients
-    broadcast({ type: 'refresh-tree' })
+    broadcast(refreshTreeMessage())
     return c.json({ data: results })
   } catch (err: any) {
     console.error('Upload error:', err)
@@ -273,7 +278,7 @@ wss.on('connection', (ws: WebSocket) => {
   ws.on('close', () => clients.delete(ws))
 })
 
-function broadcast(message: object) {
+function broadcast(message: WsMessage) {
   const data = JSON.stringify(message)
   for (const client of clients) {
     if (client.readyState === WebSocket.OPEN) {
@@ -298,33 +303,33 @@ chokidar
   .on('change', (filePath: string) => {
     console.log(`  ↺  changed: ${filePath.replace(PROJECTS_DIR + '/', '')}`)
     if (isMarkdown(filePath)) {
-      broadcast({ type: 'reload', path: filePath })
+      broadcast(reloadMessage(filePath))
       buildSearchIndex()
     } else {
-      broadcast({ type: 'refresh-tree' })
+      broadcast(refreshTreeMessage())
     }
   })
   .on('add', (filePath: string) => {
     console.log(`  +  added:   ${filePath.replace(PROJECTS_DIR + '/', '')}`)
-    broadcast({ type: 'refresh-tree' })
+    broadcast(refreshTreeMessage())
     if (isMarkdown(filePath)) {
       buildSearchIndex()
     }
   })
   .on('unlink', (filePath: string) => {
     console.log(`  -  removed: ${filePath.replace(PROJECTS_DIR + '/', '')}`)
-    broadcast({ type: 'refresh-tree' })
+    broadcast(refreshTreeMessage())
     if (isMarkdown(filePath)) {
       buildSearchIndex()
     }
   })
   .on('addDir', (dirPath: string) => {
     console.log(`  +  dir:     ${dirPath.replace(PROJECTS_DIR + '/', '')}`)
-    broadcast({ type: 'refresh-tree' })
+    broadcast(refreshTreeMessage())
   })
   .on('unlinkDir', (dirPath: string) => {
     console.log(`  -  dir:     ${dirPath.replace(PROJECTS_DIR + '/', '')}`)
-    broadcast({ type: 'refresh-tree' })
+    broadcast(refreshTreeMessage())
   })
 
 // Build initial search index
