@@ -338,39 +338,6 @@
   overflow-x: auto;
 }
 
-/* Keep SVG width capped at the container so wide diagrams trigger the
-   container's horizontal scroll (with the scroll-shadow affordance above)
-   rather than blowing out the prose column on mobile. */
-.prose-content .mermaid > svg {
-  max-width: 100%;
-  height: auto;
-}
-
-/* Graceful-degradation fallback emitted by mermaid-render.ts when a single
-   diagram fails to parse. The rest of the page still renders normally. */
-.prose-content .mermaid-fallback {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0.5em;
-  width: 100%;
-}
-.prose-content .mermaid-fallback-label {
-  font-size: 0.8em;
-  font-weight: 500;
-  color: var(--color-destructive);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-.prose-content .mermaid-fallback > pre {
-  margin: 0;
-  background-color: var(--color-muted);
-  color: var(--color-foreground);
-  border: 1px solid var(--color-border);
-  /* Reset the scroll-shadow background layers inherited from .mermaid; the
-     <pre> itself already participates in the `.prose-content pre` rule. */
-}
-
 /* Shiki dual-theme: show correct theme based on dark/light mode */
 .prose-content .shiki,
 .prose-content .shiki span {

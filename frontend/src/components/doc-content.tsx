@@ -8,7 +8,6 @@ import { BreadcrumbNav } from "./breadcrumb-nav"
 import { ConnectionStatus } from "./connection-status"
 import { useTheme } from "./theme-provider"
 import { useRawDocument } from "@/hooks/use-raw-document"
-import { renderMermaidIn } from "@/lib/mermaid-loader"
 
 interface DocContentProps {
   html: string
@@ -39,20 +38,27 @@ export function DocContent({ html, loading, error, project, docPath, connected, 
 
   const { contentRef: rawContentRef } = useRawDocument(project, docPath, reloadNonce)
 
-  // Render mermaid diagrams after HTML is inserted. The mermaid package is
-  // self-hosted (bundled as an npm dep) and lazy-imported only when the
-  // current document actually contains diagrams, so docs without diagrams
-  // pay no bundle cost. Per-diagram failures degrade to a `<pre>` block —
-  // see `renderMermaidIn` for the fallback behaviour.
+  // Initialize mermaid diagrams after HTML is inserted
   useEffect(() => {
     if (!html || !contentRef.current) return
-    const root = contentRef.current
-    let cancelled = false
-    renderMermaidIn(root, { theme: resolvedTheme === "dark" ? "dark" : "default" })
-      .catch((err) => {
-        if (!cancelled) console.error("Mermaid render failed:", err)
+    const mermaidDivs = contentRef.current.querySelectorAll(".mermaid")
+    if (mermaidDivs.length === 0) return
+
+    // Dynamically import mermaid
+    import("https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs")
+      .then((mod) => {
+        const mermaid = mod.default
+        mermaid.initialize({
+          startOnLoad: false,
+          theme: resolvedTheme === "dark" ? "dark" : "default",
+        })
+        // Reset processed state
+        mermaidDivs.forEach((el) => {
+          el.removeAttribute("data-processed")
+        })
+        mermaid.run({ nodes: mermaidDivs as unknown as ArrayLike<HTMLElement> })
       })
-    return () => { cancelled = true }
+      .catch((err) => console.error("Mermaid init failed:", err))
   }, [html, resolvedTheme])
 
   // Copy uses pre-fetched content - no async fetch in the click handler
