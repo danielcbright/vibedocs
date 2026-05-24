@@ -228,6 +228,38 @@ export function AppSidebar({
   const [uploadStatus, setUploadStatus] = useState<{ message: string; type: "success" | "error" } | null>(null)
   const toolbarFileInputRef = useRef<HTMLInputElement>(null)
 
+  // Per-project user open/close overrides. Cleared for both the previous and the
+  // new active project whenever activeProject changes, so navigating away and back
+  // re-opens a tree the user had previously collapsed — but in-project navigation
+  // (activeProject unchanged) leaves the override in place. This satisfies the
+  // "don't fight the user" requirement while still auto-expanding on switch.
+  const [projectOpenOverrides, setProjectOpenOverrides] = useState<Record<string, boolean>>({})
+  const prevActiveProjectRef = useRef<string | null>(activeProject)
+
+  useEffect(() => {
+    if (prevActiveProjectRef.current === activeProject) return
+    const previous = prevActiveProjectRef.current
+    prevActiveProjectRef.current = activeProject
+    setProjectOpenOverrides((prev) => {
+      if (!previous && !activeProject) return prev
+      const next = { ...prev }
+      let changed = false
+      if (previous && previous in next) {
+        delete next[previous]
+        changed = true
+      }
+      if (activeProject && activeProject in next) {
+        delete next[activeProject]
+        changed = true
+      }
+      return changed ? next : prev
+    })
+  }, [activeProject])
+
+  const handleProjectOpenChange = useCallback((projectName: string, open: boolean) => {
+    setProjectOpenOverrides((prev) => ({ ...prev, [projectName]: open }))
+  }, [])
+
   // Auto-dismiss upload status after 3 seconds
   useEffect(() => {
     if (!uploadStatus) return
@@ -345,10 +377,19 @@ export function AppSidebar({
           }
 
           const isProjectActive = activeProject === project.name
-          const defaultOpen = isProjectActive || !!filter
+          const autoExpand = isProjectActive || !!filter
+          const override = projectOpenOverrides[project.name]
+          // While a filter is active, every matching project must stay expanded
+          // — user overrides are ignored to preserve filter semantics. Otherwise
+          // an explicit override (if any) wins over the auto-expand default.
+          const isOpen = filter ? autoExpand : override !== undefined ? override : autoExpand
 
           return (
-            <Collapsible key={project.name} defaultOpen={defaultOpen}>
+            <Collapsible
+              key={project.name}
+              open={isOpen}
+              onOpenChange={(open) => handleProjectOpenChange(project.name, open)}
+            >
               <SidebarGroup className="p-1 px-2">
                 <CollapsibleTrigger asChild>
                   <SidebarGroupLabel className="cursor-pointer hover:bg-sidebar-accent rounded-md transition-colors h-7">
