@@ -40,3 +40,7 @@ temp/
 
 # Worktrees
 .worktrees/
+
+# Local scratch / verification artifacts and agent worktree state
+.scratch/
+.claude/
