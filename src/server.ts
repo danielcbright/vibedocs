@@ -8,7 +8,6 @@ import { WebSocketServer, WebSocket } from 'ws'
 import type { Server } from 'net'
 import {
   discoverProjects,
-  resolveDocPath,
   filterProjects,
   parseFileTypeFilter,
   PROJECTS_DIR,
@@ -16,7 +15,8 @@ import {
 import { renderFile, extractToc } from './markdown.js'
 import { createIndexStore } from './search.js'
 import { registerSearchRoute } from './server-routes.js'
-import { resolveUploadDir, safeWriteFile } from './upload.js'
+import { safeWriteFile } from './upload.js'
+import { PathResolver } from './path-resolver.js'
 import {
   reloadMessage,
   refreshTreeMessage,
@@ -30,6 +30,15 @@ const PORT = parseInt(process.env.VIBEDOCS_PORT || process.env.PORT || '8080', 1
 
 const app = new Hono()
 const searchStore = createIndexStore({ projectsDir: PROJECTS_DIR })
+
+// Two PathResolver instances differ only in their extension allowlist:
+// - docResolver: markdown-only routes (render, raw)
+// - assetResolver: arbitrary file routes (upload, file)
+const docResolver = new PathResolver({
+  projectsDir: PROJECTS_DIR,
+  requireExtensions: ['.md', '.markdown'],
+})
+const assetResolver = new PathResolver({ projectsDir: PROJECTS_DIR })
 
 // Single error-translation point: VibedocsError → mapped status; anything else → 500.
 // Routes throw typed errors instead of building HTTP responses inline.
@@ -56,7 +65,7 @@ app.get('/api/render/:project/*', async (c) => {
     return c.json({ error: 'Missing project or path' }, 400)
   }
 
-  const resolved = resolveDocPath(project, docPath)
+  const resolved = docResolver.resolve(project, docPath)
 
   let html: string
   try {
@@ -81,7 +90,7 @@ app.get('/api/raw/:project/*', async (c) => {
     return c.json({ error: 'Missing project or path' }, 400)
   }
 
-  const resolved = resolveDocPath(project, docPath)
+  const resolved = docResolver.resolve(project, docPath)
 
   let content: string
   try {
@@ -105,7 +114,7 @@ app.post('/api/upload/:project/*', async (c) => {
     ? decodeURIComponent(fullPath.slice(prefix.length))
     : (c.req.param('*') || '')
 
-  const targetDir = resolveUploadDir(PROJECTS_DIR, project, folderPath)
+  const targetDir = assetResolver.resolve(project, folderPath)
 
   let s: Awaited<ReturnType<typeof fsStat>>
   try {
@@ -152,16 +161,7 @@ app.get('/api/file/:project/*', async (c) => {
     return c.json({ error: 'Missing project or path' }, 400)
   }
 
-  // Extract directory and filename, validate directory via resolveUploadDir
-  const dirPart = path.dirname(filePath)
-  const filePart = path.basename(filePath)
-  const resolvedDir = resolveUploadDir(PROJECTS_DIR, project, dirPart === '.' ? '' : dirPart)
-  const resolved = path.join(resolvedDir, filePart)
-
-  // Defense-in-depth: verify resolved path stays within project
-  if (!resolved.startsWith(resolvedDir + path.sep) && resolved !== resolvedDir) {
-    throw new VibedocsError('traversal', 'Invalid path')
-  }
+  const resolved = assetResolver.resolve(project, filePath)
 
   try {
     const content = await readFile(resolved)
