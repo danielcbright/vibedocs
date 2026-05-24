@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from 'vitest'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 
 /**
  * Regression test for issue #23.
@@ -69,6 +69,7 @@ async function findChunk(assetsDir: string, prefix: string): Promise<string> {
 describe('mermaid production bundle', () => {
   let assetsDir: string
   let indexChunkPath: string
+  let indexHtmlPath: string
 
   beforeAll(async () => {
     // Build the frontend into a throwaway dir so this test never collides
@@ -76,6 +77,7 @@ describe('mermaid production bundle', () => {
     await runViteBuild()
     assetsDir = path.join(outDir, 'assets')
     indexChunkPath = await findChunk(assetsDir, 'index-')
+    indexHtmlPath = path.join(outDir, 'index.html')
   }, 180_000)
 
   it('the index chunk does not leak the reverted-PR-22 broken-default access pattern', async () => {
@@ -102,47 +104,67 @@ describe('mermaid production bundle', () => {
     )
   })
 
-  it('the mermaid shim resolves at runtime to a usable mermaid API', async () => {
-    // Belt-and-braces: actually load the emitted mermaid chunk and walk
-    // every named export, confirming at least one is the real mermaid
-    // object (has the runtime methods the loader calls). If a future
-    // bundling change strips the mermaid object out of the chunk
-    // entirely, this fails before reaching a browser.
+  it('the emitted index.html does NOT modulepreload any mermaid chunk', async () => {
+    // Regression guard for the lazy-load criterion of issue #23.
     //
-    // Mermaid's chunk has an `accessibility` side-effect that calls into
-    // a `style` property at module-evaluation time — without a DOM-like
-    // environment the import throws synchronously. Mock the bits the
-    // module touches at top-level so the import succeeds in node.
-    type StyleStub = { setProperty: () => void }
-    type DocStub = { documentElement?: { style: StyleStub }; body?: { style: StyleStub } }
-    const g = globalThis as unknown as { document?: DocStub; window?: { addEventListener: () => void } }
-    const hadDoc = 'document' in g
-    const hadWin = 'window' in g
-    if (!hadDoc) {
-      const stubStyle = { setProperty: () => {} }
-      g.document = {
-        documentElement: { style: stubStyle },
-        body: { style: stubStyle },
-      }
-    }
-    if (!hadWin) g.window = { addEventListener: () => {} }
+    // Vite's modulepreload analysis walks the static-import graph from
+    // each entry point and emits `<link rel="modulepreload">` hints for
+    // every chunk it deems "needed soon". The previous fix kept a static
+    // `import mermaidDefault from 'mermaid'` inside the shim (which is
+    // itself dynamic-imported). Vite then either (a) emitted a
+    // `<link rel="modulepreload">` for the mermaid chunk in index.html,
+    // or (b) inlined the shim into the entry chunk and statically
+    // imported mermaid from there — either way the full 2.88 MB
+    // mermaid bundle was fetched alongside index.js on every page load,
+    // even on docs with zero diagrams, defeating the lazy-load story.
+    //
+    // The fix must arrange for NO modulepreload hint that references
+    // ANY mermaid chunk (mermaid-*.js, mermaid.core-*.js, or any other
+    // mermaid sub-module split) to appear in dist/index.html. The
+    // mermaid chunks must still be fetched on-demand the first time a
+    // doc with a `.mermaid` div is rendered.
+    const html = await fs.readFile(indexHtmlPath, 'utf-8')
+    const preloadRe = /<link\s+rel=["']modulepreload["'][^>]*href=["'][^"']*mermaid[.\-][^"']*\.js["'][^>]*>/i
+    expect(html).not.toMatch(preloadRe)
+  })
 
-    try {
-      const mermaidChunkPath = await findChunk(assetsDir, 'mermaid-')
-      const mod = await import(pathToFileURL(mermaidChunkPath).href)
-      const candidates = Object.values(mod).filter(
-        (v): v is Record<string, unknown> =>
-          typeof v === 'object' && v !== null,
-      )
-      const apiObj = candidates.find(
-        (v) =>
-          typeof v.initialize === 'function' &&
-          typeof v.render === 'function',
-      )
-      expect(apiObj).toBeDefined()
-    } finally {
-      if (!hadDoc) delete g.document
-      if (!hadWin) delete g.window
-    }
+  it('the entry index chunk does NOT statically import any mermaid-related chunk', async () => {
+    // The modulepreload test above catches Vite-emitted `<link>` hints,
+    // but a static `import ... from "./mermaid-X.js"` directly in the
+    // entry chunk would ALSO force the browser to fetch the mermaid
+    // chunk on every page load — and would not show up as a
+    // `modulepreload` hint. That was the deeper failure mode of an
+    // earlier attempt at this fix: `manualChunks` had placed Vite's
+    // `preloadHelper` inside the mermaid chunk, and the entry chunk
+    // then statically imported the helper from it. Stripping the
+    // modulepreload tag did nothing — the static `import` IS the load.
+    //
+    // With a properly dynamic shim and default chunking, the index
+    // chunk should only contain dynamic `import('./mermaid-shim-*.js')`
+    // calls — never a static `from "./<anything-mermaid>.js"`.
+    //
+    // We allow-list anything containing the word "mermaid" or one of
+    // mermaid's diagram sub-modules. If a future change requires a
+    // module name that legitimately collides with one of these prefixes
+    // it can be added to the regex.
+    const indexSource = await fs.readFile(indexChunkPath, 'utf-8')
+    const staticImportRe = /from\s*["']\.\/mermaid[.\-][^"']*\.js["']/i
+    expect(indexSource).not.toMatch(staticImportRe)
+  })
+
+  it('a mermaid-related chunk is actually emitted (not tree-shaken away)', async () => {
+    // Sanity check: even though we no longer pin mermaid into one chunk
+    // via `manualChunks`, the dynamic-import shim should still cause
+    // Rollup to emit at least one mermaid sub-module chunk (the entry
+    // chunk that the shim dynamic-imports). If a future config change
+    // accidentally inlined the shim's mermaid import into the entry
+    // chunk, lazy-loading would silently break — this test catches
+    // that, complementing the modulepreload / static-import structural
+    // guards above.
+    const files = await fs.readdir(assetsDir)
+    const mermaidChunks = files.filter(
+      (f) => /^mermaid[.\-]/.test(f) && f.endsWith('.js'),
+    )
+    expect(mermaidChunks.length).toBeGreaterThan(0)
   })
 })
