@@ -120,7 +120,7 @@ function FileTreeItem({
       <Collapsible open={isOpen} onOpenChange={setOpen}>
         <SidebarMenuSubItem>
           <CollapsibleTrigger asChild>
-            <SidebarMenuSubButton className="group/folder cursor-pointer text-xs h-6">
+            <SidebarMenuSubButton className="group/folder cursor-pointer text-xs h-6 tap-row tap-active-feedback">
               <ChevronRight
                 className={`h-3 w-3 shrink-0 transition-transform ${isOpen ? "rotate-90" : ""}`}
               />
@@ -135,7 +135,9 @@ function FileTreeItem({
               </Tooltip>
               <button
                 type="button"
-                className="ml-auto opacity-0 group-hover/folder:opacity-100 transition-opacity p-0.5 rounded hover:bg-sidebar-accent"
+                // `.tap-visible-on-touch` overrides opacity-0 on touch so
+                // there's no hover dependency. `.tap-target` gives it 44×44.
+                className="ml-auto opacity-0 group-hover/folder:opacity-100 transition-opacity p-0.5 rounded hover:bg-sidebar-accent tap-target tap-visible-on-touch tap-active-feedback"
                 onClick={(e) => {
                   e.stopPropagation()
                   fileInputRef.current?.click()
@@ -201,7 +203,7 @@ function FileTreeItem({
         <TooltipTrigger asChild>
           <SidebarMenuSubButton
             isActive={isActive}
-            className="cursor-pointer text-xs h-6"
+            className="cursor-pointer text-xs h-6 tap-row tap-active-feedback"
             onClick={handleFileClick}
           >
             <FileIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -314,15 +316,18 @@ export function AppSidebar({
             placeholder="Filter files..."
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            className="h-8 pl-8 text-xs"
+            // text-base (16px) on touch suppresses iOS auto-zoom on focus.
+            // h-11 keeps the input >= 44px so it's a real tap target.
+            // Desktop keeps text-xs / h-8 visual density via md: overrides.
+            className="h-11 pl-8 text-base md:h-8 md:text-xs"
           />
         </div>
         {/* Toolbar: view toggle + upload */}
-        <div className="flex items-center justify-between mt-2">
+        <div className="flex items-center justify-between mt-2 gap-2">
           <div className="flex items-center rounded-md border border-sidebar-border text-[11px] overflow-hidden">
             <button
               type="button"
-              className={`px-2.5 py-1 transition-colors ${
+              className={`tap-target tap-active-feedback px-2.5 py-1 transition-colors ${
                 viewMode === "docs"
                   ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
                   : "text-muted-foreground hover:text-sidebar-foreground"
@@ -333,7 +338,7 @@ export function AppSidebar({
             </button>
             <button
               type="button"
-              className={`px-2.5 py-1 transition-colors ${
+              className={`tap-target tap-active-feedback px-2.5 py-1 transition-colors ${
                 viewMode === "all"
                   ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
                   : "text-muted-foreground hover:text-sidebar-foreground"
@@ -347,7 +352,7 @@ export function AppSidebar({
             <TooltipTrigger asChild>
               <button
                 type="button"
-                className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+                className="tap-target tap-active-feedback flex items-center gap-1 px-2 py-1 rounded-md text-[11px] text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
                 onClick={() => toolbarFileInputRef.current?.click()}
                 disabled={!uploadTarget}
                 aria-label="Upload files"
@@ -392,7 +397,7 @@ export function AppSidebar({
             >
               <SidebarGroup className="p-1 px-2">
                 <CollapsibleTrigger asChild>
-                  <SidebarGroupLabel className="cursor-pointer hover:bg-sidebar-accent rounded-md transition-colors h-7">
+                  <SidebarGroupLabel className="cursor-pointer hover:bg-sidebar-accent rounded-md transition-colors h-7 tap-row tap-active-feedback">
                     <ChevronRight className="h-3 w-3 mr-1 shrink-0 transition-transform group-data-[state=open]/collapsible:rotate-90" />
                     <span className="truncate">{project.name}</span>
                   </SidebarGroupLabel>

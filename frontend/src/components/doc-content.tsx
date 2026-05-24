@@ -126,9 +126,10 @@ export function DocContent({ html, loading, error, project, docPath, connected, 
           <Button
             variant="ghost"
             size="icon"
-            className="h-7 w-7"
+            className="h-7 w-7 tap-target tap-active-feedback"
             onClick={handleCopy}
             title="Copy markdown"
+            aria-label="Copy markdown"
           >
             {copyState === "copied" ? (
               <Check className="h-3.5 w-3.5 text-green-500" />

@@ -85,6 +85,38 @@
   }
 }
 
+/* ── Touch-target accessibility (issue #15) ───────────────────────────────
+   On touch devices (no hover, coarse pointer) every interactive control
+   needs to meet Apple HIG 44×44 and Google Material 48×48 minimums so
+   fingers can actually hit them. On desktop / mouse / trackpad the
+   current visual density is preserved.
+
+   - `.tap-target`: square/icon-button equivalent. Expands min-width AND
+     min-height to 44px.
+   - `.tap-row`: full-width row equivalent (file tree row, TOC link).
+     Only expands min-height to 44px; width is whatever the layout gives.
+   - `.tap-visible-on-touch`: kills `opacity-0 hover:opacity-100` patterns
+     that hide tappable affordances on touch where there's no hover.
+   - `.tap-active-feedback`: ensures a visible :active background change
+     so taps register visually on touch.
+
+   All four are inert outside touch contexts. */
+@media (hover: none) and (pointer: coarse) {
+  .tap-target {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .tap-row {
+    min-height: 44px;
+  }
+  .tap-visible-on-touch {
+    opacity: 1 !important;
+  }
+  .tap-active-feedback:active {
+    background-color: var(--color-sidebar-accent, var(--color-accent));
+  }
+}
+
 /* ── ScrollArea viewport content sizing ──────────────────────────────────
    Radix UI ScrollArea wraps its children in an internal `display: table`
    div, which sizes to the natural max-content width of its children. With
