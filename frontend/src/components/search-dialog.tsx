@@ -12,10 +12,25 @@ import { useSearch } from "@/hooks/use-search"
 
 interface SearchDialogProps {
   onNavigate: (project: string, path: string) => void
+  /** Optional controlled open state. When provided, callers manage open/close. */
+  open?: boolean
+  /** Called when the dialog wants to open or close. Required if `open` is provided. */
+  onOpenChange?: (open: boolean) => void
 }
 
-export function SearchDialog({ onNavigate }: SearchDialogProps) {
-  const [open, setOpen] = useState(false)
+export function SearchDialog({ onNavigate, open: openProp, onOpenChange }: SearchDialogProps) {
+  const [internalOpen, setInternalOpen] = useState(false)
+  const isControlled = openProp !== undefined
+  const open = isControlled ? openProp : internalOpen
+  const setOpen = (next: boolean | ((prev: boolean) => boolean)) => {
+    const resolved = typeof next === "function" ? next(open) : next
+    if (isControlled) {
+      onOpenChange?.(resolved)
+    } else {
+      setInternalOpen(resolved)
+      onOpenChange?.(resolved)
+    }
+  }
   const [query, setQuery] = useState("")
   const { results, loading } = useSearch(query)
 
@@ -29,7 +44,8 @@ export function SearchDialog({ onNavigate }: SearchDialogProps) {
     }
     document.addEventListener("keydown", handler)
     return () => document.removeEventListener("keydown", handler)
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, isControlled])
 
   // Group results by project
   const grouped = results.reduce<Record<string, typeof results>>((acc, r) => {
