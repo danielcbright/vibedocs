@@ -149,7 +149,13 @@ export function DocContent({ html, loading, error, project, docPath, connected, 
 
       {/* Content */}
       <ScrollArea className="flex-1 overflow-hidden">
-        <div className="max-w-[900px] mx-auto px-8 py-6">
+        {/* w-full forces the inner column to fit the ScrollArea viewport
+            rather than growing to its natural max-content width. Without
+            this, a single wide <pre> or <table> inside the markdown stretches
+            the column to its own intrinsic width and pushes the page into
+            a redundant outer horizontal scroll — defeating per-element
+            scroll affordances. */}
+        <div className="w-full max-w-[900px] mx-auto px-8 py-6">
           {loading ? (
             <div className="space-y-4">
               <Skeleton className="h-8 w-3/4" />
