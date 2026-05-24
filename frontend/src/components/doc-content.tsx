@@ -9,6 +9,7 @@ import { ConnectionStatus } from "./connection-status"
 import { useTheme } from "./theme-provider"
 import { useRawDocument } from "@/hooks/use-raw-document"
 import { renderMermaidIn } from "@/lib/mermaid-loader"
+import type { FileNode } from "@/hooks/use-projects"
 
 interface DocContentProps {
   html: string
@@ -17,6 +18,8 @@ interface DocContentProps {
   project: string | null
   docPath: string | null
   connected: boolean
+  /** Active project's file tree, used by the breadcrumb dropdowns. */
+  projectTree?: FileNode[]
   /**
    * Monotonically-increasing counter that bumps on every WebSocket reload
    * event. The hook re-fetches raw markdown when this changes so the Copy
@@ -32,7 +35,7 @@ interface DocContentProps {
   mobileSearchTrigger?: () => void
 }
 
-export function DocContent({ html, loading, error, project, docPath, connected, reloadNonce, onNavigate, mobileSearchTrigger }: DocContentProps) {
+export function DocContent({ html, loading, error, project, docPath, connected, projectTree, reloadNonce, onNavigate, mobileSearchTrigger }: DocContentProps) {
   const contentRef = useRef<HTMLDivElement>(null)
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle")
   const { resolvedTheme } = useTheme()
@@ -120,7 +123,7 @@ export function DocContent({ html, loading, error, project, docPath, connected, 
       {/* Top bar */}
       <div className="flex items-center gap-2 border-b px-4 py-2 shrink-0">
         <div className="flex-1 min-w-0">
-          <BreadcrumbNav project={project} docPath={docPath} onNavigate={onNavigate} />
+          <BreadcrumbNav project={project} docPath={docPath} tree={projectTree} onNavigate={onNavigate} />
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <Button

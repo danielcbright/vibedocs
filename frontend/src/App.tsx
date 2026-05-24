@@ -91,6 +91,12 @@ function DocsApp() {
     window.location.hash = `${project}/${path}`
   }, [])
 
+  // Tree of the currently-active project — passed to DocContent so the
+  // breadcrumb dropdowns can list folder contents.
+  const activeProjectTree = activeProject
+    ? projects.find((p) => p.name === activeProject)?.tree ?? []
+    : []
+
   // Resolves a navigation target. Files navigate directly. Empty/folder paths
   // resolve to the first markdown file under that scope so breadcrumb clicks
   // ("vibedocs", "docs") land on a real doc instead of a 400 from the renderer.
@@ -197,6 +203,7 @@ function DocsApp() {
               project={activeProject}
               docPath={activePath}
               connected={connected}
+              projectTree={activeProjectTree}
               reloadNonce={reloadNonce}
               onNavigate={navigateSmart}
               mobileSearchTrigger={() => setSearchOpen(true)}
@@ -274,6 +281,7 @@ function DocsApp() {
                 project={activeProject}
                 docPath={activePath}
                 connected={connected}
+                projectTree={activeProjectTree}
                 reloadNonce={reloadNonce}
                 onNavigate={navigateSmart}
               />
