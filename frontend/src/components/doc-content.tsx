@@ -7,6 +7,7 @@ import { useState } from "react"
 import { BreadcrumbNav } from "./breadcrumb-nav"
 import { ConnectionStatus } from "./connection-status"
 import { useTheme } from "./theme-provider"
+import { useRawDocument } from "@/hooks/use-raw-document"
 
 interface DocContentProps {
   html: string
@@ -15,28 +16,21 @@ interface DocContentProps {
   project: string | null
   docPath: string | null
   connected: boolean
+  /**
+   * Monotonically-increasing counter that bumps on every WebSocket reload
+   * event. The hook re-fetches raw markdown when this changes so the Copy
+   * button always returns the latest content.
+   */
+  reloadNonce?: number
   onNavigate?: (project: string, path: string) => void
 }
 
-export function DocContent({ html, loading, error, project, docPath, connected, onNavigate }: DocContentProps) {
+export function DocContent({ html, loading, error, project, docPath, connected, reloadNonce, onNavigate }: DocContentProps) {
   const contentRef = useRef<HTMLDivElement>(null)
-  const rawContentRef = useRef<string>("")
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle")
   const { resolvedTheme } = useTheme()
 
-  // Pre-fetch raw markdown so it's ready when copy is clicked
-  useEffect(() => {
-    rawContentRef.current = ""
-    if (!project || !docPath) return
-    let cancelled = false
-    fetch(`/api/raw/${encodeURIComponent(project)}/${docPath}`)
-      .then((res) => res.text())
-      .then((text) => {
-        if (!cancelled) rawContentRef.current = text
-      })
-      .catch(() => {})
-    return () => { cancelled = true }
-  }, [project, docPath])
+  const { contentRef: rawContentRef } = useRawDocument(project, docPath, reloadNonce)
 
   // Initialize mermaid diagrams after HTML is inserted
   useEffect(() => {
@@ -88,7 +82,9 @@ export function DocContent({ html, loading, error, project, docPath, connected, 
       setCopyState("error")
     }
     setTimeout(() => setCopyState("idle"), 1500)
-  }, [])
+    // `rawContentRef` is a stable React ref; listed to satisfy the
+    // exhaustive-deps lint rule without changing handler identity.
+  }, [rawContentRef])
 
   if (!project || !docPath) {
     return (

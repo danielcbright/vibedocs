@@ -25,6 +25,7 @@ function parseHash(): { project: string | null; path: string | null } {
 function DocsApp() {
   const [activeProject, setActiveProject] = useState<string | null>(null)
   const [activePath, setActivePath] = useState<string | null>(null)
+  const [reloadNonce, setReloadNonce] = useState(0)
   const { projects, refresh: refreshProjects } = useProjects()
   const { html, toc, loading, error, refresh: refreshDoc } = useDocument(activeProject, activePath)
   const sidebarPanelRef = usePanelRef()
@@ -68,6 +69,7 @@ function DocsApp() {
   const { connected } = useWebSocket({
     onReload: useCallback(() => {
       refreshDoc()
+      setReloadNonce((n) => n + 1)
     }, [refreshDoc]),
     onRefreshTree: useCallback(() => {
       refreshProjects()
@@ -112,6 +114,7 @@ function DocsApp() {
               project={activeProject}
               docPath={activePath}
               connected={connected}
+              reloadNonce={reloadNonce}
               onNavigate={navigate}
             />
           </div>
