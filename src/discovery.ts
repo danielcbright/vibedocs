@@ -105,6 +105,29 @@ export async function discoverProjects(): Promise<ProjectInfo[]> {
 
 export { buildTree as buildTreePublic }
 
+/**
+ * Convert an absolute filesystem path under PROJECTS_DIR to a project-relative
+ * wire-format path: `<project>/<rel/path/to/file>`. Returns null if the
+ * absolute path is not strictly under projectsDir, or resolves to projectsDir
+ * itself (no project segment).
+ *
+ * This is the boundary helper for any code path that broadcasts file paths to
+ * untrusted clients (e.g. WebSocket reload messages). Keep absolute paths
+ * inside the process; emit only project-relative paths over the wire.
+ */
+export function toProjectRelativePath(
+  absPath: string,
+  projectsDir: string,
+): string | null {
+  const rel = path.relative(projectsDir, absPath)
+  if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) {
+    return null
+  }
+  // Force POSIX separators so the wire format matches the frontend's
+  // hash-routing convention regardless of host platform.
+  return rel.split(path.sep).join('/')
+}
+
 export type FileTypeFilter = 'all' | 'markdown' | 'assets'
 
 /**
