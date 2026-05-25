@@ -1,10 +1,11 @@
 # VibeDocs as a publishable static-site engine — design spec
 
-**Status:** draft (post-brainstorming, pre-grill)
+**Status:** draft (post-brainstorming, post-grill, pre-issues)
 **Date:** 2026-05-25
 **Forcing function:** [argus.io](https://argus.io) public OSS docs site (sister project under `~/claudebot/projects/argus/`, just shipped v0.1.0)
 **Brainstorming source:** session transcript 2026-05-25; user-supplied gap analysis (17 items, 4 categories)
-**Author:** coordinator agent, locked with user via /brainstorming
+**Author:** coordinator agent, locked with user via /brainstorming + /grill-me
+**PRD:** [issue #45](https://github.com/danielcbright/vibedocs/issues/45) (synthesised after brainstorming)
 
 ## Goal
 
@@ -310,6 +311,40 @@ Modified:
 8. **Frontmatter parsing?** → **Yes — add gray-matter**.
 9. **`defineSite` packaging?** → **Hardcode in argus's tsconfig for sprint 1; defer publishing `@vibedocs/config` to second-customer pressure**.
 
+## Decisions resolved during /grill-me
+
+The six brainstorming locks left several architectural cascades unresolved. /grill-me walked the dependency tree and pinned them.
+
+### Grilled-and-locked
+
+10. **Static-export render shape?** → **Hybrid**. Live mode keeps the SPA + Hono API (fast iteration). Build mode pre-renders every route to its own HTML file (`/docs/install/index.html`). Both consume the same `renderProject` core.
+11. **How much JavaScript ships in the static dist?** → **Content + lazy chrome JS**. Pre-rendered HTML contains the article + plain-link nav baked in (works without JS — readable, crawlable, SEO-friendly, agent-friendly). React bundle ships and mounts post-load to add chrome interactivity (sidebar, search palette, theme toggle, mobile drawer). **No hydration** — React renders chrome fresh against a mount target separate from the static article, avoiding hydration-mismatch failure modes.
+12. **URL shape in built `dist/`?** → **Clean URLs**. `docs/install.md` → `/docs/install/index.html`, browser shows `argus.io/docs/install/`. Internal markdown `.md` links rewritten to clean URLs at build time. Live tailnet keeps hash routes (`#argus/docs/install.md`). The renderer is mode-aware about link rewriting.
+13. **How does argus get the `vibedocs` build binary?** → **GitHub dep in package.json**. argus's `package.json` gets `"vibedocs": "github:danielcbright/vibedocs"`. `npm install` clones+builds vibedocs into argus/node_modules. CI runs `npx vibedocs build --project argus --out ./dist`. Same path local + CI. **Implication (added to risk/mitigation):** vibedocs needs a `prepare` script that compiles `src/cli/**/*.ts` → `dist-cli/` and a `bin.vibedocs` field pointing at the compiled entry. Today everything runs via `tsx`; this is new tooling work.
+14. **How does the live SPA learn per-project site config?** → **Inline in `/api/projects`**. The existing `/api/projects` response gets a `siteConfig: SiteConfig | null` field per project. One round trip serves tree + config. Server loads and caches configs on first hit; chokidar invalidates the cache when a project's `.vibedocs.config.ts` changes.
+15. **Live preview chrome fidelity?** → **Built-site faithful + 'switch project' affordance**. Live preview renders as close to the built site as possible: argus's `config.nav` drives the sidebar (not the file tree), argus theme applied throughout, doc footer has edit-on-GitHub, etc. The 'switch to another project' affordance is bolted on as a small dropdown in the top-right corner (live only). WYSIWYG between authoring and prod. The `AppSidebar` component grows a "site nav from config" rendering mode used by BOTH live preview and build.
+
+### Recommended-and-locked (no pushback from user)
+
+16. **Token namespace + shadcn collision?** → Site tokens override shadcn vars inside a `.vd-site-preview` scope: `.vd-site-preview { --color-foreground: var(--vd-site-foreground); --color-background: var(--vd-site-background); ... }`. Existing components inside the scope automatically pick up the site theme. The small switcher widget lives outside the scope and stays vibedocs-themed.
+17. **Asset placement in dist?** → Mirror source structure. `docs/diagram.png` → `/dist/docs/diagram.png`. Renderer computes relative `<img src="../diagram.png">` paths from the page's URL (e.g. `/docs/install/`) to the asset's URL. No flattening, no per-doc duplication.
+18. **Frontmatter `title:` semantics?** → Sets `<title>` and og:title only. The H1 in the body stays whatever the author wrote. No automatic H1 generation from frontmatter (predictable; avoids the surprise of two titles or a missing one).
+19. **Internal markdown link rewriting?** → Only in-project `.md` links are rewritten. Cross-project links are the author's responsibility (write absolute URLs if you really need a link from argus.io to brightopsinc.ai).
+20. **Pre-render HTML template?** → Hardcoded template inside the build CLI, composed from frontmatter + config. Per-customer template override is out of scope for sprint 1; revisit if a customer asks.
+21. **CSP for static dist?** → Same CSP as live, already locked-in by security #34. Built dist's `index.html` template carries the same `<meta http-equiv="Content-Security-Policy">` directive. Pagefind's chunks are same-origin and already permitted by `script-src 'self'`.
+
+## Risks and follow-ups surfaced during /grill-me
+
+(Append to the Risk + mitigation table above; pulled out here so they don't get lost in slicing.)
+
+| Risk | Mitigation |
+|---|---|
+| GitHub-dep distribution requires `prepare` script + compiled CLI — non-trivial new tooling | Land as its own sprint slice with explicit acceptance criteria: vibedocs's `prepare` script produces `dist-cli/` from `src/cli/**/*.ts`; `bin.vibedocs` resolves cleanly; a third-party project can `npm install github:danielcbright/vibedocs` and immediately run `npx vibedocs build` |
+| 'Switch project' corner dropdown is new UI for live preview | Small UX surface area: top-right corner, dropdown with project names, click navigates to `#<project>/...`. Visible only when live (omitted from build). Deserves its own slice (small) |
+| Asset URL rewriting is mode-aware (live `/api/file/...` vs built relative paths to mirrored structure) | Renderer takes a `mode: 'live' | 'build'` (or equivalent) parameter and computes asset URLs accordingly. Heavy test coverage required, especially for nested directories, images in subfolders, and edge cases like images referenced from a doc in a subfolder pointing UP to an asset higher in the tree |
+| Built-site-faithful preview means `AppSidebar` grows a second rendering mode | Site-nav mode renders config-declared sections instead of the file tree. The file-tree mode stays as-is for projects without `.vibedocs.config.ts`. The two modes share the same wrapper component but branch internally |
+| Live config is fetched via `/api/projects` — frontend now blocks on a richer response | Loader keeps current shape compatibility (`siteConfig` is optional, defaults to null). Frontend renders the SPA shell immediately and only switches to site-preview mode when the augmented payload arrives |
+
 ## What success looks like
 
 End of sprint:
@@ -326,4 +361,21 @@ End of sprint:
 
 ## Next step
 
-Per the skill chain (brainstorming → grill-me → to-issues), this spec hands off to `/grill-me` to stress-test the design choices before `/to-issues` cuts the sprint tickets.
+Per the skill chain (brainstorming → grill-me → to-issues): brainstorming is done (the original 9 open questions), the grill is done (an additional 12 cascading decisions, now locked), and this spec is the input to `/to-issues`. The proposed slicing plan (under sign-off before issues land) is:
+
+1. Pure renderer extraction (`src/render.ts`) — foundation; all other slices depend on this
+2. Site config loader + `defineSite` type helper (`src/site-config.ts`)
+3. `/api/projects` augmentation — inline siteConfig per project
+4. Build CLI scaffolding (`vibedocs build` → emits per-route HTML, no theme/SEO/llms.txt yet)
+5. Frontmatter parsing (gray-matter step) + per-page `<head>` SEO meta
+6. Per-site theming (token CSS vars + scoped override + theme.css escape hatch)
+7. AppSidebar "site nav from config" rendering mode (live + build)
+8. llms.txt + raw .md.txt generators
+9. sitemap.xml + robots.txt generators
+10. Edit-on-GitHub footer link
+11. Pagefind integration (post-build + frontend search hook abstraction)
+12. GitHub-dep distribution: `prepare` script + compiled CLI + `bin` field
+13. Switch-project corner widget for live preview
+14. GH Actions workflow template + argus.io integration (the capstone)
+
+Each slice is intended to be a vertical tracer-bullet (touches the necessary layers end-to-end, demoable on its own). The order is roughly dependency-driven: slice 1 is the foundation; slices 2-13 layer features; slice 14 puts argus.io live as the integration test.
