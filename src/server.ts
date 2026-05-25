@@ -10,6 +10,7 @@ import {
   discoverProjects,
   filterProjects,
   parseFileTypeFilter,
+  toProjectRelativePath,
   PROJECTS_DIR,
 } from './discovery.js'
 import { renderFile, extractToc } from './markdown.js'
@@ -289,34 +290,41 @@ chokidar
     ignored: ['**/node_modules/**', '**/.git/**'],
   })
   .on('change', (filePath: string) => {
-    console.log(`  ↺  changed: ${filePath.replace(PROJECTS_DIR + '/', '')}`)
+    const rel = toProjectRelativePath(filePath, PROJECTS_DIR)
+    console.log(`  ↺  changed: ${rel ?? filePath}`)
     if (isMarkdown(filePath)) {
-      broadcast(reloadMessage(filePath))
+      // Only broadcast paths that resolve under PROJECTS_DIR. Anything else
+      // would leak the absolute filesystem path to every connected client.
+      if (rel !== null) broadcast(reloadMessage(rel))
       rebuildSearchIndex()
     } else {
       broadcast(refreshTreeMessage())
     }
   })
   .on('add', (filePath: string) => {
-    console.log(`  +  added:   ${filePath.replace(PROJECTS_DIR + '/', '')}`)
+    const rel = toProjectRelativePath(filePath, PROJECTS_DIR)
+    console.log(`  +  added:   ${rel ?? filePath}`)
     broadcast(refreshTreeMessage())
     if (isMarkdown(filePath)) {
       rebuildSearchIndex()
     }
   })
   .on('unlink', (filePath: string) => {
-    console.log(`  -  removed: ${filePath.replace(PROJECTS_DIR + '/', '')}`)
+    const rel = toProjectRelativePath(filePath, PROJECTS_DIR)
+    console.log(`  -  removed: ${rel ?? filePath}`)
     broadcast(refreshTreeMessage())
     if (isMarkdown(filePath)) {
       rebuildSearchIndex()
     }
   })
   .on('addDir', (dirPath: string) => {
-    console.log(`  +  dir:     ${dirPath.replace(PROJECTS_DIR + '/', '')}`)
+    const rel = toProjectRelativePath(dirPath, PROJECTS_DIR)
+    console.log(`  +  dir:     ${rel ?? dirPath}`)
     broadcast(refreshTreeMessage())
   })
   .on('unlinkDir', (dirPath: string) => {
-    console.log(`  -  dir:     ${dirPath.replace(PROJECTS_DIR + '/', '')}`)
+    const rel = toProjectRelativePath(dirPath, PROJECTS_DIR)
+    console.log(`  -  dir:     ${rel ?? dirPath}`)
     broadcast(refreshTreeMessage())
   })
 
