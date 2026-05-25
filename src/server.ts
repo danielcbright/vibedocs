@@ -19,6 +19,8 @@ import { registerSearchRoute, registerFileRoute } from './server-routes.js'
 import { registerUploadRoute, registerConfigRoute } from './upload-route.js'
 import { parseUploadAuthConfig } from './upload-auth.js'
 import { PathResolver } from './path-resolver.js'
+import { loadSiteConfig } from './site-config.js'
+import { createSiteConfigCache } from './site-config-cache.js'
 import {
   reloadMessage,
   refreshTreeMessage,
@@ -33,6 +35,10 @@ const PORT = parseInt(process.env.VIBEDOCS_PORT || process.env.PORT || '8080', 1
 
 const app = new Hono()
 const searchStore = createIndexStore({ projectsDir: PROJECTS_DIR })
+const siteConfigCache = createSiteConfigCache({
+  loadConfig: loadSiteConfig,
+  projectsDir: PROJECTS_DIR,
+})
 
 // Two PathResolver instances differ only in their extension allowlist:
 // - docResolver: markdown-only routes (render, raw)
@@ -52,7 +58,17 @@ registerErrorHandler(app)
 app.get('/api/projects', async (c) => {
   const fileType = parseFileTypeFilter(c.req.query('fileType'))
   const projects = await discoverProjects()
-  return c.json({ data: filterProjects(projects, fileType) })
+  const filtered = filterProjects(projects, fileType)
+  // Attach each project's parsed .vibedocs.config.ts (or null). The cache
+  // short-circuits filesystem work on subsequent requests; chokidar
+  // invalidates entries when the source file changes (see watcher below).
+  const withConfig = await Promise.all(
+    filtered.map(async (p) => ({
+      ...p,
+      siteConfig: await siteConfigCache.get(p.name),
+    })),
+  )
+  return c.json({ data: withConfig })
 })
 
 app.get('/api/render/:project/*', async (c) => {
@@ -252,6 +268,10 @@ function isMarkdown(filePath: string): boolean {
   return filePath.endsWith('.md') || filePath.endsWith('.markdown')
 }
 
+function isSiteConfig(filePath: string): boolean {
+  return path.basename(filePath) === '.vibedocs.config.ts'
+}
+
 function rebuildSearchIndex(): void {
   searchStore.rebuild().then((v) => {
     console.log(`  🔍 Search index v${v}: rebuilt`)
@@ -268,6 +288,10 @@ chokidar
   .on('change', (filePath: string) => {
     const rel = toProjectRelativePath(filePath, PROJECTS_DIR)
     console.log(`  ↺  changed: ${rel ?? filePath}`)
+    // Site-config edits: drop the cached entry so the next /api/projects
+    // call re-parses the file. TODO(#62): each invalidation leaks one ESM
+    // module entry — see src/site-config-cache.ts header.
+    if (isSiteConfig(filePath)) siteConfigCache.invalidateFromPath(filePath)
     if (isMarkdown(filePath)) {
       // Only broadcast paths that resolve under PROJECTS_DIR. Anything else
       // would leak the absolute filesystem path to every connected client.
@@ -280,6 +304,7 @@ chokidar
   .on('add', (filePath: string) => {
     const rel = toProjectRelativePath(filePath, PROJECTS_DIR)
     console.log(`  +  added:   ${rel ?? filePath}`)
+    if (isSiteConfig(filePath)) siteConfigCache.invalidateFromPath(filePath)
     broadcast(refreshTreeMessage())
     if (isMarkdown(filePath)) {
       rebuildSearchIndex()
@@ -288,6 +313,7 @@ chokidar
   .on('unlink', (filePath: string) => {
     const rel = toProjectRelativePath(filePath, PROJECTS_DIR)
     console.log(`  -  removed: ${rel ?? filePath}`)
+    if (isSiteConfig(filePath)) siteConfigCache.invalidateFromPath(filePath)
     broadcast(refreshTreeMessage())
     if (isMarkdown(filePath)) {
       rebuildSearchIndex()
