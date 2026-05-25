@@ -4,7 +4,8 @@ import { usePanelRef } from "react-resizable-panels"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet"
 import { Button } from "@/components/ui/button"
-import { Menu, Search, BookOpen } from "lucide-react"
+import { Menu, Search } from "lucide-react"
+import { VibedocsLogo } from "@/components/vibedocs-logo"
 import { ThemeProvider } from "@/components/theme-provider"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { AppSidebar } from "@/components/app-sidebar"
@@ -126,6 +127,13 @@ function DocsApp() {
     setMobileSidebarOpen(false)
   }, [navigate])
 
+  // Clicking the logo: go home AND open search. Closes the mobile drawer if open.
+  const goHomeAndSearch = useCallback(() => {
+    window.location.hash = ""
+    setMobileSidebarOpen(false)
+    setSearchOpen(true)
+  }, [])
+
   // Ctrl+B toggles sidebar: mobile drawer when on mobile, resizable panel otherwise
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -177,12 +185,17 @@ function DocsApp() {
             >
               <Menu className="h-5 w-5" />
             </Button>
-            <div className="flex items-center gap-2 min-w-0 flex-1">
-              <BookOpen className="h-5 w-5 text-sidebar-primary shrink-0" />
+            <button
+              type="button"
+              onClick={goHomeAndSearch}
+              aria-label="Go home and open search"
+              className="tap-row tap-active-feedback flex items-center gap-2 min-w-0 flex-1 rounded-md px-1 -mx-1 text-left transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              <VibedocsLogo className="h-7 w-7 shrink-0" />
               <span className="font-semibold text-sm truncate">
                 {activeProject ?? "VibeDocs"}
               </span>
-            </div>
+            </button>
             <Button
               variant="ghost"
               size="icon"
@@ -228,6 +241,7 @@ function DocsApp() {
               onNavigate={navigateAndCloseDrawer}
               viewMode={viewMode}
               onViewModeChange={setViewMode}
+              onLogoClick={goHomeAndSearch}
             />
           </SheetContent>
         </Sheet>
@@ -262,6 +276,7 @@ function DocsApp() {
               onNavigate={navigate}
               viewMode={viewMode}
               onViewModeChange={setViewMode}
+              onLogoClick={goHomeAndSearch}
             />
           </ResizablePanel>
           <ResizableHandle withHandle />
