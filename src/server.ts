@@ -15,7 +15,7 @@ import {
 } from './discovery.js'
 import { renderFile, extractToc } from './markdown.js'
 import { createIndexStore } from './search.js'
-import { registerSearchRoute } from './server-routes.js'
+import { registerSearchRoute, registerFileRoute } from './server-routes.js'
 import { safeWriteFile } from './upload.js'
 import { PathResolver } from './path-resolver.js'
 import {
@@ -151,34 +151,13 @@ app.post('/api/upload/:project/*', async (c) => {
   return c.json({ data: results })
 })
 
-app.get('/api/file/:project/*', async (c) => {
-  const project = c.req.param('project')
-  const fullPath = new URL(c.req.url).pathname
-  const prefix = `/api/file/${encodeURIComponent(project)}/`
-  const filePath = fullPath.startsWith(prefix)
-    ? decodeURIComponent(fullPath.slice(prefix.length))
-    : (c.req.param('*') || '')
-
-  if (!project || !filePath) {
-    return c.json({ error: 'Missing project or path' }, 400)
-  }
-
-  const resolved = assetResolver.resolve(project, filePath)
-
-  try {
-    const content = await readFile(resolved)
-    const ext = path.extname(resolved).toLowerCase()
-    const contentType = CONTENT_TYPES[ext] || 'application/octet-stream'
-    return new Response(content, {
-      headers: { 'Content-Type': contentType },
-    })
-  } catch (err: any) {
-    if (err?.code === 'ENOENT') throw new VibedocsError('not-found', 'File not found', { cause: err })
-    throw new VibedocsError('io', 'Failed to read file', { cause: err })
-  }
-})
+registerFileRoute(app, assetResolver)
 
 // ── Content types ─────────────────────────────────────────────────────────────
+//
+// This map is for serving the built SPA (`/assets/*` and SPA fallback) — not
+// uploaded user content. The /api/file route uses a stricter map in
+// `server-routes.ts` that excludes .html and .svg to prevent stored XSS.
 
 const CONTENT_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
