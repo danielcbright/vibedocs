@@ -113,6 +113,84 @@ describe('PathResolver.resolve — non-existent project', () => {
   })
 })
 
+describe('PathResolver.resolve — dotfile / dot-directory rejection', () => {
+  it('throws VibedocsError(forbidden) for a top-level dotfile like .env', () => {
+    const resolver = new PathResolver({ projectsDir: tmpDir })
+    try {
+      resolver.resolve('myproject', '.env')
+      throw new Error('expected throw')
+    } catch (err) {
+      expect(err).toBeInstanceOf(VibedocsError)
+      expect((err as VibedocsError).code).toBe('forbidden')
+    }
+  })
+
+  it('throws VibedocsError(forbidden) for a file inside a dot-directory like .git/config', () => {
+    const resolver = new PathResolver({ projectsDir: tmpDir })
+    try {
+      resolver.resolve('myproject', '.git/config')
+      throw new Error('expected throw')
+    } catch (err) {
+      expect(err).toBeInstanceOf(VibedocsError)
+      expect((err as VibedocsError).code).toBe('forbidden')
+    }
+  })
+
+  it('throws VibedocsError(forbidden) for a dotfile nested under a regular directory like subdir/.env', () => {
+    const resolver = new PathResolver({ projectsDir: tmpDir })
+    try {
+      resolver.resolve('myproject', 'subdir/.env')
+      throw new Error('expected throw')
+    } catch (err) {
+      expect(err).toBeInstanceOf(VibedocsError)
+      expect((err as VibedocsError).code).toBe('forbidden')
+    }
+  })
+})
+
+describe('PathResolver.resolve — EXCLUDED_DIRS rejection', () => {
+  it('throws VibedocsError(forbidden) for a file inside node_modules', () => {
+    const resolver = new PathResolver({ projectsDir: tmpDir })
+    try {
+      resolver.resolve('myproject', 'node_modules/foo/bar.js')
+      throw new Error('expected throw')
+    } catch (err) {
+      expect(err).toBeInstanceOf(VibedocsError)
+      expect((err as VibedocsError).code).toBe('forbidden')
+    }
+  })
+
+  it('throws VibedocsError(forbidden) for a file inside dist', () => {
+    const resolver = new PathResolver({ projectsDir: tmpDir })
+    try {
+      resolver.resolve('myproject', 'dist/bundle.js')
+      throw new Error('expected throw')
+    } catch (err) {
+      expect(err).toBeInstanceOf(VibedocsError)
+      expect((err as VibedocsError).code).toBe('forbidden')
+    }
+  })
+
+  it('throws VibedocsError(forbidden) when an EXCLUDED_DIR appears as an intermediate path segment', () => {
+    const resolver = new PathResolver({ projectsDir: tmpDir })
+    try {
+      resolver.resolve('myproject', 'some/coverage/report.html')
+      throw new Error('expected throw')
+    } catch (err) {
+      expect(err).toBeInstanceOf(VibedocsError)
+      expect((err as VibedocsError).code).toBe('forbidden')
+    }
+  })
+
+  it('accepts a regular path that touches neither dotfiles nor EXCLUDED_DIRS', () => {
+    const resolver = new PathResolver({ projectsDir: tmpDir })
+    const result = resolver.resolve('myproject', 'regular/file.md')
+    expect(result as unknown as string).toBe(
+      path.join(tmpDir, 'myproject', 'regular', 'file.md')
+    )
+  })
+})
+
 describe('PathResolver — SafePath branding', () => {
   it('SafePath narrows at the type level so raw strings cannot impersonate it', () => {
     // Compile-time check: a function that requires SafePath must reject raw strings.
