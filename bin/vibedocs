@@ -1,0 +1,32 @@
+#!/usr/bin/env node
+// `vibedocs` CLI entrypoint (dev mode).
+//
+// This shebang launches Node, which then re-execs itself with tsx loaded
+// as an ESM loader so we can import the TypeScript source directly without
+// a build step. Slice #12 ships a compiled equivalent for npm distribution
+// (see PRD #45 + spec section 12); until then this is the canonical entry.
+
+import { spawnSync } from 'child_process'
+import { fileURLToPath } from 'url'
+import path from 'path'
+
+const here = path.dirname(fileURLToPath(import.meta.url))
+const cliEntry = path.resolve(here, '..', 'src', 'cli', 'index.ts')
+
+// Re-exec node with tsx as an ESM loader, then run a tiny launcher script
+// that imports the CLI and calls main(). Splitting the launcher out keeps
+// the argv-forwarding simple — tsx eats its own flags before we get to ours.
+const result = spawnSync(
+  process.execPath,
+  [
+    '--import',
+    'tsx',
+    '-e',
+    `import(${JSON.stringify(cliEntry)}).then(m => m.main(process.argv.slice(1))).then(c => process.exit(c ?? 0))`,
+    '--',
+    ...process.argv.slice(2),
+  ],
+  { stdio: 'inherit' },
+)
+
+process.exit(result.status ?? 0)
