@@ -1,0 +1,13 @@
+# Intentionally minimal: when this file exists, npm uses it instead of
+# .gitignore for pack inclusion. The `files` allowlist in package.json is
+# the source of truth for what ships in the published tarball; this file
+# just suppresses npm's .gitignore fallback so `files` entries like
+# `frontend/dist/` (which IS gitignored, as a build artifact) actually
+# make it into the published package.
+#
+# Add explicit excludes here only if `files` is too coarse to express the
+# exclusion needed.
+
+# Keep node_modules out of the tarball even if a `files` entry would have
+# implicitly included it.
+node_modules/

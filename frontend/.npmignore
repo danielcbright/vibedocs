@@ -1,0 +1,7 @@
+# When this file exists, npm uses it instead of frontend/.gitignore for
+# pack inclusion. Without it, `frontend/.gitignore`'s `dist` line excludes
+# the React build output (a build artifact, intentionally untracked) from
+# the published tarball — which would break `vibedocs build` for any
+# consumer installing via GitHub-dep.
+
+node_modules
