@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "declaration": false,
+    "sourceMap": false,
+    "outDir": "dist-cli",
+    "rootDir": "src"
+  },
+  "include": [
+    "src/cli/**/*.ts",
+    "src/render.ts",
+    "src/site-config.ts",
+    "src/markdown-plugins.ts",
+    "src/path-resolver.ts",
+    "src/errors.ts",
+    "src/discovery.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "dist-cli",
+    "frontend",
+    "tests"
+  ]
+}

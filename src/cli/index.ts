@@ -1,14 +1,20 @@
+#!/usr/bin/env node
 // `vibedocs` CLI dispatcher.
 //
 // Today: only one subcommand, `build`. Future slices add `serve` standalone
 // and possibly others; the dispatcher shape exists now so we don't have to
 // reshuffle the entry point later.
 //
-// Invoked via `bin/vibedocs` (shebang script that loads this with tsx). The
-// compiled equivalent ships in slice #12.
+// Two entry paths:
+//   - Dev: `bin/vibedocs` (shebang script that loads this via tsx)
+//   - Published: `dist-cli/cli/index.js` (compiled by the `prepare` script;
+//     `bin.vibedocs` in package.json points consumers at it). The shebang
+//     above survives `tsc` emission so the compiled file is directly
+//     executable post-install.
 
 import path from 'path'
 import { spawn } from 'child_process'
+import { fileURLToPath } from 'url'
 import { parseBuildArgs } from './args.js'
 import { runBuild } from './build.js'
 
@@ -102,4 +108,31 @@ function runServe(outDir: string, port: number): Promise<number> {
       resolve(1)
     })
   })
+}
+
+// Self-execution guard: when this module is the entry point (i.e. invoked
+// directly via the shebang as `node dist-cli/cli/index.js`, or as the
+// `vibedocs` bin), run `main()` with the user's argv. The dev `bin/vibedocs`
+// shim imports `main` and calls it explicitly, so this block stays inert in
+// that path. ESM has no `require.main === module`; we compare process.argv[1]
+// to import.meta.url instead.
+const invokedDirectly = (() => {
+  if (!process.argv[1]) return false
+  try {
+    return fileURLToPath(import.meta.url) === path.resolve(process.argv[1])
+  } catch {
+    return false
+  }
+})()
+
+if (invokedDirectly) {
+  // argv[0]=node, argv[1]=script path, argv[2+]=user args. main() expects
+  // just the user args (first slot is the subcommand).
+  main(process.argv.slice(2)).then(
+    (code) => process.exit(code ?? 0),
+    (err) => {
+      process.stderr.write(`vibedocs: ${(err as Error).message}\n`)
+      process.exit(1)
+    },
+  )
 }
