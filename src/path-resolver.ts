@@ -1,5 +1,6 @@
 import path from 'path'
 import { VibedocsError } from './errors.js'
+import { EXCLUDED_DIRS } from './discovery.js'
 
 /**
  * Branded type for filesystem paths that have been validated by a PathResolver.
@@ -48,6 +49,23 @@ export class PathResolver {
     // Layer 2: resolved target must not escape the project directory.
     if (!isWithin(target, projectDir)) {
       throw new VibedocsError('traversal', 'Invalid path')
+    }
+
+    // Layer 3: reject dotfiles / dot-directories and EXCLUDED_DIRS at any path
+    // segment under the project root. Discovery hides these (see discovery.ts),
+    // and the file-serving routes must not become a backdoor that re-exposes
+    // them (e.g. `.env`, `.git/config`, `node_modules/foo`).
+    if (target !== projectDir) {
+      const relUnderProject = path.relative(projectDir, target)
+      const segments = relUnderProject.split(path.sep)
+      for (const segment of segments) {
+        if (segment.startsWith('.')) {
+          throw new VibedocsError('forbidden', 'Forbidden path')
+        }
+        if (EXCLUDED_DIRS.has(segment)) {
+          throw new VibedocsError('forbidden', 'Forbidden path')
+        }
+      }
     }
 
     // Optional layer: file-extension allowlist.
