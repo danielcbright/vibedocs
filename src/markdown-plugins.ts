@@ -1,14 +1,17 @@
-import { unified } from 'unified'
-import remarkParse from 'remark-parse'
-import remarkGfm from 'remark-gfm'
-import remarkRehype from 'remark-rehype'
-import rehypeSlug from 'rehype-slug'
-import rehypeAutolinkHeadings from 'rehype-autolink-headings'
-import rehypeStringify from 'rehype-stringify'
-import rehypeShiki from '@shikijs/rehype'
-import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
+// Markdown render-pipeline plugins and the sanitizer schema.
+//
+// These are the building blocks `src/render.ts` composes into the unified
+// processor. Keeping them in a separate module lets the renderer evolve
+// (per-page state, per-mode behaviour) without re-mounting the pipeline
+// internals, and lets future render variants (e.g. RSS, search snippets)
+// re-use the same security boundary.
+//
+// IMPORTANT — `sanitizeSchema` is the project's HTML security boundary.
+// Loosening it requires a security review; see the comment block on the
+// export for what each allowance buys and why.
+
+import { defaultSchema } from 'rehype-sanitize'
 import type { Schema } from 'hast-util-sanitize'
-import { readFile } from 'fs/promises'
 import { visit } from 'unist-util-visit'
 import type { Node } from 'unist'
 
@@ -46,7 +49,7 @@ interface HastElement extends Node {
 // as plain text and the stringifier HTML-encodes (`<` → `&#x3C;` etc). The
 // client-side mermaid renderer reads `textContent`, which decodes the entity
 // references back to the original characters — so the diagram still renders.
-function remarkMermaid() {
+export function remarkMermaid() {
   return (tree: Node) => {
     visit(tree, 'code', (node: CodeNode, index, parent: any) => {
       if (node.lang !== 'mermaid') return
@@ -67,7 +70,7 @@ function remarkMermaid() {
 // Rehype plugin: wrap each <table> in <div class="table-wrap"> so the CSS
 // horizontal-scroll affordance has a real scroll container to attach to on
 // narrow viewports. See frontend/src/index.css `.table-wrap` rules.
-function rehypeWrapTables() {
+export function rehypeWrapTables() {
   return (tree: Node) => {
     visit(tree, 'element', (node: HastElement, index, parent: any) => {
       if (node.tagName !== 'table') return
@@ -118,7 +121,7 @@ function rehypeWrapTables() {
 //
 // Anything not listed here is stripped. The schema is the security boundary;
 // do not loosen it without reviewing what new vectors that opens.
-const sanitizeSchema: Schema = {
+export const sanitizeSchema: Schema = {
   ...defaultSchema,
   // Disable id-clobbering so heading anchors keep their natural ids and the
   // `href="#slug"` autolinks resolve correctly. The default schema prefixes
@@ -150,60 +153,9 @@ const sanitizeSchema: Schema = {
   },
 }
 
-// Build the processor once (shiki init is async, handled via rehypeShiki)
-async function buildProcessor() {
-  return unified()
-    .use(remarkParse)
-    .use(remarkGfm)
-    .use(remarkMermaid)
-    // No `allowDangerousHtml`: raw HTML in markdown is parsed as text and
-    // will be escaped (or, if we ever opted back in, would need a follow-up
-    // `rehype-raw` pass — we don't, on purpose).
-    .use(remarkRehype)
-    .use(rehypeShiki, {
-      themes: {
-        light: 'github-light',
-        dark: 'github-dark',
-      },
-      defaultColor: false,
-      // Don't error on unknown languages — fall back to plain text
-      fallbackLanguage: 'text',
-    })
-    .use(rehypeWrapTables)
-    .use(rehypeSlug)
-    .use(rehypeAutolinkHeadings, {
-      behavior: 'wrap',
-      properties: { className: ['heading-anchor'] },
-    })
-    // Sanitize AFTER all rehype transforms so Shiki's spans, our table
-    // wrappers, mermaid divs, and autolink-heading anchors are visible to
-    // the schema. Running it earlier would let later plugins re-introduce
-    // unsafe markup; running it last is the security boundary.
-    .use(rehypeSanitize, sanitizeSchema)
-    .use(rehypeStringify)
-}
-
-let processorPromise: ReturnType<typeof buildProcessor> | null = null
-
-function getProcessor() {
-  if (!processorPromise) {
-    processorPromise = buildProcessor()
-  }
-  return processorPromise
-}
-
-export async function renderMarkdown(content: string): Promise<string> {
-  const processor = await getProcessor()
-  const result = await processor.process(content)
-  return String(result)
-}
-
-export async function renderFile(filePath: string): Promise<string> {
-  const content = await readFile(filePath, 'utf-8')
-  return renderMarkdown(content)
-}
-
-// Extract headings for table of contents
+// Extract headings for table of contents. Pure HTML scanner — operates on
+// the rendered output, so it lives alongside the other render-pipeline
+// helpers rather than inside the unified processor.
 export function extractToc(html: string): Array<{ level: number; id: string; text: string }> {
   const toc: Array<{ level: number; id: string; text: string }> = []
   const headingRe = /<h([1-3])[^>]*id="([^"]+)"[^>]*>([\s\S]*?)<\/h[1-3]>/gi

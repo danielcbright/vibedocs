@@ -1,22 +1,55 @@
-import { describe, it, expect } from 'vitest'
-import { readFile } from 'fs/promises'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { mkdtemp, rm, writeFile, readFile } from 'fs/promises'
+import path from 'path'
+import os from 'os'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
-import { renderMarkdown } from '../src/markdown.js'
+import { renderSinglePage } from '../src/render.js'
+import type { SafePath } from '../src/path-resolver.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-describe('renderMarkdown — XSS sanitization', () => {
+// Test helper: render a markdown source string through `renderSinglePage`
+// (the live-mode renderer) by materialising it as a temp file. The render
+// pipeline is the same as production — this is what the live `/api/render`
+// route and the build CLI both use. We bypass `PathResolver` and brand the
+// absolute path directly because path validation isn't what these tests
+// pin; the sanitizer behaviour is.
+async function renderMarkdownString(
+  tmpDir: string,
+  md: string,
+  filename = 'doc.md',
+): Promise<string> {
+  const absPath = path.join(tmpDir, filename)
+  await writeFile(absPath, md)
+  const page = await renderSinglePage(
+    absPath as SafePath,
+    path.basename(tmpDir),
+    filename,
+    'live',
+  )
+  return page.html
+}
+
+let tmpDir: string
+
+beforeEach(async () => {
+  tmpDir = await mkdtemp(path.join(os.tmpdir(), 'vibedocs-sanitize-test-'))
+})
+
+afterEach(async () => {
+  await rm(tmpDir, { recursive: true, force: true })
+})
+
+describe('renderSinglePage — XSS sanitization', () => {
   it('strips inline <script> tags from raw HTML in markdown', async () => {
-    const md = 'Hello\n\n<script>alert(1)</script>\n\nworld'
-    const html = await renderMarkdown(md)
+    const html = await renderMarkdownString(tmpDir, 'Hello\n\n<script>alert(1)</script>\n\nworld')
     expect(html).not.toContain('<script')
     expect(html).not.toContain('alert(1)')
   })
 
   it('strips onerror (and other event handlers) from inline <img> tags', async () => {
-    const md = 'Look: <img src="x" onerror="alert(1)">'
-    const html = await renderMarkdown(md)
+    const html = await renderMarkdownString(tmpDir, 'Look: <img src="x" onerror="alert(1)">')
     // The onerror attribute (the actual XSS vector) must NOT survive. Whether
     // the <img> itself survives is acceptable either way — what matters is
     // that the event handler is gone.
@@ -25,15 +58,16 @@ describe('renderMarkdown — XSS sanitization', () => {
   })
 
   it('strips <iframe> tags from raw HTML in markdown', async () => {
-    const md = 'Before\n\n<iframe src="https://evil.example/x"></iframe>\n\nafter'
-    const html = await renderMarkdown(md)
+    const html = await renderMarkdownString(
+      tmpDir,
+      'Before\n\n<iframe src="https://evil.example/x"></iframe>\n\nafter',
+    )
     expect(html).not.toMatch(/<iframe/i)
     expect(html).not.toContain('evil.example')
   })
 
   it('strips javascript: URLs from markdown links', async () => {
-    const md = '[click me](javascript:alert(1))'
-    const html = await renderMarkdown(md)
+    const html = await renderMarkdownString(tmpDir, '[click me](javascript:alert(1))')
     expect(html).not.toContain('javascript:')
     expect(html).not.toContain('alert(1)')
     // The link text should still be present
@@ -47,7 +81,7 @@ describe('renderMarkdown — XSS sanitization', () => {
     // invariants that the sanitizer schema must not strip.
     const archPath = join(__dirname, '..', 'docs', 'architecture.md')
     const md = await readFile(archPath, 'utf-8')
-    const html = await renderMarkdown(md)
+    const html = await renderMarkdownString(tmpDir, md)
 
     // Headings get id attributes from rehype-slug + heading-anchor wrap
     expect(html).toMatch(/<h1[^>]*id="[^"]+"/)
@@ -62,8 +96,7 @@ describe('renderMarkdown — XSS sanitization', () => {
   })
 
   it('preserves mermaid wrapper div for benign diagram source', async () => {
-    const md = '```mermaid\ngraph TD\n  A --> B\n```'
-    const html = await renderMarkdown(md)
+    const html = await renderMarkdownString(tmpDir, '```mermaid\ngraph TD\n  A --> B\n```')
     expect(html).toMatch(/<div class="mermaid">graph TD/)
   })
 
@@ -81,7 +114,7 @@ describe('renderMarkdown — XSS sanitization', () => {
       'const x = 1;',
       '```',
     ].join('\n')
-    const html = await renderMarkdown(md)
+    const html = await renderMarkdownString(tmpDir, md)
     expect(html).toMatch(/<h1[^>]*id="hello"/)
     expect(html).toMatch(/<a [^>]*href="https:\/\/example\.com\/page"/)
     expect(html).toMatch(/<code>inline code<\/code>/)
@@ -97,20 +130,16 @@ describe('renderMarkdown — XSS sanitization', () => {
     // and inject an executable script tag.
     const payload = '</div><script>alert(1)</script><div>'
     const md = '```mermaid\n' + payload + '\n```'
-    const html = await renderMarkdown(md)
+    const html = await renderMarkdownString(tmpDir, md)
     // No parseable <script> tag may survive. The diagram source text may
     // still contain the literal characters s-c-r-i-p-t (HTML-encoded), but
     // a browser parsing the output must not see an actual script element.
-    // We check that the `<` is HTML-escaped wherever it precedes `script`,
-    // and that no raw `<script>` tag appears.
     expect(html).not.toMatch(/<script[\s>]/i)
     expect(html).not.toMatch(/<\/script>/i)
     // The wrapper div should still be present so the client-side mermaid
     // renderer can pick the diagram up.
     expect(html).toMatch(/<div class="mermaid">/)
     // The wrapper must also close as a div, not be broken out of mid-way.
-    // (A bug here would manifest as the diagram source appearing OUTSIDE
-    // the wrapper or the wrapper being closed early by an injected </div>.)
     expect(html).toMatch(/<div class="mermaid">[^<]*&#x3C;\/div>/)
   })
 })
