@@ -17,6 +17,9 @@ import { access, mkdtemp, writeFile, rm } from 'fs/promises'
 import { pathToFileURL } from 'url'
 import * as esbuild from 'esbuild'
 import { VibedocsError } from './errors.js'
+import type { SiteConfig } from './shared/site-config-types.js'
+
+export type { SiteConfig } from './shared/site-config-types.js'
 
 const CONFIG_FILENAME = '.vibedocs.config.ts'
 
@@ -88,34 +91,6 @@ async function transpileAndImport(configPath: string): Promise<unknown> {
     )
   } finally {
     await rm(tmp, { recursive: true, force: true })
-  }
-}
-
-export interface SiteConfig {
-  name: string
-  domain: string
-  description: string
-  theme: {
-    tokens: Record<string, string>
-    logo?: string
-    favicon?: string
-    css?: string
-  }
-  nav?: {
-    sections: Array<{ label: string; items: string[] }>
-  }
-  llms: {
-    summary: string
-    keyDocs: string[]
-  }
-  seo?: {
-    ogImage?: string
-    twitterHandle?: string
-  }
-  editOnGitHub?: {
-    repo: string
-    branch: string
-    rootPath: string
   }
 }
 

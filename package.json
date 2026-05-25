@@ -32,8 +32,9 @@
     "dev:frontend": "cd frontend && npx vite",
     "build": "cd frontend && npm install && npx vite build",
     "start": "tsx src/server.ts",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "vitest run && cd frontend && npx vitest run",
+    "test:watch": "vitest",
+    "test:frontend": "cd frontend && npx vitest run"
   },
   "dependencies": {
     "@hono/node-server": "^1",

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
+import type { SiteConfig } from "@shared/site-config-types"
 
 export interface FileNode {
   name: string
@@ -12,6 +13,10 @@ export interface ProjectInfo {
   name: string
   hasDocsFolder: boolean
   tree: FileNode[]
+  /** Per-project site config (loaded from `.vibedocs.config.ts`). `null` when
+   *  the project ships no config file; `undefined` only on the wire while a
+   *  pre-config server is in flight. */
+  siteConfig?: SiteConfig | null
 }
 
 export type FileTypeFilter = "all" | "markdown" | "assets"
