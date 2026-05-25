@@ -46,7 +46,7 @@ interface HastElement extends Node {
 // as plain text and the stringifier HTML-encodes (`<` → `&#x3C;` etc). The
 // client-side mermaid renderer reads `textContent`, which decodes the entity
 // references back to the original characters — so the diagram still renders.
-function remarkMermaid() {
+export function remarkMermaid() {
   return (tree: Node) => {
     visit(tree, 'code', (node: CodeNode, index, parent: any) => {
       if (node.lang !== 'mermaid') return
@@ -67,7 +67,7 @@ function remarkMermaid() {
 // Rehype plugin: wrap each <table> in <div class="table-wrap"> so the CSS
 // horizontal-scroll affordance has a real scroll container to attach to on
 // narrow viewports. See frontend/src/index.css `.table-wrap` rules.
-function rehypeWrapTables() {
+export function rehypeWrapTables() {
   return (tree: Node) => {
     visit(tree, 'element', (node: HastElement, index, parent: any) => {
       if (node.tagName !== 'table') return
@@ -118,7 +118,7 @@ function rehypeWrapTables() {
 //
 // Anything not listed here is stripped. The schema is the security boundary;
 // do not loosen it without reviewing what new vectors that opens.
-const sanitizeSchema: Schema = {
+export const sanitizeSchema: Schema = {
   ...defaultSchema,
   // Disable id-clobbering so heading anchors keep their natural ids and the
   // `href="#slug"` autolinks resolve correctly. The default schema prefixes

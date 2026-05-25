@@ -13,7 +13,7 @@ import {
   toProjectRelativePath,
   PROJECTS_DIR,
 } from './discovery.js'
-import { renderFile, extractToc } from './markdown.js'
+import { renderSinglePage } from './render.js'
 import { createIndexStore } from './search.js'
 import { registerSearchRoute, registerFileRoute } from './server-routes.js'
 import { registerUploadRoute, registerConfigRoute } from './upload-route.js'
@@ -68,17 +68,21 @@ app.get('/api/render/:project/*', async (c) => {
     return c.json({ error: 'Missing project or path' }, 400)
   }
 
-  const resolved = docResolver.resolve(project, docPath)
+  // Resolver validates the path (traversal + extension) before we touch disk.
+  // The resolved SafePath is used by `renderSinglePage` indirectly via the
+  // joined `projectPath + docPath`. Validating here keeps the route as the
+  // single security boundary.
+  docResolver.resolve(project, docPath)
 
-  let html: string
+  const projectPath = path.join(PROJECTS_DIR, project)
+  let page: Awaited<ReturnType<typeof renderSinglePage>>
   try {
-    html = await renderFile(resolved)
+    page = await renderSinglePage(projectPath, docPath, 'live')
   } catch (err: any) {
     if (err?.code === 'ENOENT') throw new VibedocsError('not-found', 'File not found', { cause: err })
     throw new VibedocsError('io', 'Failed to render document', { cause: err })
   }
-  const toc = extractToc(html)
-  return c.json({ data: { html, toc } })
+  return c.json({ data: { html: page.html, toc: page.toc } })
 })
 
 app.get('/api/raw/:project/*', async (c) => {
