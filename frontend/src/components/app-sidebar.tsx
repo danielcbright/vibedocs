@@ -22,7 +22,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { BookOpen, ChevronRight, File, FileText, Folder, Image, Search, Upload } from "lucide-react"
+import { ChevronRight, File, FileText, Folder, Image, Search, Upload } from "lucide-react"
+import { VibedocsLogo } from "@/components/vibedocs-logo"
 import { ThemeToggle } from "@/components/theme-toggle"
 import type { ProjectInfo, FileNode } from "@/hooks/use-projects"
 
@@ -35,6 +36,9 @@ interface AppSidebarProps {
   onNavigate: (project: string, path: string) => void
   viewMode: ViewMode
   onViewModeChange: (mode: ViewMode) => void
+  /** Click handler for the brand logo in the sidebar header — typically
+   *  "go home and open search palette". When omitted, the logo is non-interactive. */
+  onLogoClick?: () => void
 }
 
 const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"])
@@ -89,6 +93,7 @@ function FileTreeItem({
   depth: number
 }) {
   const [open, setOpen] = useState(false)
+  const [userClosed, setUserClosed] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // Auto-expand if active file is inside this folder, or if filtering
@@ -98,7 +103,23 @@ function FileTreeItem({
     return false
   }, [filter, activePath, node])
 
-  const isOpen = open || shouldAutoExpand
+  // Reset userClosed when the auto-expand reason changes (e.g. navigated to a different file)
+  const prevAutoExpand = useRef(shouldAutoExpand)
+  useEffect(() => {
+    if (shouldAutoExpand && !prevAutoExpand.current) {
+      setUserClosed(false)
+    }
+    prevAutoExpand.current = shouldAutoExpand
+  }, [shouldAutoExpand])
+
+  const isOpen = open || (shouldAutoExpand && !userClosed)
+
+  const handleOpenChange = useCallback((value: boolean) => {
+    setOpen(value)
+    if (!value && shouldAutoExpand) {
+      setUserClosed(true)
+    }
+  }, [shouldAutoExpand])
 
   const handleUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
@@ -117,7 +138,7 @@ function FileTreeItem({
     if (filter && !matchesFilter(node, filter)) return null
 
     return (
-      <Collapsible open={isOpen} onOpenChange={setOpen}>
+      <Collapsible open={isOpen} onOpenChange={handleOpenChange}>
         <SidebarMenuSubItem>
           <CollapsibleTrigger asChild>
             <SidebarMenuSubButton className="group/folder cursor-pointer text-xs h-6 tap-row tap-active-feedback">
@@ -225,6 +246,7 @@ export function AppSidebar({
   onNavigate,
   viewMode,
   onViewModeChange,
+  onLogoClick,
 }: AppSidebarProps) {
   const [filter, setFilter] = useState("")
   const [uploadStatus, setUploadStatus] = useState<{ message: string; type: "success" | "error" } | null>(null)
@@ -293,10 +315,22 @@ export function AppSidebar({
     <div className="h-full flex flex-col border-r bg-sidebar text-sidebar-foreground overflow-hidden">
       <SidebarHeader className="border-b border-sidebar-border px-4 py-3">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <BookOpen className="h-5 w-5 text-sidebar-primary" />
-            <span className="font-semibold text-sm">VibeDocs</span>
-          </div>
+          {onLogoClick ? (
+            <button
+              type="button"
+              onClick={onLogoClick}
+              aria-label="Go home and open search"
+              className="tap-row tap-active-feedback flex items-center gap-2 rounded-md px-1 -mx-1 transition-colors hover:bg-sidebar-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-sidebar-ring"
+            >
+              <VibedocsLogo className="h-7 w-7 shrink-0" />
+              <span className="font-semibold text-sm">VibeDocs</span>
+            </button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <VibedocsLogo className="h-7 w-7 shrink-0" />
+              <span className="font-semibold text-sm">VibeDocs</span>
+            </div>
+          )}
           <ThemeToggle />
         </div>
         {uploadStatus && (
