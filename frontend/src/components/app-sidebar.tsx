@@ -39,6 +39,10 @@ interface AppSidebarProps {
   /** Click handler for the brand logo in the sidebar header — typically
    *  "go home and open search palette". When omitted, the logo is non-interactive. */
   onLogoClick?: () => void
+  /** When false, all upload UI is hidden. Server returns 404 to upload
+   *  requests in read-only or no-token-configured deployments; this
+   *  matches the visible affordances to the server's actual behavior. */
+  uploadEnabled?: boolean
 }
 
 const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"])
@@ -83,6 +87,7 @@ function FileTreeItem({
   onNavigate,
   onUploadStatus,
   depth,
+  uploadEnabled,
 }: {
   node: FileNode
   project: string
@@ -91,6 +96,7 @@ function FileTreeItem({
   onNavigate: (project: string, path: string) => void
   onUploadStatus: (status: { message: string; type: "success" | "error" }) => void
   depth: number
+  uploadEnabled: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [userClosed, setUserClosed] = useState(false)
@@ -154,26 +160,30 @@ function FileTreeItem({
                   {node.path}
                 </TooltipContent>
               </Tooltip>
-              <button
-                type="button"
-                // `.tap-visible-on-touch` overrides opacity-0 on touch so
-                // there's no hover dependency. `.tap-target` gives it 44×44.
-                className="ml-auto opacity-0 group-hover/folder:opacity-100 transition-opacity p-0.5 rounded hover:bg-sidebar-accent tap-target tap-visible-on-touch tap-active-feedback"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  fileInputRef.current?.click()
-                }}
-                aria-label={`Upload files to ${node.name}`}
-              >
-                <Upload className="h-3 w-3 text-muted-foreground" />
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                className="hidden"
-                onChange={handleUpload}
-              />
+              {uploadEnabled && (
+                <>
+                  <button
+                    type="button"
+                    // `.tap-visible-on-touch` overrides opacity-0 on touch so
+                    // there's no hover dependency. `.tap-target` gives it 44×44.
+                    className="ml-auto opacity-0 group-hover/folder:opacity-100 transition-opacity p-0.5 rounded hover:bg-sidebar-accent tap-target tap-visible-on-touch tap-active-feedback"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      fileInputRef.current?.click()
+                    }}
+                    aria-label={`Upload files to ${node.name}`}
+                  >
+                    <Upload className="h-3 w-3 text-muted-foreground" />
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={handleUpload}
+                  />
+                </>
+              )}
             </SidebarMenuSubButton>
           </CollapsibleTrigger>
           <CollapsibleContent>
@@ -188,6 +198,7 @@ function FileTreeItem({
                   onNavigate={onNavigate}
                   onUploadStatus={onUploadStatus}
                   depth={depth + 1}
+                  uploadEnabled={uploadEnabled}
                 />
               ))}
             </SidebarMenuSub>
@@ -247,6 +258,7 @@ export function AppSidebar({
   viewMode,
   onViewModeChange,
   onLogoClick,
+  uploadEnabled = false,
 }: AppSidebarProps) {
   const [filter, setFilter] = useState("")
   const [uploadStatus, setUploadStatus] = useState<{ message: string; type: "success" | "error" } | null>(null)
@@ -382,30 +394,34 @@ export function AppSidebar({
               All
             </button>
           </div>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                className="tap-target tap-active-feedback flex items-center gap-1 px-2 py-1 rounded-md text-[11px] text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
-                onClick={() => toolbarFileInputRef.current?.click()}
-                disabled={!uploadTarget}
-                aria-label="Upload files"
-              >
-                <Upload className="h-3.5 w-3.5" />
-                <span>Upload</span>
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="text-xs">
-              {uploadTarget ? `Upload to ${uploadTarget}` : "No project selected"}
-            </TooltipContent>
-          </Tooltip>
-          <input
-            ref={toolbarFileInputRef}
-            type="file"
-            multiple
-            className="hidden"
-            onChange={handleToolbarUpload}
-          />
+          {uploadEnabled && (
+            <>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="tap-target tap-active-feedback flex items-center gap-1 px-2 py-1 rounded-md text-[11px] text-muted-foreground hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+                    onClick={() => toolbarFileInputRef.current?.click()}
+                    disabled={!uploadTarget}
+                    aria-label="Upload files"
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                    <span>Upload</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">
+                  {uploadTarget ? `Upload to ${uploadTarget}` : "No project selected"}
+                </TooltipContent>
+              </Tooltip>
+              <input
+                ref={toolbarFileInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={handleToolbarUpload}
+              />
+            </>
+          )}
         </div>
       </SidebarHeader>
       <SidebarContent>
@@ -451,6 +467,7 @@ export function AppSidebar({
                               onNavigate={onNavigate}
                               onUploadStatus={setUploadStatus}
                               depth={0}
+                              uploadEnabled={uploadEnabled}
                             />
                           ))}
                         </SidebarMenuSub>
