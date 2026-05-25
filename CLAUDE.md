@@ -21,6 +21,26 @@ VibeDocs — self-hosted markdown documentation browser. Hono backend + React fr
 | `VIBEDOCS_PORT` or `PORT` | `8080` | Server port |
 | `VIBEDOCS_WS_ALLOWED_ORIGINS` | _(unset)_ | Comma-separated extra Origin allowlist for the WebSocket handshake. Defaults always include `http://localhost:8080`, `http://localhost:5173`, and `http://localhost:${PORT}`. Add tailnet/public hostnames here (e.g. `http://vibedocs.tailnet:8080`) when exposing vibedocs beyond localhost. |
 | `VIBEDOCS_WS_ALLOW_NO_ORIGIN` | `false` | When `true`, accept WS handshakes with no `Origin` header (non-browser clients like `wscat`). Default denies them so the threat model stays browser-driven CSWSH. |
+| `VIBEDOCS_UPLOAD_TOKEN` | _(unset)_ | Shared-secret bearer token gating `POST /api/upload/*`. When unset, the upload endpoint returns 404 (safe by default — uploads disabled). When set, requests must send `Authorization: Bearer <token>`. |
+| `VIBEDOCS_READ_ONLY` | `false` | When truthy (`true`/`1`/`yes`/`on`), `POST /api/upload/*` returns 404 unconditionally — even with a valid token. Frontend upload UI is hidden. Read-only takes precedence over the token gate. |
+| `VIBEDOCS_UPLOAD_MAX_BYTES` | `10485760` (10 MB) | Per-file upload size cap. Files exceeding this return 413. |
+
+### Upload deployment modes
+
+| Mode | `VIBEDOCS_UPLOAD_TOKEN` | `VIBEDOCS_READ_ONLY` | Result |
+|---|---|---|---|
+| Local dev (default) | unset | unset | `POST /api/upload/*` → 404. `/api/config` → `{ uploadEnabled: false }`. Upload UI hidden. |
+| Trusted team | set | unset | Upload requires `Authorization: Bearer <token>`. `/api/config` → `{ uploadEnabled: true }`. Upload UI visible. |
+| Public read-only | any | `true` | `POST /api/upload/*` → 404 (endpoint pretends not to exist). `/api/config` → `{ uploadEnabled: false }`. Upload UI hidden. |
+
+Upload route gate ordering (matches `src/upload-auth.ts`):
+
+1. **Read-only check** → 404 (precedence over everything)
+2. **No token configured** → 404 (don't reveal the endpoint exists)
+3. **Token mismatch** → 401
+4. **Denied extension** → 400 (allowlist: `.md .markdown .png .jpg .jpeg .gif .webp .pdf .txt`; deny: `.html .htm .xhtml .svg .js .mjs .json .css .wasm`)
+5. **Per-file size cap exceeded** → 413
+6. **Success** → 200 `{ data: WriteResult[] }`
 
 ## Tech Stack
 
@@ -35,6 +55,8 @@ VibeDocs — self-hosted markdown documentation browser. Hono backend + React fr
 src/                    # Backend (Hono server)
   server.ts             # HTTP server, route wiring, WebSocket, SPA fallback
   server-routes.ts      # Route handlers extracted for testability
+  upload-route.ts       # POST /api/upload/* + GET /api/config (registerUploadRoute, registerConfigRoute)
+  upload-auth.ts        # parseUploadAuthConfig, checkUploadAuth, checkExtensionAllowed (pure policy fns)
   discovery.ts          # Project/file tree discovery (all file types, isAsset flag)
   markdown.ts           # Markdown render pipeline (remark/rehype/shiki + remarkMermaid + rehypeWrapTables)
   search.ts             # In-memory full-text search index (factory, versioned)
@@ -82,8 +104,9 @@ npm run test:watch    # Run tests in watch mode
 - `GET /api/render/:project/*` - Render markdown to HTML + TOC
 - `GET /api/raw/:project/*` - Raw markdown content
 - `GET /api/search?q=` - Full-text search
-- `POST /api/upload/:project/*` - Upload files to a project folder (multipart form data)
+- `POST /api/upload/:project/*` - Upload files to a project folder (multipart form data). Gated by `VIBEDOCS_UPLOAD_TOKEN` + `VIBEDOCS_READ_ONLY`. See "Upload deployment modes" above.
 - `GET /api/file/:project/*` - Serve non-markdown files (images, PDFs, etc.)
+- `GET /api/config` - Tiny client config endpoint: `{ uploadEnabled: boolean }`. Frontend uses this to hide upload UI when uploads are disabled or in read-only mode.
 
 ## Key Patterns
 
@@ -95,6 +118,7 @@ npm run test:watch    # Run tests in watch mode
 - **Search index:** Rebuilt in-memory on startup and on markdown file watcher events
 - **Path validation:** `src/path-resolver.ts` — `PathResolver` returns a `SafePath` branded type that downstream FS calls require; throws typed `VibedocsError` (traversal / invalid / not-found) on failure. Two instances (`docResolver`, `assetResolver`) configured at server startup.
 - **File upload:** `src/upload.ts` `safeWriteFile(targetDir: SafePath, ...)` does filename sanitization via `path.basename()` and conflict auto-renaming (`file-1.ext`, `file-2.ext`, up to 100 suffixes). Path validation happens earlier at the resolver.
+- **Upload auth:** `src/upload-auth.ts` exposes pure functions used by `src/upload-route.ts`: `parseUploadAuthConfig(env)` reads `VIBEDOCS_UPLOAD_TOKEN`/`VIBEDOCS_READ_ONLY`/`VIBEDOCS_UPLOAD_MAX_BYTES`; `checkUploadAuth(cfg, authHeader)` returns a discriminated `'read-only' | 'no-token-configured' | 'unauthorized' | 'ok'`; `checkExtensionAllowed(filename)` enforces an allowlist (`.md`, images, `.pdf`, `.txt`) with explicit deny for `.html`/`.svg`/`.js`/etc. Read-only mode hides the endpoint (404) regardless of token; an unset token also returns 404 (not 401) so unauthenticated scanners can't fingerprint the feature. Bearer-token comparison is constant-time (`crypto.timingSafeEqual`).
 - **Mobile tap-targets:** `frontend/src/index.css` `@media (hover: none) and (pointer: coarse)` block exposes `.tap-target` (44×44), `.tap-row` (44px min-height), `.tap-visible-on-touch` (overrides hover-revealed UI), `.tap-active-feedback` (visible :active background). Prefer these on new mobile-facing controls over bespoke responsive sizing.
 - **Navigation:** `frontend/src/App.tsx` `navigateSmart(project, path)` — file paths navigate directly; empty/folder paths resolve to the first markdown file under that scope via depth-first tree walk. Used by `DocContent` (so breadcrumb folder/project clicks land on a real doc). Sidebar uses plain `navigate` since its clicks always have full file paths.
 - **Discovery:** `buildTree()` includes all file types; non-markdown files get `isAsset: true` flag. Root-level discovery stays markdown-only.

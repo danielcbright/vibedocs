@@ -17,6 +17,7 @@ import { useProjects, type FileTypeFilter, type FileNode } from "@/hooks/use-pro
 import { useDocument } from "@/hooks/use-document"
 import { useWebSocket } from "@/hooks/use-websocket"
 import { useIsMobile } from "@/hooks/use-mobile"
+import { useConfig } from "@/hooks/use-config"
 
 function parseHash(): { project: string | null; path: string | null } {
   const hash = window.location.hash.slice(1)
@@ -72,6 +73,7 @@ function DocsApp() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const { projects, refresh: refreshProjects } = useProjects(VIEW_MODE_TO_FILE_TYPE[viewMode])
+  const { uploadEnabled } = useConfig()
   const { html, toc, loading, error, refresh: refreshDoc } = useDocument(activeProject, activePath)
   const sidebarPanelRef = usePanelRef()
   const isMobile = useIsMobile()
@@ -242,6 +244,7 @@ function DocsApp() {
               viewMode={viewMode}
               onViewModeChange={setViewMode}
               onLogoClick={goHomeAndSearch}
+              uploadEnabled={uploadEnabled}
             />
           </SheetContent>
         </Sheet>
@@ -277,6 +280,7 @@ function DocsApp() {
               viewMode={viewMode}
               onViewModeChange={setViewMode}
               onLogoClick={goHomeAndSearch}
+              uploadEnabled={uploadEnabled}
             />
           </ResizablePanel>
           <ResizableHandle withHandle />

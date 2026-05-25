@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { serve } from '@hono/node-server'
-import { readFile, access, stat as fsStat } from 'fs/promises'
+import { readFile, access } from 'fs/promises'
 import { fileURLToPath } from 'url'
 import path from 'path'
 import chokidar from 'chokidar'
@@ -16,7 +16,8 @@ import {
 import { renderFile, extractToc } from './markdown.js'
 import { createIndexStore } from './search.js'
 import { registerSearchRoute, registerFileRoute } from './server-routes.js'
-import { safeWriteFile } from './upload.js'
+import { registerUploadRoute, registerConfigRoute } from './upload-route.js'
+import { parseUploadAuthConfig } from './upload-auth.js'
 import { PathResolver } from './path-resolver.js'
 import {
   reloadMessage,
@@ -108,48 +109,11 @@ app.get('/api/raw/:project/*', async (c) => {
 
 registerSearchRoute(app, searchStore)
 
-app.post('/api/upload/:project/*', async (c) => {
-  const project = c.req.param('project')
-  const fullPath = new URL(c.req.url).pathname
-  const prefix = `/api/upload/${encodeURIComponent(project)}/`
-  const folderPath = fullPath.startsWith(prefix)
-    ? decodeURIComponent(fullPath.slice(prefix.length))
-    : (c.req.param('*') || '')
-
-  const targetDir = assetResolver.resolve(project, folderPath)
-
-  let s: Awaited<ReturnType<typeof fsStat>>
-  try {
-    s = await fsStat(targetDir)
-  } catch (err) {
-    throw new VibedocsError('not-found', 'Target folder not found', { cause: err })
-  }
-  if (!s.isDirectory()) {
-    throw new VibedocsError('invalid', 'Target is not a directory')
-  }
-
-  const body = await c.req.parseBody({ all: true })
-  const files = body['files']
-  if (!files) {
-    return c.json({ error: 'No files provided' }, 400)
-  }
-
-  const fileList = Array.isArray(files) ? files : [files]
-  const uploaded = fileList.filter((f): f is File => f instanceof File)
-  if (uploaded.length === 0) {
-    return c.json({ error: 'No files provided' }, 400)
-  }
-
-  const results: Awaited<ReturnType<typeof safeWriteFile>>[] = []
-  for (const file of uploaded) {
-    const buffer = Buffer.from(await file.arrayBuffer())
-    const result = await safeWriteFile(targetDir, file.name, buffer)
-    results.push(result)
-  }
-  // Trigger sidebar refresh for all clients
-  broadcast(refreshTreeMessage())
-  return c.json({ data: results })
-})
+// Upload route is gated by env-var token + optional read-only flag.
+// See src/upload-auth.ts and CLAUDE.md for the deployment-mode table.
+const uploadAuthCfg = parseUploadAuthConfig(process.env)
+registerConfigRoute(app, uploadAuthCfg)
+registerUploadRoute(app, assetResolver, uploadAuthCfg, () => broadcast(refreshTreeMessage()))
 
 registerFileRoute(app, assetResolver)
 
@@ -242,6 +206,15 @@ const ALLOW_NO_ORIGIN = process.env.VIBEDOCS_WS_ALLOW_NO_ORIGIN === 'true'
 console.log(`  🔒 WS origin allowlist: ${ALLOWED_WS_ORIGINS.join(', ')}`)
 if (ALLOW_NO_ORIGIN) {
   console.log('  🔒 WS allows handshakes with no Origin header (VIBEDOCS_WS_ALLOW_NO_ORIGIN=true)')
+}
+
+// Upload mode banner — makes deployment configuration obvious in logs.
+if (uploadAuthCfg.readOnly) {
+  console.log('  🔒 Upload mode: READ-ONLY (VIBEDOCS_READ_ONLY=true) — POST /api/upload/* returns 404')
+} else if (uploadAuthCfg.token === null) {
+  console.log('  🔒 Upload mode: DISABLED (VIBEDOCS_UPLOAD_TOKEN unset) — POST /api/upload/* returns 404')
+} else {
+  console.log('  🔒 Upload mode: TOKEN (VIBEDOCS_UPLOAD_TOKEN set) — Authorization: Bearer required')
 }
 
 const wss = new WebSocketServer({
