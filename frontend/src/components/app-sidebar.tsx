@@ -250,6 +250,70 @@ function FileTreeItem({
   )
 }
 
+/**
+ * Curated nav renderer used when `project.siteConfig.nav` is present.
+ *
+ * Renders each section as a flat list of plain `<a>` links pointing at the
+ * project's hash URL. Plain anchors (rather than JS click handlers) keep the
+ * markup hydration-friendly for the eventual static-site build mode — the
+ * static HTML is functional without React, and rehydration is a no-op swap.
+ *
+ * No expand/collapse, no filter input: curated nav is already short and
+ * authored deliberately, so the file-tree affordances are out of scope.
+ */
+function SiteNavSections({
+  project,
+  activePath,
+  onNavigate,
+}: {
+  project: ProjectInfo
+  activePath: string | null
+  onNavigate: (project: string, path: string) => void
+}) {
+  const sections = project.siteConfig?.nav?.sections ?? []
+  return (
+    <>
+      {sections.map((section, sectionIdx) => (
+        <SidebarGroup key={`${section.label}-${sectionIdx}`} className="p-1 px-2">
+          <SidebarGroupLabel
+            data-testid="site-nav-section-label"
+            className="h-7 text-xs font-medium text-muted-foreground"
+          >
+            {section.label}
+          </SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu className="gap-0">
+              {section.items.map((item) => {
+                const label = item.split('/').pop() ?? item
+                const isActive = activePath === item
+                return (
+                  <SidebarMenuItem key={item}>
+                    <a
+                      href={`#${project.name}/${item}`}
+                      data-testid="site-nav-link"
+                      data-active={isActive ? 'true' : undefined}
+                      onClick={(e) => {
+                        // Intercept so the SPA's hash-router handles navigation
+                        // through the same path the file-tree mode uses.
+                        // Plain `<a>` markup remains for the static-build mode.
+                        e.preventDefault()
+                        onNavigate(project.name, item)
+                      }}
+                      className="tap-row tap-active-feedback flex items-center gap-2 rounded-md px-2 text-xs h-7 transition-colors hover:bg-sidebar-accent data-[active=true]:bg-sidebar-accent data-[active=true]:font-medium"
+                    >
+                      <span className="truncate">{label}</span>
+                    </a>
+                  </SidebarMenuItem>
+                )
+              })}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      ))}
+    </>
+  )
+}
+
 export function AppSidebar({
   projects,
   activeProject,
@@ -323,6 +387,13 @@ export function AppSidebar({
   // We just render what it gave us.
   const filteredProjects = projects
 
+  // When the active project ships a curated site nav, the file-tree filter
+  // input is meaningless (we're not rendering a tree). Hide it so the sidebar
+  // chrome matches what the user is actually looking at.
+  const activeProjectHasSiteNav = !!projects.find(
+    (p) => p.name === activeProject,
+  )?.siteConfig?.nav
+
   return (
     <div className="h-full flex flex-col border-r bg-sidebar text-sidebar-foreground overflow-hidden">
       <SidebarHeader className="border-b border-sidebar-border px-4 py-3">
@@ -356,18 +427,20 @@ export function AppSidebar({
             {uploadStatus.message}
           </div>
         )}
-        <div className="relative mt-2">
-          <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-          <Input
-            placeholder="Filter files..."
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            // text-base (16px) on touch suppresses iOS auto-zoom on focus.
-            // h-11 keeps the input >= 44px so it's a real tap target.
-            // Desktop keeps text-xs / h-8 visual density via md: overrides.
-            className="h-11 pl-8 text-base md:h-8 md:text-xs"
-          />
-        </div>
+        {!activeProjectHasSiteNav && (
+          <div className="relative mt-2">
+            <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+            <Input
+              placeholder="Filter files..."
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              // text-base (16px) on touch suppresses iOS auto-zoom on focus.
+              // h-11 keeps the input >= 44px so it's a real tap target.
+              // Desktop keeps text-xs / h-8 visual density via md: overrides.
+              className="h-11 pl-8 text-base md:h-8 md:text-xs"
+            />
+          </div>
+        )}
         {/* Toolbar: view toggle + upload */}
         <div className="flex items-center justify-between mt-2 gap-2">
           <div className="flex items-center rounded-md border border-sidebar-border text-[11px] overflow-hidden">
@@ -426,6 +499,22 @@ export function AppSidebar({
       </SidebarHeader>
       <SidebarContent>
         {filteredProjects.map((project) => {
+          // Site-nav mode: when a project ships `.vibedocs.config.ts` with a
+          // `nav` field, render the curated sections instead of the discovered
+          // file tree. The filter input above still renders (so it's available
+          // for other projects), but it doesn't apply here — curated nav is
+          // already short by design.
+          if (project.siteConfig?.nav) {
+            return (
+              <SiteNavSections
+                key={project.name}
+                project={project}
+                activePath={activeProject === project.name ? activePath : null}
+                onNavigate={onNavigate}
+              />
+            )
+          }
+
           // If filtering, skip projects with no matches
           if (filter && !project.tree.some((n) => matchesFilter(n, filter))) {
             return null
