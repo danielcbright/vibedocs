@@ -1,5 +1,6 @@
 import { readdir, stat } from 'fs/promises'
 import path from 'path'
+import type { SiteConfig } from './site-config.js'
 
 export const PROJECTS_DIR = process.env.VIBEDOCS_ROOT || process.cwd()
 
@@ -21,6 +22,13 @@ export interface ProjectInfo {
   name: string
   hasDocsFolder: boolean
   tree: FileNode[]
+  /**
+   * Optional, set by the /api/projects pipeline (see src/site-config-cache.ts).
+   * `discoverProjects` itself never sets this — the cache layer attaches it on
+   * top of the discovered shape. Frontend consumers should treat it as
+   * `SiteConfig | null | undefined`.
+   */
+  siteConfig?: SiteConfig | null
 }
 
 async function buildTree(dir: string, projectRoot: string): Promise<FileNode[]> {
