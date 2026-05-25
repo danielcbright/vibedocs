@@ -19,6 +19,8 @@ VibeDocs — self-hosted markdown documentation browser. Hono backend + React fr
 |----------|---------|-------------|
 | `VIBEDOCS_ROOT` | `process.cwd()` | Root directory to scan for project folders |
 | `VIBEDOCS_PORT` or `PORT` | `8080` | Server port |
+| `VIBEDOCS_WS_ALLOWED_ORIGINS` | _(unset)_ | Comma-separated extra Origin allowlist for the WebSocket handshake. Defaults always include `http://localhost:8080`, `http://localhost:5173`, and `http://localhost:${PORT}`. Add tailnet/public hostnames here (e.g. `http://vibedocs.tailnet:8080`) when exposing vibedocs beyond localhost. |
+| `VIBEDOCS_WS_ALLOW_NO_ORIGIN` | `false` | When `true`, accept WS handshakes with no `Origin` header (non-browser clients like `wscat`). Default denies them so the threat model stays browser-driven CSWSH. |
 
 ## Tech Stack
 
@@ -101,6 +103,18 @@ npm run test:watch    # Run tests in watch mode
 ## Deployment
 
 An optional systemd unit file is provided in `systemd/vibedocs.service`. Edit the placeholder paths, then run `scripts/setup-service.sh` to install it. Use `scripts/promote.sh` to build, validate, and restart the service after code changes.
+
+### Exposing beyond localhost (tailnet, LAN, public)
+
+The WebSocket handshake enforces an Origin allowlist (see `src/ws-auth.ts`). The defaults (`http://localhost:8080`, `http://localhost:5173`, `http://localhost:${PORT}`) cover local dev. **When exposing vibedocs on any other origin, set `VIBEDOCS_WS_ALLOWED_ORIGINS` to a comma-separated list of every URL the browser will load the app from**, otherwise live reload will silently fail (the page loads, the WS upgrade returns 401).
+
+Example for a tailnet hostname:
+
+```
+Environment=VIBEDOCS_WS_ALLOWED_ORIGINS=http://claudebot.tailc9eea3.ts.net:8080
+```
+
+Without this, cross-origin pages cannot establish WebSocket connections — which is the point: it blocks cross-site WebSocket hijacking (CSWSH) where a page on `attacker.com` opens a WS to vibedocs and observes reload broadcasts.
 
 ## Development Notes
 

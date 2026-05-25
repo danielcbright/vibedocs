@@ -24,6 +24,7 @@ import {
   type WsMessage,
 } from './shared/ws-messages.js'
 import { VibedocsError, registerErrorHandler } from './errors.js'
+import { parseAllowedOrigins, buildVerifyClient } from './ws-auth.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const FRONTEND_DIST = path.join(__dirname, '..', 'frontend', 'dist')
@@ -249,8 +250,28 @@ const server = serve(
   }
 )
 
-// Attach WebSocket server to the same HTTP server
-const wss = new WebSocketServer({ server: server as unknown as Server })
+// Attach WebSocket server to the same HTTP server.
+// `verifyClient` enforces an Origin allowlist at the upgrade step. Browsers
+// don't apply same-origin policy to WS handshakes, so without this check any
+// page the operator visits could open a connection and observe reload
+// broadcasts (CSWSH). See `src/ws-auth.ts` for the policy details.
+const ALLOWED_WS_ORIGINS = parseAllowedOrigins({
+  envValue: process.env.VIBEDOCS_WS_ALLOWED_ORIGINS,
+  port: PORT,
+})
+const ALLOW_NO_ORIGIN = process.env.VIBEDOCS_WS_ALLOW_NO_ORIGIN === 'true'
+console.log(`  🔒 WS origin allowlist: ${ALLOWED_WS_ORIGINS.join(', ')}`)
+if (ALLOW_NO_ORIGIN) {
+  console.log('  🔒 WS allows handshakes with no Origin header (VIBEDOCS_WS_ALLOW_NO_ORIGIN=true)')
+}
+
+const wss = new WebSocketServer({
+  server: server as unknown as Server,
+  verifyClient: buildVerifyClient({
+    allowedOrigins: ALLOWED_WS_ORIGINS,
+    allowNoOrigin: ALLOW_NO_ORIGIN,
+  }),
+})
 
 const clients = new Set<WebSocket>()
 
