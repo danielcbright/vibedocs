@@ -3,7 +3,7 @@ import path from 'path'
 
 export const PROJECTS_DIR = process.env.VIBEDOCS_ROOT || process.cwd()
 
-const EXCLUDED_DIRS = new Set([
+export const EXCLUDED_DIRS = new Set([
   'node_modules', '.git', '.next', 'dist', 'build', 'out',
   'coverage', 'tmp', 'temp', '_archived',
   '.project-template', 'test-projects',
