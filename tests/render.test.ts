@@ -2,13 +2,20 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdir, mkdtemp, rm, writeFile } from 'fs/promises'
 import path from 'path'
 import os from 'os'
-import { readFile } from 'fs/promises'
-import { fileURLToPath } from 'url'
-import { dirname, join } from 'path'
 import { renderProject, renderSinglePage } from '../src/render.js'
-import { renderMarkdown, extractToc } from '../src/markdown.js'
+import type { SafePath } from '../src/path-resolver.js'
+import type { SiteConfig } from '../src/site-config.js'
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
+// Minimum-viable SiteConfig for tests that need a non-null config but don't
+// care about its contents (e.g. the llms.txt gate). Keep it valid against
+// the canonical shape so a SiteConfig refactor surfaces here too.
+const MINIMAL_SITE_CONFIG: SiteConfig = {
+  name: 'test',
+  domain: 'example.com',
+  description: 'test',
+  theme: { tokens: {} },
+  llms: { summary: 'test', keyDocs: [] },
+}
 
 let tmpDir: string
 let projectPath: string
@@ -102,29 +109,11 @@ describe('renderProject — internal markdown link rewriting', () => {
 describe('renderSinglePage — live-route regression', () => {
   // The live Hono route `/api/render/:project/*` was previously implemented as
   // `renderFile(absPath)` + `extractToc(html)`. This sprint swaps it to call
-  // `renderSinglePage(projectPath, docPath, 'live')`. The HTML emitted by the
-  // new path must structurally match what the old pipeline emits for any doc
-  // that contains zero relative links to in-project assets/markdown — i.e.
-  // the full set of vibedocs's own docs today, none of which use relative
-  // images. This test pins that invariant against the real architecture.md.
-  it("preserves the legacy pipeline's structural output on docs/architecture.md", async () => {
-    const archPath = join(__dirname, '..', 'docs', 'architecture.md')
-    const md = await readFile(archPath, 'utf-8')
-    const oldHtml = await renderMarkdown(md)
-    const projectDir = join(__dirname, '..')
-    const newPage = await renderSinglePage(projectDir, 'docs/architecture.md', 'live')
-
-    // The full HTML strings should be byte-identical for docs with no relative
-    // markdown links and no relative images — architecture.md fits both.
-    // (If a future architecture.md edit adds a relative image, this test will
-    // start failing; that's the right signal — split it into two assertions
-    // at that point.)
-    expect(newPage.html).toBe(oldHtml)
-
-    // TOC extraction must continue to produce the same shape.
-    expect(newPage.toc).toEqual(extractToc(oldHtml))
-  })
-
+  // `renderSinglePage(safePath, project, docPath, 'live')`. The byte-identical
+  // pin against the legacy `renderMarkdown` was dropped when the legacy
+  // module was deleted (it had no production consumer). The structural
+  // invariants below cover what that pin was protecting: Shiki classes,
+  // mermaid wrapper, table-wrap, heading anchors, and the sanitizer.
   it('preserves Shiki classes, mermaid wrapper, table-wrap, and heading anchors', async () => {
     // Spec invariants from the AC: Shiki output (`<pre class="shiki">`,
     // tokens with `--shiki-light`/`--shiki-dark`), mermaid div wrapper,
@@ -149,8 +138,14 @@ describe('renderSinglePage — live-route regression', () => {
       '| a  | b  |',
     ].join('\n')
 
-    await writeFile(path.join(projectPath, 'doc.md'), md)
-    const page = await renderSinglePage(projectPath, 'doc.md', 'live')
+    const absPath = path.join(projectPath, 'doc.md')
+    await writeFile(absPath, md)
+    const page = await renderSinglePage(
+      absPath as SafePath,
+      'myproject',
+      'doc.md',
+      'live',
+    )
 
     expect(page.html).toMatch(/<h1[^>]*id="heading-one"/)
     expect(page.html).toMatch(/<a class="heading-anchor"/)
@@ -161,8 +156,8 @@ describe('renderSinglePage — live-route regression', () => {
   })
 
   it('rejects XSS payloads from the renderer pipeline (no regression vs #33)', async () => {
-    // The sanitizer is the security boundary. The new render.ts pipeline
-    // reuses the same sanitizeSchema from markdown.ts, but this test pins
+    // The sanitizer is the security boundary. The render.ts pipeline reuses
+    // the sanitizeSchema from src/markdown-plugins.ts, but this test pins
     // that fact behaviourally — if a future refactor accidentally drops
     // rehype-sanitize from the build pipeline, this test screams.
     const md = [
@@ -175,8 +170,14 @@ describe('renderSinglePage — live-route regression', () => {
       '[click](javascript:alert(1))',
     ].join('\n')
 
-    await writeFile(path.join(projectPath, 'evil.md'), md)
-    const page = await renderSinglePage(projectPath, 'evil.md', 'live')
+    const absPath = path.join(projectPath, 'evil.md')
+    await writeFile(absPath, md)
+    const page = await renderSinglePage(
+      absPath as SafePath,
+      'myproject',
+      'evil.md',
+      'live',
+    )
 
     expect(page.html).not.toMatch(/<script[\s>]/i)
     expect(page.html).not.toMatch(/onerror/i)
@@ -202,7 +203,7 @@ describe('renderProject — site-config-derived outputs (placeholders for later 
     // gate; this test pins the gate.)
     await writeFile(path.join(projectPath, 'README.md'), '# Hello')
 
-    const result = await renderProject(projectPath, {}, 'live')
+    const result = await renderProject(projectPath, MINIMAL_SITE_CONFIG, 'live')
 
     expect(result.llmsTxt).toBeNull()
   })
@@ -214,7 +215,7 @@ describe('renderProject — site-config-derived outputs (placeholders for later 
     // without worrying about the build-mode case.
     await writeFile(path.join(projectPath, 'README.md'), '# Hello')
 
-    const result = await renderProject(projectPath, {}, 'build')
+    const result = await renderProject(projectPath, MINIMAL_SITE_CONFIG, 'build')
 
     expect(result.llmsTxt).not.toBeNull()
     expect(typeof result.llmsTxt).toBe('string')
@@ -297,6 +298,108 @@ describe('renderProject — image / asset URL rewriting', () => {
     for (const result of [liveResult, buildResult]) {
       const page = result.pages.find((p) => p.path === 'README.md')!
       expect(page.html).toContain('src="https://cdn.example/logo.png"')
+    }
+  })
+})
+
+describe('renderProject — URL rewriter edge cases', () => {
+  it('leaves fragment-only links untouched in both modes (anchors target the same page)', async () => {
+    // A link like `[Section](#section)` points at a heading on the current
+    // page. It must not be rewritten to `/api/file/...` or to a clean URL —
+    // either would break in-page jumps.
+    await writeFile(
+      path.join(projectPath, 'README.md'),
+      '# Top\n\n## Section\n\n[jump](#section)',
+    )
+
+    for (const mode of ['live', 'build'] as const) {
+      const result = await renderProject(projectPath, null, mode)
+      const page = result.pages.find((p) => p.path === 'README.md')!
+      expect(page.html).toMatch(/href="#section"/)
+    }
+  })
+
+  it('preserves query strings on rewritten markdown links in build mode', async () => {
+    await mkdir(path.join(projectPath, 'docs'))
+    await writeFile(
+      path.join(projectPath, 'README.md'),
+      '# Project\n\n[search](./docs/install.md?q=foo)',
+    )
+    await writeFile(path.join(projectPath, 'docs', 'install.md'), '# Install')
+
+    const result = await renderProject(projectPath, null, 'build')
+    const readme = result.pages.find((p) => p.path === 'README.md')!
+    // Build-mode rewrite must reattach the `?q=foo` suffix after the clean URL.
+    expect(readme.html).toMatch(/href="\.\/docs\/install\/\?q=foo"/)
+  })
+
+  it('preserves fragment suffixes on rewritten markdown links in build mode', async () => {
+    await mkdir(path.join(projectPath, 'docs'))
+    await writeFile(
+      path.join(projectPath, 'README.md'),
+      '# Project\n\n[deep link](./docs/install.md#prereqs)',
+    )
+    await writeFile(path.join(projectPath, 'docs', 'install.md'), '# Install\n\n## Prereqs')
+
+    const result = await renderProject(projectPath, null, 'build')
+    const readme = result.pages.find((p) => p.path === 'README.md')!
+    expect(readme.html).toMatch(/href="\.\/docs\/install\/#prereqs"/)
+  })
+
+  it('rewrites the project-root README.md to the site root "/" in build mode', async () => {
+    await mkdir(path.join(projectPath, 'docs'))
+    await writeFile(
+      path.join(projectPath, 'docs', 'install.md'),
+      '# Install\n\n[home](../README.md)',
+    )
+    await writeFile(path.join(projectPath, 'README.md'), '# Home')
+
+    const result = await renderProject(projectPath, null, 'build')
+    const install = result.pages.find((p) => p.path === 'docs/install.md')!
+    // `README.md` resolves to the site root URL `/`. From the page URL
+    // `/docs/install/` back to `/`, the relative path is `../../` — one
+    // `..` to leave `install/`, another to leave `docs/`. The trailing
+    // slash matters: it's what makes the browser fetch index.html.
+    expect(install.html).toMatch(/href="\.\.\/\.\.\/"/)
+    // And critically, no `.md` suffix should leak through.
+    expect(install.html).not.toMatch(/href="[^"]*\.md"/)
+  })
+
+  it('leaves protocol-relative URLs (//cdn/...) untouched in both modes', async () => {
+    // `//cdn.example/x.png` resolves to the page's protocol — typically used
+    // for external CDN assets. The renderer must not turn these into
+    // `/api/file/...` or a relative path.
+    await writeFile(
+      path.join(projectPath, 'README.md'),
+      '# Project\n\n![remote](//cdn.example/x.png)',
+    )
+
+    for (const mode of ['live', 'build'] as const) {
+      const result = await renderProject(projectPath, null, mode)
+      const page = result.pages.find((p) => p.path === 'README.md')!
+      expect(page.html).toContain('src="//cdn.example/x.png"')
+    }
+  })
+
+  it('leaves data: URIs untouched on <img src>', async () => {
+    // Inline data URIs (typical for tiny inline icons) must round-trip — the
+    // rewriter would otherwise turn them into broken `/api/file/data:...`
+    // requests. (The sanitizer schema is what decides whether a `data:` URL
+    // is allowed at all; the rewriter is only asserting "pass-through".)
+    const dataUri =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
+    await writeFile(
+      path.join(projectPath, 'README.md'),
+      `# Project\n\n![dot](${dataUri})`,
+    )
+
+    for (const mode of ['live', 'build'] as const) {
+      const result = await renderProject(projectPath, null, mode)
+      const page = result.pages.find((p) => p.path === 'README.md')!
+      // Either the sanitizer kept it (so the data: URL appears), or it
+      // stripped the img entirely — in BOTH cases what must NOT happen is
+      // the URL being rewritten to `/api/file/data:...`.
+      expect(page.html).not.toMatch(/\/api\/file\/[^"]*data:/)
     }
   })
 })

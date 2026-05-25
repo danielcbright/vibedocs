@@ -20,7 +20,9 @@ import {
   rehypeWrapTables,
   sanitizeSchema,
   extractToc,
-} from './markdown.js'
+} from './markdown-plugins.js'
+import type { SiteConfig } from './site-config.js'
+import type { SafePath } from './path-resolver.js'
 
 /**
  * Pure renderer for a single project. Walks the project tree, renders every
@@ -32,13 +34,6 @@ import {
  * It is PURE: no `fs.writeFile`, no HTTP, no chokidar coupling. The live Hono
  * server and the build CLI both invoke this same module.
  */
-
-/**
- * Placeholder for the per-project site config. The full shape lands in
- * slice #47 (`src/site-config.ts`). For now `renderProject` only cares whether
- * a config exists, so the type is intentionally empty.
- */
-export type SiteConfig = Record<string, unknown>
 
 /**
  * Render mode controls URL shape for in-project links and assets.
@@ -93,10 +88,27 @@ export interface RenderResult {
   robots: string | null
 }
 
-const MD_EXTENSIONS = ['.md', '.markdown']
+// Markdown extension match — case-insensitive everywhere. The build-mode URL
+// builder uses `/\.(md|markdown)$/i`; align the predicate so a `README.MD`
+// link doesn't fall into the asset-rewriter path while the page renders as
+// markdown. (The discovery walk lists files verbatim from the FS, so case
+// preservation matters on case-sensitive filesystems.)
+const MD_EXTENSION_RE = /\.(md|markdown)$/i
 
 function isMarkdown(filePath: string): boolean {
-  return MD_EXTENSIONS.some((ext) => filePath.endsWith(ext))
+  return MD_EXTENSION_RE.test(filePath)
+}
+
+/**
+ * Build the live-mode asset URL for a project-relative POSIX path.
+ *
+ * Mirrors the live `/api/file/<project>/<path>` route. Each path segment is
+ * URI-encoded so names with spaces or unicode round-trip correctly.
+ */
+function buildLiveAssetUrl(projectName: string, posixPath: string): string {
+  const encodedProject = encodeURIComponent(projectName)
+  const encodedPath = posixPath.split('/').map(encodeURIComponent).join('/')
+  return `/api/file/${encodedProject}/${encodedPath}`
 }
 
 function flattenTree(nodes: FileNode[]): FileNode[] {
@@ -295,9 +307,7 @@ function rewriteAssetUrl(src: string, opts: RewriteOptions): string | null {
 
   if (opts.mode === 'live') {
     // Live mode: serve through the existing /api/file/... endpoint.
-    const encodedProject = encodeURIComponent(opts.projectName)
-    const encodedPath = resolved.split('/').map(encodeURIComponent).join('/')
-    return `/api/file/${encodedProject}/${encodedPath}${suffix}`
+    return buildLiveAssetUrl(opts.projectName, resolved) + suffix
   }
 
   // Build mode: relative path from the page's URL to the asset's mirrored
@@ -372,10 +382,7 @@ export async function renderProject(
         sourcePath: posixPath,
         url:
           mode === 'live'
-            ? `/api/file/${encodeURIComponent(projectName)}/${posixPath
-                .split('/')
-                .map(encodeURIComponent)
-                .join('/')}`
+            ? buildLiveAssetUrl(projectName, posixPath)
             : '/' + posixPath,
       })
     }
@@ -401,17 +408,25 @@ export async function renderProject(
  * doesn't need the full project walk. The return shape matches one entry of
  * `renderProject`'s `pages` array.
  *
- * Throws if `docPath` is missing on disk; the caller maps ENOENT to
+ * The first argument is a `SafePath` — a filesystem path that has been
+ * validated by `PathResolver`. Requiring a `SafePath` (not a raw string)
+ * surfaces traversal-bypass bugs at compile time: any caller that hands in
+ * an unvalidated string fails type-checking. See security #7.
+ *
+ * `projectName` and `docPath` are metadata the URL rewriter needs (they
+ * shape `/api/file/...` URLs and resolve relative links). They are NOT
+ * re-joined into a filesystem path inside this function.
+ *
+ * Throws if `absPath` is missing on disk; the caller maps ENOENT to
  * `VibedocsError('not-found')`.
  */
 export async function renderSinglePage(
-  projectPath: string,
+  absPath: SafePath,
+  projectName: string,
   docPath: string,
   mode: RenderMode,
 ): Promise<HtmlPage> {
-  const projectName = path.basename(projectPath)
   const posixPath = docPath.split(path.sep).join('/')
-  const absPath = path.join(projectPath, docPath)
   const content = await readFile(absPath, 'utf-8')
   const html = await renderMarkdownForPage(content, {
     mode,
