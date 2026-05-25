@@ -11,6 +11,7 @@ __pycache__/
 
 # Build output
 dist/
+dist-cli/
 build/
 *.egg-info/
 frontend/dist/

@@ -26,11 +26,27 @@
   "engines": {
     "node": ">=20.0.0"
   },
+  "bin": {
+    "vibedocs": "./dist-cli/cli/index.js"
+  },
+  "files": [
+    "bin/",
+    "dist-cli/",
+    "frontend/dist/**",
+    "src/",
+    "tsconfig.json",
+    "tsconfig.cli.json",
+    "LICENSE",
+    "README.md",
+    "CLAUDE.md"
+  ],
   "scripts": {
     "dev": "concurrently \"tsx watch src/server.ts\" \"cd frontend && npx vite\"",
     "dev:server": "tsx watch src/server.ts",
     "dev:frontend": "cd frontend && npx vite",
     "build": "cd frontend && npm install && npx vite build",
+    "build:cli": "tsc -p tsconfig.cli.json",
+    "prepare": "npm run build && npm run build:cli",
     "start": "tsx src/server.ts",
     "test": "vitest run && cd frontend && npx vitest run",
     "test:watch": "vitest",
