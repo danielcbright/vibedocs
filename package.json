@@ -32,7 +32,7 @@
   "files": [
     "bin/",
     "dist-cli/",
-    "frontend/dist/",
+    "frontend/dist/**",
     "src/",
     "tsconfig.json",
     "tsconfig.cli.json",
