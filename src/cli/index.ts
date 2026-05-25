@@ -15,6 +15,7 @@
 import path from 'path'
 import { spawn } from 'child_process'
 import { fileURLToPath } from 'url'
+import { realpathSync } from 'fs'
 import { parseBuildArgs } from './args.js'
 import { runBuild } from './build.js'
 
@@ -114,12 +115,16 @@ function runServe(outDir: string, port: number): Promise<number> {
 // directly via the shebang as `node dist-cli/cli/index.js`, or as the
 // `vibedocs` bin), run `main()` with the user's argv. The dev `bin/vibedocs`
 // shim imports `main` and calls it explicitly, so this block stays inert in
-// that path. ESM has no `require.main === module`; we compare process.argv[1]
-// to import.meta.url instead.
+// that path. ESM has no `require.main === module`; we resolve symlinks on
+// both sides so the npm-installed bin symlink
+// (node_modules/.bin/vibedocs -> ../vibedocs/dist-cli/cli/index.js) still
+// matches import.meta.url after realpath.
 const invokedDirectly = (() => {
   if (!process.argv[1]) return false
   try {
-    return fileURLToPath(import.meta.url) === path.resolve(process.argv[1])
+    const here = realpathSync(fileURLToPath(import.meta.url))
+    const entry = realpathSync(path.resolve(process.argv[1]))
+    return here === entry
   } catch {
     return false
   }
