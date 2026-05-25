@@ -3,6 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Baseline Content Security Policy (issue #34).
+        - script-src 'self': no inline/eval scripts. Vite production build emits external scripts only.
+        - style-src 'self' 'unsafe-inline': Shiki injects inline <style> for per-token color tokens;
+          Tailwind v4 inlines reset styles. Both require 'unsafe-inline' to render.
+        - img-src 'self' data:: lucide-react and shadcn use data: URIs for inline SVG icons.
+        - font-src 'self' data:: WOFF2 fonts are bundled, plus base64 fallbacks.
+        - connect-src 'self' ws: wss:: live-reload WebSocket on same origin (both schemes for tailnet/TLS deploys).
+        - object-src 'none': no <object>/<embed> plugin content.
+        - base-uri 'self': lock <base> so injected base tags can't redirect resource loads.
+    -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'self'" />
     <title>VibeDocs</title>
   </head>
   <body>
