@@ -23,6 +23,7 @@ import {
 } from './markdown-plugins.js'
 import type { SiteConfig } from './site-config.js'
 import type { SafePath } from './path-resolver.js'
+import { createReferenceCollector, type ReferenceCollector } from './reference-collector.js'
 
 /**
  * Pure renderer for a single project. Walks the project tree, renders every
@@ -73,9 +74,19 @@ export interface AssetRef {
   url: string
 }
 
+export interface MissingRef {
+  /** Project-relative POSIX path of the doc that contains the reference. */
+  sourceDoc: string
+  /** Project-relative POSIX path that was referenced but not found on disk. */
+  missingPath: string
+}
+
 export interface RenderResult {
   pages: HtmlPage[]
+  /** Non-markdown files actually referenced by rendered pages (build mode: filtered; live mode: all). */
   assets: AssetRef[]
+  /** References the rewriter saw but that don't exist on disk. */
+  missingRefs: MissingRef[]
   /**
    * llms.txt content. Null when `siteConfig` is null (no site identity to
    * describe) or when `mode === 'live'` (the build CLI is what writes the
@@ -232,6 +243,8 @@ interface RewriteOptions {
   projectName: string
   /** Project-relative POSIX path of the doc currently being rendered. */
   currentDocPath: string
+  /** When present, the rewriter records each resolved asset reference here. */
+  collector?: ReferenceCollector
 }
 
 /**
@@ -305,6 +318,8 @@ function rewriteAssetUrl(src: string, opts: RewriteOptions): string | null {
   const resolved = resolveProjectRelative(opts.currentDocPath, pathPart)
   if (resolved === null) return null
 
+  opts.collector?.add(resolved, opts.currentDocPath)
+
   if (opts.mode === 'live') {
     // Live mode: serve through the existing /api/file/... endpoint.
     return buildLiveAssetUrl(opts.projectName, resolved) + suffix
@@ -356,8 +371,10 @@ export async function renderProject(
   const tree = await buildTreePublic(projectPath, projectPath)
   const files = flattenTree(tree)
 
+  const collector = createReferenceCollector()
   const pages: HtmlPage[] = []
-  const assets: AssetRef[] = []
+  // Collect all non-markdown files for cross-checking after render.
+  const allAssets: AssetRef[] = []
 
   for (const file of files) {
     const posixPath = file.path.split(path.sep).join('/')
@@ -368,6 +385,7 @@ export async function renderProject(
         mode,
         projectName,
         currentDocPath: posixPath,
+        collector,
       })
       const toc = extractToc(html)
       pages.push({
@@ -378,7 +396,7 @@ export async function renderProject(
         frontmatter: {},
       })
     } else {
-      assets.push({
+      allAssets.push({
         sourcePath: posixPath,
         url:
           mode === 'live'
@@ -387,6 +405,21 @@ export async function renderProject(
       })
     }
   }
+
+  // Cross-check collected refs against the discovery set. Referenced files
+  // that exist → filtered asset list. Referenced files that don't exist →
+  // missingRefs (warnings for the build CLI; returned regardless).
+  const knownPaths = new Set(allAssets.map((a) => a.sourcePath))
+  const referenced = new Set<string>()
+  const missingRefs: MissingRef[] = []
+  for (const ref of collector.getRefs()) {
+    if (knownPaths.has(ref.resolvedPath)) {
+      referenced.add(ref.resolvedPath)
+    } else {
+      missingRefs.push({ sourceDoc: ref.sourceDoc, missingPath: ref.resolvedPath })
+    }
+  }
+  const assets = allAssets.filter((a) => referenced.has(a.sourcePath))
 
   // llms.txt is build-mode + has-siteConfig only. The real generator lands in
   // slice #53; this slice commits to the empty-string placeholder so downstream
@@ -397,6 +430,7 @@ export async function renderProject(
   return {
     pages,
     assets,
+    missingRefs,
     llmsTxt,
     sitemap: null,
     robots: null,

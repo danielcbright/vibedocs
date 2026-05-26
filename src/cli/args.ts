@@ -8,6 +8,7 @@ export interface ParsedBuildArgs {
   outDir?: string
   baseUrl?: string
   serve: boolean
+  verbose: boolean
   port?: number
   frontendDist?: string
 }
@@ -19,10 +20,10 @@ const FLAGS_WITH_VALUE = new Set([
   '--port',
   '--frontend-dist',
 ])
-const BOOL_FLAGS = new Set(['--serve'])
+const BOOL_FLAGS = new Set(['--serve', '--verbose'])
 
 export function parseBuildArgs(argv: string[]): ParsedBuildArgs {
-  const out: Partial<ParsedBuildArgs> = { serve: false }
+  const out: Partial<ParsedBuildArgs> = { serve: false, verbose: false }
 
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i]!
@@ -35,6 +36,7 @@ export function parseBuildArgs(argv: string[]): ParsedBuildArgs {
       i++ // consume value
     } else if (BOOL_FLAGS.has(token)) {
       if (token === '--serve') out.serve = true
+      if (token === '--verbose') out.verbose = true
     } else {
       throw new Error(`unknown flag: ${token}`)
     }

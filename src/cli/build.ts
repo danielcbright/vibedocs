@@ -30,6 +30,8 @@ export interface BuildOptions {
   baseUrl?: string
   /** cwd used for the "basename matches project name" fallback. */
   cwd?: string
+  /** When true, list each copied asset path before the summary. */
+  verbose?: boolean
 }
 
 /**
@@ -196,13 +198,29 @@ export async function runBuild(opts: BuildOptions): Promise<void> {
     await writeFile(outPath, html, 'utf-8')
   }
 
+  // Emit per-missing-ref warnings to stderr.
+  for (const ref of result.missingRefs) {
+    process.stderr.write(
+      `warning: ${ref.sourceDoc} references ${ref.missingPath} which does not exist on disk\n`,
+    )
+  }
+
   // Mirror non-markdown asset files to <outDir>/<source-path>.
   for (const asset of result.assets) {
     const sourceAbs = path.join(projectPath, asset.sourcePath)
     const destAbs = path.join(opts.outDir, asset.sourcePath)
     await mkdir(path.dirname(destAbs), { recursive: true })
     await copyFileSafe(sourceAbs, destAbs)
+    if (opts.verbose) {
+      process.stdout.write(`  asset: ${asset.sourcePath}\n`)
+    }
   }
+
+  // End-of-build summary.
+  const missingCount = result.missingRefs.length
+  process.stdout.write(
+    `Copied ${result.assets.length} referenced assets (${missingCount} missing reference${missingCount === 1 ? '' : 's'})\n`,
+  )
 
   // Copy the React bundle (frontend/dist/assets → <outDir>/assets).
   const bundleAssetsSrc = path.join(opts.frontendDist, 'assets')
