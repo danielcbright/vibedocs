@@ -23,4 +23,10 @@ describe('npm pack --dry-run package shape (#75)', () => {
     const lines = output.split('\n').filter((l) => /tsconfig.*\.json/.test(l))
     expect(lines, 'expected no tsconfig files in packed tarball').toHaveLength(0)
   })
+
+  it('contains no CLAUDE.md', () => {
+    const output = packDryRun()
+    const lines = output.split('\n').filter((l) => l.includes('CLAUDE.md'))
+    expect(lines, 'expected CLAUDE.md not in packed tarball').toHaveLength(0)
+  })
 })
