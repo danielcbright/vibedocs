@@ -33,7 +33,6 @@
     "bin/",
     "dist-cli/",
     "frontend/dist/**",
-    "src/",
     "tsconfig.json",
     "tsconfig.cli.json",
     "LICENSE",
