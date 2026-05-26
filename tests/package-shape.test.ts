@@ -29,4 +29,25 @@ describe('npm pack --dry-run package shape (#75)', () => {
     const lines = output.split('\n').filter((l) => l.includes('CLAUDE.md'))
     expect(lines, 'expected CLAUDE.md not in packed tarball').toHaveLength(0)
   })
+
+  it('contains dist-cli/cli/index.js', () => {
+    const output = packDryRun()
+    expect(output).toMatch(/dist-cli\/cli\/index\.js/)
+  })
+
+  it('contains frontend/dist/index.html', () => {
+    const output = packDryRun()
+    expect(output).toMatch(/frontend\/dist\/index\.html/)
+  })
+
+  it('contains LICENSE and README.md', () => {
+    const output = packDryRun()
+    expect(output).toMatch(/LICENSE/)
+    expect(output).toMatch(/README\.md/)
+  })
+
+  it('contains bin/ entry', () => {
+    const output = packDryRun()
+    expect(output).toMatch(/bin\//)
+  })
 })
