@@ -147,3 +147,4 @@ Without this, cross-origin pages cannot establish WebSocket connections — whic
 - The `frontend/dist/` and `frontend/node_modules/` directories are gitignored
 - Backend tsconfig is at root; frontend tsconfig is at `frontend/tsconfig.json`
 - Path alias `@/` resolves to `frontend/src/` in the frontend code
+- The `files:` array in `package.json` is an enforceable public surface — changes to it require updating `tests/package-shape.test.ts` to match
