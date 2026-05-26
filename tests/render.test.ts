@@ -225,11 +225,14 @@ describe('renderProject — site-config-derived outputs (placeholders for later 
 describe('renderProject — whole-project walk', () => {
   it('renders every markdown file in a multi-doc project tree', async () => {
     await mkdir(path.join(projectPath, 'docs', 'sub'), { recursive: true })
+    // docs/a.md references diagram.png so it appears in result.assets.
     await writeFile(path.join(projectPath, 'README.md'), '# Top')
-    await writeFile(path.join(projectPath, 'docs', 'a.md'), '# A')
+    await writeFile(
+      path.join(projectPath, 'docs', 'a.md'),
+      '# A\n\n![diagram](./diagram.png)',
+    )
     await writeFile(path.join(projectPath, 'docs', 'b.markdown'), '# B')
     await writeFile(path.join(projectPath, 'docs', 'sub', 'c.md'), '# C')
-    // Non-markdown file — should NOT appear in pages.
     await writeFile(path.join(projectPath, 'docs', 'diagram.png'), 'fake')
 
     const result = await renderProject(projectPath, null, 'live')
@@ -242,7 +245,7 @@ describe('renderProject — whole-project walk', () => {
       'docs/sub/c.md',
     ])
 
-    // Non-markdown file shows up as an asset.
+    // Referenced non-markdown file appears as an asset.
     const assetPaths = result.assets.map((a) => a.sourcePath)
     expect(assetPaths).toContain('docs/diagram.png')
   })
@@ -401,5 +404,77 @@ describe('renderProject — URL rewriter edge cases', () => {
       // the URL being rewritten to `/api/file/data:...`.
       expect(page.html).not.toMatch(/\/api\/file\/[^"]*data:/)
     }
+  })
+})
+
+describe('renderProject — referenced-asset filtering (#74)', () => {
+  it('collects <a href="report.pdf"> as a referenced asset in build mode', async () => {
+    await writeFile(
+      path.join(projectPath, 'README.md'),
+      '# Project\n\n[Download report](./report.pdf)',
+    )
+    await writeFile(path.join(projectPath, 'report.pdf'), 'PDF-BYTES')
+
+    const result = await renderProject(projectPath, null, 'build')
+
+    const assetPaths = result.assets.map((a) => a.sourcePath)
+    expect(assetPaths).toContain('report.pdf')
+  })
+
+  it('deduplicates assets referenced from multiple pages', async () => {
+    await mkdir(path.join(projectPath, 'docs'))
+    await writeFile(
+      path.join(projectPath, 'README.md'),
+      '# Home\n\n![logo](./logo.png)',
+    )
+    await writeFile(
+      path.join(projectPath, 'docs', 'about.md'),
+      '# About\n\n![logo](../logo.png)',
+    )
+    await writeFile(path.join(projectPath, 'logo.png'), 'PNG-BYTES')
+
+    const result = await renderProject(projectPath, null, 'build')
+
+    // Both pages reference logo.png — it should appear exactly once.
+    const assetPaths = result.assets.map((a) => a.sourcePath)
+    expect(assetPaths.filter((p) => p === 'logo.png')).toHaveLength(1)
+    expect(result.assets).toHaveLength(1)
+  })
+
+  it('reports missing refs and excludes them from assets', async () => {
+    await writeFile(
+      path.join(projectPath, 'doc.md'),
+      '# Doc\n\n![missing](./missing.png)',
+    )
+    // missing.png is NOT written to disk
+
+    const result = await renderProject(projectPath, null, 'build')
+
+    expect(result.missingRefs).toHaveLength(1)
+    expect(result.missingRefs[0]).toEqual({
+      sourceDoc: 'doc.md',
+      missingPath: 'missing.png',
+    })
+    const assetPaths = result.assets.map((a) => a.sourcePath)
+    expect(assetPaths).not.toContain('missing.png')
+    expect(result.assets).toHaveLength(0)
+  })
+
+  it('includes only the one asset referenced by <img src> — unreferenced files excluded', async () => {
+    // 4 non-markdown files exist; README.md only references one via <img>.
+    // After #74, result.assets must contain exactly that one file.
+    await writeFile(
+      path.join(projectPath, 'README.md'),
+      '# Project\n\n![diagram](./referenced.png)',
+    )
+    await writeFile(path.join(projectPath, 'referenced.png'), 'PNG-BYTES')
+    await writeFile(path.join(projectPath, 'unreferenced1.png'), 'PNG-BYTES')
+    await writeFile(path.join(projectPath, 'unreferenced2.pdf'), 'PDF-BYTES')
+    await writeFile(path.join(projectPath, 'tsconfig.json'), '{}')
+
+    const result = await renderProject(projectPath, null, 'build')
+
+    expect(result.assets.length).toBe(1)
+    expect(result.assets[0]!.sourcePath).toBe('referenced.png')
   })
 })

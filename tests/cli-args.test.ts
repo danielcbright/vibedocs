@@ -55,4 +55,14 @@ describe('parseBuildArgs', () => {
       parseBuildArgs(['--project', 'a', '--out', 'd', '--what']),
     ).toThrow(/unknown/i)
   })
+
+  it('parses --verbose flag', () => {
+    const r = parseBuildArgs(['--project', 'argus', '--out', './dist', '--verbose'])
+    expect(r.verbose).toBe(true)
+  })
+
+  it('verbose defaults to false when not supplied', () => {
+    const r = parseBuildArgs(['--project', 'argus', '--out', './dist'])
+    expect(r.verbose).toBe(false)
+  })
 })
