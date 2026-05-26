@@ -34,8 +34,7 @@
     "dist-cli/",
     "frontend/dist/**",
     "LICENSE",
-    "README.md",
-    "CLAUDE.md"
+    "README.md"
   ],
   "scripts": {
     "dev": "concurrently \"tsx watch src/server.ts\" \"cd frontend && npx vite\"",
