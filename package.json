@@ -33,8 +33,6 @@
     "bin/",
     "dist-cli/",
     "frontend/dist/**",
-    "tsconfig.json",
-    "tsconfig.cli.json",
     "LICENSE",
     "README.md",
     "CLAUDE.md"
