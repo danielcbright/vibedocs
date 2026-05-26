@@ -17,4 +17,10 @@ describe('npm pack --dry-run package shape (#75)', () => {
     const lines = output.split('\n').filter((l) => l.includes('.ts') && !l.includes('.tsx'))
     expect(lines, 'expected no .ts files in packed tarball').toHaveLength(0)
   })
+
+  it('contains no tsconfig*.json files', () => {
+    const output = packDryRun()
+    const lines = output.split('\n').filter((l) => /tsconfig.*\.json/.test(l))
+    expect(lines, 'expected no tsconfig files in packed tarball').toHaveLength(0)
+  })
 })
