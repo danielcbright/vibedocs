@@ -36,6 +36,9 @@
     "LICENSE",
     "README.md"
   ],
+  "exports": {
+    "./package.json": "./package.json"
+  },
   "scripts": {
     "dev": "concurrently \"tsx watch src/server.ts\" \"cd frontend && npx vite\"",
     "dev:server": "tsx watch src/server.ts",
