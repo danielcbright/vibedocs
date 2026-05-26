@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdir, mkdtemp, rm, writeFile, readFile, stat } from 'fs/promises'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { mkdir, mkdtemp, rm, writeFile, readFile, stat, readdir } from 'fs/promises'
 import path from 'path'
 import os from 'os'
 import { runBuild, resolveProjectPath } from '../src/cli/build.js'
@@ -24,9 +24,9 @@ beforeEach(async () => {
   await writeFile(path.join(projectPath, 'README.md'), '# My Project\n\nWelcome.')
   await writeFile(
     path.join(projectPath, 'docs', 'install.md'),
-    '# Install\n\nRun `npm install`.',
+    '# Install\n\nRun `npm install`.\n\n![diagram](./images/diagram.png)',
   )
-  // An asset that markdown might reference.
+  // An asset referenced by docs/install.md above.
   await mkdir(path.join(projectPath, 'docs', 'images'))
   await writeFile(path.join(projectPath, 'docs', 'images', 'diagram.png'), 'PNG-FAKE-BYTES')
 
@@ -171,6 +171,82 @@ describe('runBuild — error paths', () => {
         frontendDist,
       }),
     ).rejects.toThrow(/frontend.*build|bundle/i)
+  })
+})
+
+describe('runBuild — referenced-asset filtering and summary (#74)', () => {
+  async function collectDistFiles(dir: string, base = dir): Promise<string[]> {
+    const entries = await readdir(dir, { withFileTypes: true })
+    const result: string[] = []
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name)
+      if (entry.isDirectory()) {
+        result.push(...await collectDistFiles(full, base))
+      } else {
+        result.push(path.relative(base, full))
+      }
+    }
+    return result
+  }
+
+  it('dist/ contains no .ts files, no package.json when project has source-tree noise', async () => {
+    // Add source-tree noise that should NOT appear in dist/ because no doc
+    // references it.
+    await writeFile(path.join(projectPath, 'server.ts'), 'export {}')
+    await writeFile(path.join(projectPath, 'package.json'), '{"name":"noise"}')
+    await writeFile(path.join(projectPath, 'LICENSE'), 'MIT')
+
+    await runBuild({ projectName: 'myproject', projectsRoot, outDir, frontendDist })
+
+    const files = await collectDistFiles(outDir)
+    const tsFiles = files.filter((f) => f.endsWith('.ts'))
+    const pkgFiles = files.filter((f) => f.endsWith('package.json'))
+    const licFiles = files.filter((f) => f === 'LICENSE')
+    expect(tsFiles).toHaveLength(0)
+    expect(pkgFiles).toHaveLength(0)
+    expect(licFiles).toHaveLength(0)
+  })
+
+  it('build summary contains "Copied N referenced assets"', async () => {
+    const stdoutLines: string[] = []
+    const origWrite = process.stdout.write.bind(process.stdout)
+    vi.spyOn(process.stdout, 'write').mockImplementation((chunk, ...args) => {
+      if (typeof chunk === 'string') stdoutLines.push(chunk)
+      return origWrite(chunk, ...args)
+    })
+
+    try {
+      await runBuild({ projectName: 'myproject', projectsRoot, outDir, frontendDist })
+    } finally {
+      vi.restoreAllMocks()
+    }
+
+    const combined = stdoutLines.join('')
+    expect(combined).toMatch(/Copied \d+ referenced assets/)
+  })
+
+  it('emits a warning to stderr for each missing asset reference', async () => {
+    // README.md references a file that does not exist on disk.
+    await writeFile(
+      path.join(projectPath, 'README.md'),
+      '# My Project\n\nWelcome.\n\n![missing](./ghost.png)',
+    )
+
+    const stderrLines: string[] = []
+    const origWrite = process.stderr.write.bind(process.stderr)
+    vi.spyOn(process.stderr, 'write').mockImplementation((chunk, ...args) => {
+      if (typeof chunk === 'string') stderrLines.push(chunk)
+      return origWrite(chunk, ...args)
+    })
+
+    try {
+      await runBuild({ projectName: 'myproject', projectsRoot, outDir, frontendDist })
+    } finally {
+      vi.restoreAllMocks()
+    }
+
+    const combined = stderrLines.join('')
+    expect(combined).toMatch(/warning:.*README\.md.*references.*ghost\.png.*does not exist/)
   })
 })
 
