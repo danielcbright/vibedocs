@@ -21,7 +21,7 @@ fi
 # [2/6] Install backend dependencies
 echo "[2/6] Installing backend dependencies..."
 cd "$PROJECT_DIR"
-npm install --omit=dev 2>&1 | tail -1
+npm install --omit=dev --ignore-scripts 2>&1 | tail -1
 echo "      Backend dependencies installed."
 
 # [3/6] Build frontend
