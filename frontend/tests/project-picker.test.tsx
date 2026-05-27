@@ -1,6 +1,33 @@
-import { describe, it, expect } from 'vitest'
-import { countMarkdownDocs } from '@/components/project-picker'
-import type { FileNode } from '@/hooks/use-projects'
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { ProjectPicker, countMarkdownDocs } from '@/components/project-picker'
+import type { FileNode, ProjectInfo } from '@/hooks/use-projects'
+
+const FIXTURE_PROJECTS: ProjectInfo[] = [
+  {
+    name: 'argus',
+    hasDocsFolder: true,
+    tree: [
+      { name: 'README.md', path: 'README.md', type: 'file' },
+      { name: 'docs', path: 'docs', type: 'folder', children: [
+        { name: 'install.md', path: 'docs/install.md', type: 'file' },
+      ] },
+    ],
+  },
+  {
+    name: 'vibedocs',
+    hasDocsFolder: false,
+    tree: [
+      { name: 'README.md', path: 'README.md', type: 'file' },
+    ],
+  },
+  {
+    name: 'empty-project',
+    hasDocsFolder: false,
+    tree: [],
+  },
+]
 
 describe('countMarkdownDocs', () => {
   it('returns 0 for an empty tree', () => {
@@ -44,5 +71,16 @@ describe('countMarkdownDocs', () => {
       },
     ]
     expect(countMarkdownDocs(tree)).toBe(4)
+  })
+})
+
+describe('ProjectPicker', () => {
+  it('renders one card per project, with project name as the card title', () => {
+    render(<ProjectPicker projects={FIXTURE_PROJECTS} onNavigate={() => {}} />)
+    const cards = screen.getAllByTestId('project-picker-card')
+    expect(cards).toHaveLength(3)
+    expect(screen.getByText('argus')).toBeInTheDocument()
+    expect(screen.getByText('vibedocs')).toBeInTheDocument()
+    expect(screen.getByText('empty-project')).toBeInTheDocument()
   })
 })
