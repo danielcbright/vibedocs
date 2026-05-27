@@ -92,4 +92,20 @@ describe('ProjectPicker', () => {
     expect(onNavigate).toHaveBeenCalledTimes(1)
     expect(onNavigate).toHaveBeenCalledWith('vibedocs', '')
   })
+
+  it('renders pluralized doc-count subtitles: "N docs", "1 doc", "0 docs"', () => {
+    render(<ProjectPicker projects={FIXTURE_PROJECTS} onNavigate={() => {}} />)
+    // argus has 2 markdown files (README.md + docs/install.md)
+    expect(screen.getByText('2 docs')).toBeInTheDocument()
+    // vibedocs has 1 markdown file (README.md)
+    expect(screen.getByText('1 doc')).toBeInTheDocument()
+    // empty-project has 0
+    expect(screen.getByText('0 docs')).toBeInTheDocument()
+  })
+
+  it('renders the "Browse a project" heading and projects-count subtitle', () => {
+    render(<ProjectPicker projects={FIXTURE_PROJECTS} onNavigate={() => {}} />)
+    expect(screen.getByText('Browse a project')).toBeInTheDocument()
+    expect(screen.getByText('3 projects in this workspace')).toBeInTheDocument()
+  })
 })
