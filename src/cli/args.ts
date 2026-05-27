@@ -88,17 +88,3 @@ function assignFlagValue(out: Partial<ParsedBuildArgs>, flag: string, value: str
     }
   }
 }
-
-/**
- * Resolve the effective hydration policy from the CLI flag + siteConfig
- * field + hard-coded default, in that precedence order. Pure function so the
- * resolver is testable without spinning up a real build.
- *
- *   CLI --hydration → siteConfig.hydration → 'full'
- */
-export function resolveHydration(
-  cliFlag: HydrationPolicy | undefined,
-  siteConfigHydration: HydrationPolicy | undefined,
-): HydrationPolicy {
-  return cliFlag ?? siteConfigHydration ?? 'full'
-}

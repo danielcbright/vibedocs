@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseBuildArgs } from '../src/cli/args.js'
+import { parseBuildArgs, resolveHydration } from '../src/cli/args.js'
 
 describe('parseBuildArgs', () => {
   it('parses --project and --out (required pair)', () => {
@@ -83,5 +83,21 @@ describe('parseBuildArgs', () => {
     expect(() =>
       parseBuildArgs(['--project', 'a', '--out', 'd', '--hydration', 'progressive']),
     ).toThrow(/--hydration.*full.*minimal/i)
+  })
+})
+
+describe('resolveHydration — precedence (#76)', () => {
+  it('CLI flag overrides siteConfig.hydration when both are set', () => {
+    expect(resolveHydration('minimal', 'full')).toBe('minimal')
+    expect(resolveHydration('full', 'minimal')).toBe('full')
+  })
+
+  it('falls back to siteConfig.hydration when CLI flag is absent', () => {
+    expect(resolveHydration(undefined, 'minimal')).toBe('minimal')
+    expect(resolveHydration(undefined, 'full')).toBe('full')
+  })
+
+  it('defaults to "full" when neither is set (back-compat)', () => {
+    expect(resolveHydration(undefined, undefined)).toBe('full')
   })
 })
