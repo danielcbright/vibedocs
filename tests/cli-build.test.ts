@@ -251,7 +251,7 @@ describe('runBuild — referenced-asset filtering and summary (#74)', () => {
 })
 
 describe('runBuild — hydration policy (#76)', () => {
-  it('with hydration="minimal", skips copying the SPA bundle from frontend/dist/assets but keeps user-content assets', async () => {
+  it('with hydration="minimal", skips copying the SPA JS bundle but preserves the CSS file the <link> still references', async () => {
     await runBuild({
       projectName: 'myproject',
       projectsRoot,
@@ -260,9 +260,12 @@ describe('runBuild — hydration policy (#76)', () => {
       hydration: 'minimal',
     })
 
-    // SPA bundle entry + sibling CSS NOT copied.
+    // SPA JS bundle NOT copied.
     expect(await pathExists(path.join(outDir, 'assets', 'index-FAKEHASH.js'))).toBe(false)
-    expect(await pathExists(path.join(outDir, 'assets', 'index-FAKEHASH.css'))).toBe(false)
+    // BUT — the CSS file IS still copied, because the emitted HTML still has
+    // a <link rel="stylesheet" href=".../index-FAKEHASH.css"> and the page
+    // needs Shiki + prose styles to look correct. Spec: "Preserve the CSS link."
+    expect(await pathExists(path.join(outDir, 'assets', 'index-FAKEHASH.css'))).toBe(true)
     // User-content asset (referenced by docs/install.md) IS copied — separate
     // code path from the SPA bundle.
     expect(await pathExists(path.join(outDir, 'docs', 'images', 'diagram.png'))).toBe(true)
