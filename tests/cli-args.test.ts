@@ -65,4 +65,23 @@ describe('parseBuildArgs', () => {
     const r = parseBuildArgs(['--project', 'argus', '--out', './dist'])
     expect(r.verbose).toBe(false)
   })
+
+  it('parses --hydration full and --hydration minimal (#76)', () => {
+    const full = parseBuildArgs(['--project', 'a', '--out', 'd', '--hydration', 'full'])
+    expect(full.hydration).toBe('full')
+
+    const minimal = parseBuildArgs(['--project', 'a', '--out', 'd', '--hydration', 'minimal'])
+    expect(minimal.hydration).toBe('minimal')
+  })
+
+  it('hydration is undefined when --hydration is not supplied (so the build resolver can fall through to siteConfig / default) (#76)', () => {
+    const r = parseBuildArgs(['--project', 'a', '--out', 'd'])
+    expect(r.hydration).toBeUndefined()
+  })
+
+  it('rejects --hydration with an invalid value (#76)', () => {
+    expect(() =>
+      parseBuildArgs(['--project', 'a', '--out', 'd', '--hydration', 'progressive']),
+    ).toThrow(/--hydration.*full.*minimal/i)
+  })
 })
