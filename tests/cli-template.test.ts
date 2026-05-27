@@ -92,3 +92,41 @@ describe('composePageHtml — minimal template (slice #49)', () => {
     expect(out).toContain('>Install<')
   })
 })
+
+describe('composePageHtml — hydration policy (#76)', () => {
+  it('omits the <script type="module"> tag when hydration === "minimal"', () => {
+    const out = composePageHtml(page(), {
+      bundleEntry: '/assets/index.js',
+      title: 'T',
+      hydration: 'minimal',
+    })
+    expect(out).not.toContain('<script type="module"')
+    // CSS link is still preserved when supplied — minimal mode keeps Shiki +
+    // prose styles.
+    const css = composePageHtml(page(), {
+      bundleEntry: '/assets/index.js',
+      title: 'T',
+      hydration: 'minimal',
+      stylesheet: '/assets/index-FAKEHASH.css',
+    })
+    expect(css).toContain('rel="stylesheet"')
+    expect(css).toContain('/assets/index-FAKEHASH.css')
+  })
+
+  it('keeps the <script type="module"> tag when hydration === "full" (default behaviour)', () => {
+    const out = composePageHtml(page(), {
+      bundleEntry: '/assets/index-abc.js',
+      title: 'T',
+      hydration: 'full',
+    })
+    expect(out).toContain('<script type="module" src="/assets/index-abc.js"></script>')
+  })
+
+  it('treats omitted hydration as "full" (back-compat)', () => {
+    const out = composePageHtml(page(), {
+      bundleEntry: '/assets/index.js',
+      title: 'T',
+    })
+    expect(out).toContain('<script type="module"')
+  })
+})
