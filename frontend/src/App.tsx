@@ -219,6 +219,7 @@ function DocsApp() {
               docPath={activePath}
               connected={connected}
               projectTree={activeProjectTree}
+              projects={projects}
               reloadNonce={reloadNonce}
               onNavigate={navigateSmart}
               mobileSearchTrigger={() => setSearchOpen(true)}
@@ -301,6 +302,7 @@ function DocsApp() {
                 docPath={activePath}
                 connected={connected}
                 projectTree={activeProjectTree}
+                projects={projects}
                 reloadNonce={reloadNonce}
                 onNavigate={navigateSmart}
               />
