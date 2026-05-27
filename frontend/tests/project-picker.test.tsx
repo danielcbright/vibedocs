@@ -83,4 +83,13 @@ describe('ProjectPicker', () => {
     expect(screen.getByText('vibedocs')).toBeInTheDocument()
     expect(screen.getByText('empty-project')).toBeInTheDocument()
   })
+
+  it('clicking a card calls onNavigate(project.name, "") — the empty path lets navigateSmart resolve to the first markdown file', async () => {
+    const onNavigate = vi.fn()
+    render(<ProjectPicker projects={FIXTURE_PROJECTS} onNavigate={onNavigate} />)
+    const cards = screen.getAllByTestId('project-picker-card')
+    await userEvent.click(cards[1]) // vibedocs
+    expect(onNavigate).toHaveBeenCalledTimes(1)
+    expect(onNavigate).toHaveBeenCalledWith('vibedocs', '')
+  })
 })
