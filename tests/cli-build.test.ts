@@ -354,6 +354,57 @@ describe('runBuild — hydration policy (#76)', () => {
     const html = await readFile(path.join(outDir, 'index.html'), 'utf-8')
     expect(html).toContain('<script type="module"')
   })
+
+  it('emits a "Hydration policy: minimal" summary line with saved-bytes context', async () => {
+    const stdoutLines: string[] = []
+    const origWrite = process.stdout.write.bind(process.stdout)
+    vi.spyOn(process.stdout, 'write').mockImplementation((chunk, ...args) => {
+      if (typeof chunk === 'string') stdoutLines.push(chunk)
+      return origWrite(chunk, ...args)
+    })
+
+    try {
+      await runBuild({
+        projectName: 'myproject',
+        projectsRoot,
+        outDir,
+        frontendDist,
+        hydration: 'minimal',
+      })
+    } finally {
+      vi.restoreAllMocks()
+    }
+
+    const combined = stdoutLines.join('')
+    expect(combined).toMatch(/Hydration policy: minimal/)
+    // Saved-bytes context: the would-have-been-copied SPA bundle is summed.
+    expect(combined).toMatch(/saved/i)
+  })
+
+  it('emits a "Hydration policy: full (SPA bundle copied — N files, ~XXX)" summary line in full mode', async () => {
+    const stdoutLines: string[] = []
+    const origWrite = process.stdout.write.bind(process.stdout)
+    vi.spyOn(process.stdout, 'write').mockImplementation((chunk, ...args) => {
+      if (typeof chunk === 'string') stdoutLines.push(chunk)
+      return origWrite(chunk, ...args)
+    })
+
+    try {
+      await runBuild({
+        projectName: 'myproject',
+        projectsRoot,
+        outDir,
+        frontendDist,
+        hydration: 'full',
+      })
+    } finally {
+      vi.restoreAllMocks()
+    }
+
+    const combined = stdoutLines.join('')
+    expect(combined).toMatch(/Hydration policy: full/)
+    expect(combined).toMatch(/SPA bundle copied/)
+  })
 })
 
 describe('resolveProjectPath', () => {
