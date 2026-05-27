@@ -207,6 +207,8 @@ export async function runBuild(opts: BuildOptions): Promise<void> {
       title: titleFromPage(page, opts.projectName),
       stylesheet,
       navLinks,
+      hydration,
+      ...(siteConfig?.nav ? { siteConfigNav: siteConfig.nav } : {}),
     })
     await writeFile(outPath, html, 'utf-8')
   }
