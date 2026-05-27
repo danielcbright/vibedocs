@@ -267,6 +267,25 @@ describe('runBuild — hydration policy (#76)', () => {
     // code path from the SPA bundle.
     expect(await pathExists(path.join(outDir, 'docs', 'images', 'diagram.png'))).toBe(true)
   })
+
+  it('with hydration="minimal", emitted HTML contains NO <script type="module"> tag', async () => {
+    await runBuild({
+      projectName: 'myproject',
+      projectsRoot,
+      outDir,
+      frontendDist,
+      hydration: 'minimal',
+    })
+
+    const rootHtml = await readFile(path.join(outDir, 'index.html'), 'utf-8')
+    expect(rootHtml).not.toContain('<script type="module"')
+
+    const installHtml = await readFile(
+      path.join(outDir, 'docs', 'install', 'index.html'),
+      'utf-8',
+    )
+    expect(installHtml).not.toContain('<script type="module"')
+  })
 })
 
 describe('resolveProjectPath', () => {
