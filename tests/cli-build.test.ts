@@ -250,6 +250,25 @@ describe('runBuild — referenced-asset filtering and summary (#74)', () => {
   })
 })
 
+describe('runBuild — hydration policy (#76)', () => {
+  it('with hydration="minimal", skips copying the SPA bundle from frontend/dist/assets but keeps user-content assets', async () => {
+    await runBuild({
+      projectName: 'myproject',
+      projectsRoot,
+      outDir,
+      frontendDist,
+      hydration: 'minimal',
+    })
+
+    // SPA bundle entry + sibling CSS NOT copied.
+    expect(await pathExists(path.join(outDir, 'assets', 'index-FAKEHASH.js'))).toBe(false)
+    expect(await pathExists(path.join(outDir, 'assets', 'index-FAKEHASH.css'))).toBe(false)
+    // User-content asset (referenced by docs/install.md) IS copied — separate
+    // code path from the SPA bundle.
+    expect(await pathExists(path.join(outDir, 'docs', 'images', 'diagram.png'))).toBe(true)
+  })
+})
+
 describe('resolveProjectPath', () => {
   it('returns <root>/<name> when that directory exists', async () => {
     const resolved = await resolveProjectPath('myproject', projectsRoot, projectsRoot)
