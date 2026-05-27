@@ -68,7 +68,16 @@ export function composePageHtml(page: HtmlPage, opts: ComposePageOptions): strin
   const stylesheetTag = opts.stylesheet
     ? `<link rel="stylesheet" href="${escapeAttr(opts.stylesheet)}">`
     : ''
-  const navHtml = renderNav(opts.navLinks)
+  // Minimal mode prefers the curated nav (when supplied) — flat fallback only
+  // when there's no `siteConfig.nav.sections`. Full mode keeps the flat nav as
+  // a no-JS scaffold the React SPA replaces post-hydrate.
+  const useCuratedNav =
+    hydration === 'minimal' &&
+    !!opts.siteConfigNav &&
+    opts.siteConfigNav.sections.length > 0
+  const navHtml = useCuratedNav
+    ? renderCuratedNav(opts.siteConfigNav!.sections)
+    : renderNav(opts.navLinks)
   // Minimal mode strips the bootstrap script — the SPA bundle isn't shipped
   // and there's nothing to load. CSS stays put: Shiki tokens, prose typography,
   // and table styles all live in the Vite-emitted stylesheet.
@@ -111,4 +120,68 @@ ${items}
         </ul>
       </nav>
 `
+}
+
+/**
+ * Semantic curated nav for `hydration === 'minimal'` pages with a
+ * `siteConfig.nav.sections` configured. Mirrors the SPA's curated-nav
+ * structure (section labels as `<h2>`, items as `<a>` inside nested `<ul>`)
+ * so screen readers get a real navigation landmark and keyboard users get
+ * sensible Tab order without any JS.
+ *
+ * Items are project-relative markdown paths (e.g. `README.md`,
+ * `docs/install.md`); we map them to the same clean URLs the renderer
+ * produces — README.md at the root → `/`, anything else → `/<path-without-md>/`.
+ */
+function renderCuratedNav(
+  sections: ReadonlyArray<{ label: string; items: readonly string[] }>,
+): string {
+  if (sections.length === 0) return ''
+  const sectionsHtml = sections
+    .map((section) => {
+      const itemsHtml = section.items
+        .map((markdownPath) => {
+          const url = curatedItemUrl(markdownPath)
+          const label = curatedItemLabel(markdownPath)
+          return `            <li><a href="${escapeAttr(url)}">${escapeHtml(label)}</a></li>`
+        })
+        .join('\n')
+      return `        <li>
+          <h2>${escapeHtml(section.label)}</h2>
+          <ul>
+${itemsHtml}
+          </ul>
+        </li>`
+    })
+    .join('\n')
+  return `      <nav aria-label="Main navigation">
+        <ul>
+${sectionsHtml}
+        </ul>
+      </nav>
+`
+}
+
+/**
+ * Mirror of `buildPageUrl` in src/render.ts — kept in lockstep so curated-nav
+ * links land on the same clean URLs the renderer emits per page.
+ */
+function curatedItemUrl(projectRelativePath: string): string {
+  const noExt = projectRelativePath.replace(/\.(md|markdown)$/i, '')
+  if (noExt === 'README' || noExt === 'index') return '/'
+  if (noExt.endsWith('/README') || noExt.endsWith('/index')) {
+    return '/' + noExt.replace(/\/(README|index)$/, '/')
+  }
+  return '/' + noExt + '/'
+}
+
+/**
+ * Default label derivation for a curated-nav item — just the filename
+ * without the markdown extension. The frontmatter-driven title slice (#50)
+ * can layer a richer label resolver on top later; for now this matches what
+ * a reader would expect when configuring `items: ['docs/install.md']`.
+ */
+function curatedItemLabel(projectRelativePath: string): string {
+  const last = projectRelativePath.split('/').pop() ?? projectRelativePath
+  return last.replace(/\.(md|markdown)$/i, '')
 }
