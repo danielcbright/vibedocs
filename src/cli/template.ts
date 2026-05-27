@@ -11,6 +11,7 @@
 // nav targets are the same clean URLs the React SPA navigates to).
 
 import type { HtmlPage } from '../render.js'
+import type { HydrationPolicy, SiteConfig } from '../shared/site-config-types.js'
 
 export interface NavLink {
   url: string
@@ -26,6 +27,17 @@ export interface ComposePageOptions {
   stylesheet?: string
   /** Optional plain-link nav rendered ahead of content for no-JS fallback. */
   navLinks?: NavLink[]
+  /**
+   * Static-build hydration policy. Defaults to `'full'` (today's behaviour).
+   * When `'minimal'`, the `<script type="module">` bootstrap tag is omitted.
+   */
+  hydration?: HydrationPolicy
+  /**
+   * Optional curated nav sections (from `siteConfig.nav.sections`). When set
+   * AND `hydration === 'minimal'`, replaces the flat-link fallback with a
+   * semantic nested-list nav (`<nav aria-label="Main navigation">`).
+   */
+  siteConfigNav?: SiteConfig['nav']
 }
 
 const HTML_ESCAPES: Record<string, string> = {
@@ -50,12 +62,20 @@ export function escapeAttr(value: string): string {
 }
 
 export function composePageHtml(page: HtmlPage, opts: ComposePageOptions): string {
+  const hydration: HydrationPolicy = opts.hydration ?? 'full'
   const title = escapeHtml(opts.title)
   const bundleEntry = escapeAttr(opts.bundleEntry)
   const stylesheetTag = opts.stylesheet
     ? `<link rel="stylesheet" href="${escapeAttr(opts.stylesheet)}">`
     : ''
   const navHtml = renderNav(opts.navLinks)
+  // Minimal mode strips the bootstrap script — the SPA bundle isn't shipped
+  // and there's nothing to load. CSS stays put: Shiki tokens, prose typography,
+  // and table styles all live in the Vite-emitted stylesheet.
+  const scriptTag =
+    hydration === 'full'
+      ? `<script type="module" src="${bundleEntry}"></script>`
+      : ''
 
   // Note: page.html is rehype-sanitize'd output from render.ts — safe to
   // embed verbatim. Nothing else here interpolates user-controlled HTML.
@@ -74,7 +94,7 @@ ${navHtml}<main data-vd-page-path="${escapeAttr(page.path)}">
 ${page.html}
 </main>
     </div>
-    <script type="module" src="${bundleEntry}"></script>
+    ${scriptTag}
   </body>
 </html>
 `
