@@ -286,6 +286,74 @@ describe('runBuild — hydration policy (#76)', () => {
     )
     expect(installHtml).not.toContain('<script type="module"')
   })
+
+  it('with hydration="minimal" AND a siteConfig.nav.sections, emits <nav aria-label="Main navigation">', async () => {
+    // Drop a .vibedocs.config.ts at the project root configuring curated nav.
+    const configSource = `
+      export default {
+        name: 'myproject',
+        domain: 'example.com',
+        description: 'd',
+        theme: { tokens: {} },
+        llms: { summary: 's', keyDocs: [] },
+        nav: {
+          sections: [
+            { label: 'Getting Started', items: ['README.md', 'docs/install.md'] },
+          ],
+        },
+      }
+    `
+    await writeFile(path.join(projectPath, '.vibedocs.config.ts'), configSource, 'utf8')
+
+    await runBuild({
+      projectName: 'myproject',
+      projectsRoot,
+      outDir,
+      frontendDist,
+      hydration: 'minimal',
+    })
+
+    const html = await readFile(path.join(outDir, 'index.html'), 'utf-8')
+    expect(html).toContain('<nav aria-label="Main navigation">')
+    expect(html).toContain('Getting Started')
+    expect(html).toContain('href="/docs/install/"')
+    // Flat-fallback nav must not appear when curated wins.
+    expect(html).not.toContain('data-vd-fallback-nav')
+  })
+
+  it('with hydration="minimal" AND NO siteConfig.nav, falls back to the flat-link nav', async () => {
+    // No .vibedocs.config.ts at all — runBuild defaults siteConfig to null.
+    await runBuild({
+      projectName: 'myproject',
+      projectsRoot,
+      outDir,
+      frontendDist,
+      hydration: 'minimal',
+    })
+
+    const html = await readFile(path.join(outDir, 'index.html'), 'utf-8')
+    expect(html).not.toContain('aria-label="Main navigation"')
+    expect(html).toContain('data-vd-fallback-nav')
+    // The page links the renderer found should be present as flat <a>s.
+    expect(html).toContain('href="/docs/install/"')
+  })
+
+  it('with hydration="full" (default), preserves today\'s behaviour — SPA bundle copied AND script tag present', async () => {
+    await runBuild({
+      projectName: 'myproject',
+      projectsRoot,
+      outDir,
+      frontendDist,
+      // No `hydration` field — exercises the default-to-'full' path.
+    })
+
+    // SPA bundle copied.
+    expect(await pathExists(path.join(outDir, 'assets', 'index-FAKEHASH.js'))).toBe(true)
+    expect(await pathExists(path.join(outDir, 'assets', 'index-FAKEHASH.css'))).toBe(true)
+    // Script tag present in emitted HTML.
+    const html = await readFile(path.join(outDir, 'index.html'), 'utf-8')
+    expect(html).toContain('<script type="module"')
+  })
 })
 
 describe('resolveProjectPath', () => {
