@@ -15,6 +15,8 @@ import path from 'path'
 import { stat, mkdir, writeFile, readFile, readdir, cp } from 'fs/promises'
 import { renderProject, type HtmlPage } from '../render.js'
 import { loadSiteConfig, type SiteConfig } from '../site-config.js'
+import type { HydrationPolicy } from '../shared/site-config-types.js'
+import { resolveHydration } from './args.js'
 import { composePageHtml, type NavLink } from './template.js'
 
 export interface BuildOptions {
@@ -32,6 +34,12 @@ export interface BuildOptions {
   cwd?: string
   /** When true, list each copied asset path before the summary. */
   verbose?: boolean
+  /**
+   * Static-build hydration policy. CLI flag wins, otherwise resolved from
+   * `siteConfig.hydration`, otherwise `'full'`. When `'minimal'`, the SPA
+   * bundle copy is skipped and the bootstrap `<script>` tag is omitted.
+   */
+  hydration?: HydrationPolicy
 }
 
 /**
@@ -170,6 +178,11 @@ export async function runBuild(opts: BuildOptions): Promise<void> {
 
   const result = await renderProject(projectPath, siteConfig, 'build')
 
+  // Resolve effective hydration policy: CLI > siteConfig > 'full'. This is the
+  // single seam where the policy is decided; template + bundle-copy branches
+  // below both read from this one value.
+  const hydration = resolveHydration(opts.hydration, siteConfig?.hydration)
+
   // Detect bundle paths up front so we fail fast if the frontend hasn't
   // been built yet.
   const bundleEntry = await detectBundleEntry(opts.frontendDist)
@@ -222,12 +235,17 @@ export async function runBuild(opts: BuildOptions): Promise<void> {
     `Copied ${result.assets.length} referenced assets (${missingCount} missing reference${missingCount === 1 ? '' : 's'})\n`,
   )
 
-  // Copy the React bundle (frontend/dist/assets → <outDir>/assets).
-  const bundleAssetsSrc = path.join(opts.frontendDist, 'assets')
-  if (await isDir(bundleAssetsSrc)) {
-    const bundleAssetsDest = path.join(opts.outDir, 'assets')
-    await mkdir(bundleAssetsDest, { recursive: true })
-    await copyDirContents(bundleAssetsSrc, bundleAssetsDest)
+  // Copy the React bundle (frontend/dist/assets → <outDir>/assets) only in
+  // full-hydration mode. Minimal mode ships no SPA bundle, so the copy is
+  // pure waste — and worse, the unreferenced JS/CSS would inflate the
+  // published `dist/` for no benefit.
+  if (hydration === 'full') {
+    const bundleAssetsSrc = path.join(opts.frontendDist, 'assets')
+    if (await isDir(bundleAssetsSrc)) {
+      const bundleAssetsDest = path.join(opts.outDir, 'assets')
+      await mkdir(bundleAssetsDest, { recursive: true })
+      await copyDirContents(bundleAssetsSrc, bundleAssetsDest)
+    }
   }
 
   // baseUrl is accepted but not yet emitted — slice #50/#54 wire it into
