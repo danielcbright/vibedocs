@@ -36,6 +36,7 @@ beforeEach(async () => {
     path.join(frontendDist, 'index.html'),
     '<!doctype html><html><head><title>X</title>'
       + '<script type="module" src="/assets/index-FAKEHASH.js"></script>'
+      + '<link rel="stylesheet" href="/assets/index-FAKEHASH.css">'
       + '</head><body><div id="root"></div></body></html>',
   )
   await writeFile(path.join(frontendDist, 'assets', 'index-FAKEHASH.js'), 'console.log("hi")')

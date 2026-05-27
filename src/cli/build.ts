@@ -248,12 +248,32 @@ export async function runBuild(opts: BuildOptions): Promise<void> {
   // Copy the React bundle (frontend/dist/assets → <outDir>/assets) only in
   // full-hydration mode. Minimal mode ships no SPA bundle, so the copy is
   // pure waste — and worse, the unreferenced JS/CSS would inflate the
-  // published `dist/` for no benefit.
+  // published `dist/` for no benefit. EXCEPT for the single CSS file the
+  // emitted `<link rel="stylesheet">` still references — Shiki tokens,
+  // prose typography, and table styles all live there. The spec is explicit:
+  // "Preserve the CSS link." Skipping the JS chunks but keeping the one CSS
+  // bundle delivers ~99% of the savings while keeping pages looking correct.
   if (hydration === 'full' && bundleStats.fileCount > 0) {
     const bundleAssetsDest = path.join(opts.outDir, 'assets')
     await mkdir(bundleAssetsDest, { recursive: true })
     await copyDirContents(bundleAssetsSrc, bundleAssetsDest)
+  } else if (hydration === 'minimal' && stylesheet) {
+    // Copy ONLY the CSS file the stylesheet link references.
+    const cssBasename = path.basename(stylesheet)
+    const cssSrc = path.join(bundleAssetsSrc, cssBasename)
+    if (await fileExists(cssSrc)) {
+      const cssDest = path.join(opts.outDir, 'assets', cssBasename)
+      await mkdir(path.dirname(cssDest), { recursive: true })
+      await copyFileSafe(cssSrc, cssDest)
+    }
   }
+
+  // Saved-bytes math: in minimal mode we DID copy the CSS file, so the
+  // honest "saved" number is bundleStats.totalBytes minus the CSS bytes.
+  const cssBytesIfMinimal =
+    hydration === 'minimal' && stylesheet
+      ? await fileSizeOrZero(path.join(bundleAssetsSrc, path.basename(stylesheet)))
+      : 0
 
   // Hydration summary — final line(s) of stdout. Names what was decided AND
   // makes the cost visible, so a consumer sees the tradeoff at a glance.
@@ -263,7 +283,7 @@ export async function runBuild(opts: BuildOptions): Promise<void> {
     )
   } else {
     process.stdout.write(
-      `Hydration policy: minimal — no SPA bundle (saved ~${humanBytes(bundleStats.totalBytes)})\n`,
+      `Hydration policy: minimal — no SPA bundle (saved ~${humanBytes(bundleStats.totalBytes - cssBytesIfMinimal)})\n`,
     )
   }
 
@@ -328,4 +348,13 @@ function humanBytes(bytes: number): string {
   if (kb < 1024) return `${kb.toFixed(1)} KB`
   const mb = kb / 1024
   return `${mb.toFixed(2)} MB`
+}
+
+async function fileSizeOrZero(p: string): Promise<number> {
+  try {
+    const s = await stat(p)
+    return s.size
+  } catch {
+    return 0
+  }
 }
