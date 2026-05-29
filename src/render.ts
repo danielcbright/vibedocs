@@ -14,6 +14,7 @@ import {
   type RenderMode,
   type RewriteOptions,
 } from './url-rewriter.js'
+import { isMarkdownPath } from './markdown-paths.js'
 
 /**
  * Pure renderer for a single project. Walks the project tree, renders every
@@ -80,12 +81,6 @@ export interface RenderResult {
   robots: string | null
 }
 
-const MD_EXTENSION_RE = /\.(md|markdown)$/i
-
-function isMarkdown(filePath: string): boolean {
-  return MD_EXTENSION_RE.test(filePath)
-}
-
 /**
  * Build the live-mode asset URL for a project-relative POSIX path.
  *
@@ -141,7 +136,7 @@ export async function renderProject(
 
   for (const file of files) {
     const posixPath = file.path.split(path.sep).join('/')
-    if (isMarkdown(posixPath)) {
+    if (isMarkdownPath(posixPath)) {
       const absPath = path.join(projectPath, file.path)
       const content = await readFile(absPath, 'utf-8')
       const html = await renderMarkdownForPage(content, {

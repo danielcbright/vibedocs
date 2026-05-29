@@ -2,6 +2,7 @@ import { readdir, stat } from 'fs/promises'
 import path from 'path'
 import type { SiteConfig } from './site-config.js'
 import { EXCLUDED_DIRS } from './excluded-paths.js'
+import { isMarkdownPath } from './markdown-paths.js'
 
 export const PROJECTS_DIR = process.env.VIBEDOCS_ROOT || process.cwd()
 
@@ -55,7 +56,7 @@ async function buildTree(dir: string, projectRoot: string): Promise<FileNode[]> 
       nodes.push({ name: entry, path: relPath, type: 'folder', children })
     } else if (s.isFile()) {
       if (s.size === 0) continue  // skip empty files
-      const isMd = entry.endsWith('.md') || entry.endsWith('.markdown')
+      const isMd = isMarkdownPath(entry)
       nodes.push({
         name: entry,
         path: relPath,
