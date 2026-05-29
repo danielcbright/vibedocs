@@ -1,14 +1,14 @@
 import { readdir, stat } from 'fs/promises'
 import path from 'path'
 import type { SiteConfig } from './site-config.js'
+import { EXCLUDED_DIRS } from './excluded-paths.js'
 
 export const PROJECTS_DIR = process.env.VIBEDOCS_ROOT || process.cwd()
 
-export const EXCLUDED_DIRS = new Set([
-  'node_modules', '.git', '.next', 'dist', 'build', 'out',
-  'coverage', 'tmp', 'temp', '_archived',
-  '.project-template', 'test-projects',
-])
+// Re-exported for backward compatibility with existing call sites that import
+// EXCLUDED_DIRS from this module. New code should import directly from
+// './excluded-paths.js'.
+export { EXCLUDED_DIRS }
 
 export interface FileNode {
   name: string

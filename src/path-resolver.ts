@@ -1,6 +1,6 @@
 import path from 'path'
 import { VibedocsError } from './errors.js'
-import { EXCLUDED_DIRS } from './discovery.js'
+import { EXCLUDED_DIRS } from './excluded-paths.js'
 
 /**
  * Branded type for filesystem paths that have been validated by a PathResolver.
