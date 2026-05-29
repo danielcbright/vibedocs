@@ -5,6 +5,7 @@ import { safeWriteFile } from './upload.js'
 import type { PathResolver } from './path-resolver.js'
 import type { UploadAuthConfig } from './upload-auth.js'
 import { runPipelinePhase, type UploadError } from './upload-pipeline.js'
+import { resolveProjectPath } from './route-path.js'
 
 /**
  * Turn an UploadError into a Hono response. Single point of HTTP translation
@@ -65,14 +66,15 @@ export function registerUploadRoute(
     }
 
     // ── Resolve target directory (path traversal defense) ────────────────────
-    const project = c.req.param('project')
-    const fullPath = new URL(c.req.url).pathname
-    const prefix = `/api/upload/${encodeURIComponent(project)}/`
-    const folderPath = fullPath.startsWith(prefix)
-      ? decodeURIComponent(fullPath.slice(prefix.length))
-      : (c.req.param('*') || '')
-
-    const targetDir = assetResolver.resolve(project, folderPath)
+    // Single seam — see src/route-path.ts. `allowEmptyPath: true` preserves
+    // the pre-helper upload behavior of accepting `/api/upload/myproject/` as
+    // "upload to project root" rather than 400-ing it.
+    const { safePath: targetDir } = resolveProjectPath(
+      c,
+      '/api/upload',
+      assetResolver,
+      { allowEmptyPath: true },
+    )
 
     let s: Awaited<ReturnType<typeof fsStat>>
     try {
