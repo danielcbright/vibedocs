@@ -104,6 +104,100 @@ describe('AppState — search index rebuild on markdown change', () => {
   })
 })
 
+describe('AppState — broadcast on tree change', () => {
+  it('emits reload(<project-relative path>) when a markdown file changes', async () => {
+    const projectDir = path.join(tmpDir, 'alpha')
+    await mkdir(projectDir, { recursive: true })
+    await writeFile(path.join(projectDir, 'notes.md'), '# n\n')
+
+    const { state, fsEvents, channel } = buildState()
+    await state.start()
+
+    fsEvents.emit({ kind: 'change', path: path.join(projectDir, 'notes.md') })
+
+    expect(channel.sent).toEqual([{ type: 'reload', path: 'alpha/notes.md' }])
+    await state.shutdown()
+  })
+
+  it('emits refresh-tree (NOT reload) when a non-markdown file changes', async () => {
+    const projectDir = path.join(tmpDir, 'alpha')
+    await mkdir(projectDir, { recursive: true })
+
+    const { state, fsEvents, channel } = buildState()
+    await state.start()
+
+    fsEvents.emit({ kind: 'change', path: path.join(projectDir, 'logo.png') })
+
+    expect(channel.sent).toEqual([{ type: 'refresh-tree' }])
+    await state.shutdown()
+  })
+
+  it('emits refresh-tree on add/unlink/addDir/unlinkDir', async () => {
+    const projectDir = path.join(tmpDir, 'alpha')
+    await mkdir(projectDir, { recursive: true })
+
+    const { state, fsEvents, channel } = buildState()
+    await state.start()
+
+    fsEvents.emit({ kind: 'add', path: path.join(projectDir, 'new.md') })
+    fsEvents.emit({ kind: 'unlink', path: path.join(projectDir, 'old.md') })
+    fsEvents.emit({ kind: 'addDir', path: path.join(projectDir, 'sub') })
+    fsEvents.emit({ kind: 'unlinkDir', path: path.join(projectDir, 'gone') })
+
+    // Each event triggers refresh-tree (and only refresh-tree, regardless of
+    // markdown-ness of the path — markdown adds/unlinks rebuild search but
+    // still broadcast as tree changes).
+    expect(channel.sent).toEqual([
+      { type: 'refresh-tree' },
+      { type: 'refresh-tree' },
+      { type: 'refresh-tree' },
+      { type: 'refresh-tree' },
+    ])
+    await state.shutdown()
+  })
+
+  it('does NOT broadcast an absolute filesystem path on reload — only project-relative', async () => {
+    // Defends against a leak where the wire payload would expose host layout.
+    const projectDir = path.join(tmpDir, 'alpha')
+    await mkdir(projectDir, { recursive: true })
+
+    const { state, fsEvents, channel } = buildState()
+    await state.start()
+
+    // Path outside projectsDir → toProjectRelativePath returns null → no reload.
+    fsEvents.emit({ kind: 'change', path: '/etc/hosts' })
+
+    // It still broadcasts refresh-tree (non-markdown branch), but not a reload.
+    expect(channel.sent.every((m) => m.type !== 'reload')).toBe(true)
+    await state.shutdown()
+  })
+})
+
+describe('AppState — interface delegates', () => {
+  it('exposes uploadAuth as the snapshot passed at construction', async () => {
+    const cfg = parseUploadAuthConfig({ VIBEDOCS_UPLOAD_TOKEN: 'sekret' })
+    const { state } = buildState({ uploadAuth: cfg })
+    expect(state.uploadAuth).toBe(cfg)
+    expect(state.uploadAuth.token).toBe('sekret')
+    await state.shutdown()
+  })
+
+  it('listProjects returns projects with siteConfig attached', async () => {
+    await mkdir(path.join(tmpDir, 'alpha'), { recursive: true })
+    await writeFile(path.join(tmpDir, 'alpha', 'README.md'), '# alpha\n')
+    await mkdir(path.join(tmpDir, 'beta'), { recursive: true })
+    await writeFile(path.join(tmpDir, 'beta', 'README.md'), '# beta\n')
+
+    const { state } = buildState()
+    const projects = await state.listProjects()
+
+    expect(projects.map((p) => p.name).sort()).toEqual(['alpha', 'beta'])
+    // siteConfig is null when no .vibedocs.config.ts exists; key still present.
+    expect(projects[0]).toHaveProperty('siteConfig')
+    await state.shutdown()
+  })
+})
+
 async function waitForVersion(state: { searchVersion: number }, target: number) {
   for (let i = 0; i < 50; i++) {
     if (state.searchVersion >= target) return
