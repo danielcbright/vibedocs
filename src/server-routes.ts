@@ -4,6 +4,7 @@ import path from 'path'
 import type { IndexStore } from './search.js'
 import type { PathResolver } from './path-resolver.js'
 import { VibedocsError } from './errors.js'
+import { resolveProjectPath } from './route-path.js'
 
 export function registerSearchRoute(app: Hono, store: IndexStore): void {
   app.get('/api/search', (c) => {
@@ -84,25 +85,15 @@ function dispositionFilename(name: string): string {
 
 export function registerFileRoute(app: Hono, assetResolver: PathResolver): void {
   app.get('/api/file/:project/*', async (c) => {
-    const project = c.req.param('project')
-    const fullPath = new URL(c.req.url).pathname
-    const prefix = `/api/file/${encodeURIComponent(project)}/`
-    const filePath = fullPath.startsWith(prefix)
-      ? decodeURIComponent(fullPath.slice(prefix.length))
-      : (c.req.param('*') || '')
-
-    if (!project || !filePath) {
-      return c.json({ error: 'Missing project or path' }, 400)
-    }
-
-    const resolved = assetResolver.resolve(project, filePath)
+    // Single seam — see src/route-path.ts.
+    const { safePath } = resolveProjectPath(c, '/api/file', assetResolver)
 
     try {
-      const content = await readFile(resolved)
-      const ext = path.extname(resolved).toLowerCase()
+      const content = await readFile(safePath)
+      const ext = path.extname(safePath).toLowerCase()
       const contentType = ASSET_CONTENT_TYPES[ext] || 'application/octet-stream'
       const disposition = SAFE_INLINE_EXTENSIONS.has(ext) ? 'inline' : 'attachment'
-      const filename = dispositionFilename(path.basename(resolved))
+      const filename = dispositionFilename(path.basename(safePath))
 
       return new Response(content, {
         headers: {

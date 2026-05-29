@@ -33,21 +33,41 @@ export function extractProjectPath(
   return { project, relativePath }
 }
 
+export interface ResolveProjectPathOptions {
+  /**
+   * When `true`, an empty `relativePath` is allowed and resolves to the
+   * project root. Used by `/api/upload/:project/*` whose folder path can be
+   * empty (upload directly to the project root). Default `false` — the
+   * render/raw/file routes treat empty path as a 400 "Missing project or path".
+   */
+  allowEmptyPath?: boolean
+}
+
 /**
  * Convenience wrapper that combines `extractProjectPath` with a `PathResolver`
  * call — the full pre-FS incantation that the four file-serving routes used
  * to inline. Throws `VibedocsError('invalid', 'Missing project or path')`
- * when either piece is empty (the central error handler translates that to
- * the same 400 the inline routes used to return).
+ * when project is empty, or when relativePath is empty and `allowEmptyPath`
+ * is not set (the central error handler translates that to the same 400 the
+ * inline routes used to return).
+ *
+ * Returns project + relativePath alongside the SafePath so callers that need
+ * the raw inputs downstream (e.g. renderSinglePage takes both safePath AND
+ * the relative path for link rewriting) don't have to re-parse the URL.
  */
 export function resolveProjectPath(
   c: Context,
   routeBase: string,
   resolver: PathResolver,
-): SafePath {
+  options: ResolveProjectPathOptions = {},
+): { project: string; relativePath: string; safePath: SafePath } {
   const { project, relativePath } = extractProjectPath(c, routeBase)
-  if (!project || !relativePath) {
+  if (!project) {
     throw new VibedocsError('invalid', 'Missing project or path')
   }
-  return resolver.resolve(project, relativePath)
+  if (!relativePath && !options.allowEmptyPath) {
+    throw new VibedocsError('invalid', 'Missing project or path')
+  }
+  const safePath = resolver.resolve(project, relativePath)
+  return { project, relativePath, safePath }
 }

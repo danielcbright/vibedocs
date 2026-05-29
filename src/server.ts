@@ -29,6 +29,7 @@ import {
 import { VibedocsError, registerErrorHandler } from './errors.js'
 import { parseAllowedOrigins, buildVerifyClient } from './ws-auth.js'
 import { MARKDOWN_EXTENSIONS, isMarkdownPath } from './markdown-paths.js'
+import { resolveProjectPath } from './route-path.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const FRONTEND_DIST = path.join(__dirname, '..', 'frontend', 'dist')
@@ -73,23 +74,12 @@ app.get('/api/projects', async (c) => {
 })
 
 app.get('/api/render/:project/*', async (c) => {
-  const project = c.req.param('project')
-  // Extract the wildcard portion from the raw URL path
-  const fullPath = new URL(c.req.url).pathname
-  const prefix = `/api/render/${encodeURIComponent(project)}/`
-  const docPath = fullPath.startsWith(prefix)
-    ? decodeURIComponent(fullPath.slice(prefix.length))
-    : (c.req.param('*') || '')
-
-  if (!project || !docPath) {
-    return c.json({ error: 'Missing project or path' }, 400)
-  }
-
-  // Resolver validates the path (traversal + extension) and returns a
-  // `SafePath` we pass straight to `renderSinglePage`. The renderer's
-  // signature requires a `SafePath` (not a raw string), so any future caller
-  // that bypasses validation fails at compile time — see security #7.
-  const safePath = docResolver.resolve(project, docPath)
+  // Single seam — see src/route-path.ts. The helper extracts project + the
+  // decoded wildcard tail and resolves to a `SafePath`. `renderSinglePage`
+  // requires `SafePath` (not raw string), so any caller bypassing validation
+  // fails at compile time — see security #7.
+  const { project, relativePath: docPath, safePath } =
+    resolveProjectPath(c, '/api/render', docResolver)
 
   let page: Awaited<ReturnType<typeof renderSinglePage>>
   try {
@@ -102,22 +92,12 @@ app.get('/api/render/:project/*', async (c) => {
 })
 
 app.get('/api/raw/:project/*', async (c) => {
-  const project = c.req.param('project')
-  const fullPath = new URL(c.req.url).pathname
-  const prefix = `/api/raw/${encodeURIComponent(project)}/`
-  const docPath = fullPath.startsWith(prefix)
-    ? decodeURIComponent(fullPath.slice(prefix.length))
-    : (c.req.param('*') || '')
-
-  if (!project || !docPath) {
-    return c.json({ error: 'Missing project or path' }, 400)
-  }
-
-  const resolved = docResolver.resolve(project, docPath)
+  // Single seam — see src/route-path.ts.
+  const { safePath } = resolveProjectPath(c, '/api/raw', docResolver)
 
   let content: string
   try {
-    content = await readFile(resolved, 'utf-8')
+    content = await readFile(safePath, 'utf-8')
   } catch (err: any) {
     if (err?.code === 'ENOENT') throw new VibedocsError('not-found', 'File not found', { cause: err })
     throw new VibedocsError('io', 'Failed to read file', { cause: err })

@@ -91,14 +91,16 @@ describe('resolveProjectPath', () => {
     await rm(tmpDir, { recursive: true, force: true })
   })
 
-  it('returns the SafePath when project and path are valid', () => {
+  it('returns the SafePath alongside project + relativePath when valid', () => {
     const c = fakeContext(
       'http://localhost:8080/api/render/myproject/docs/guide.md',
       { project: 'myproject', '*': 'docs/guide.md' },
     )
     const resolver = new PathResolver({ projectsDir: tmpDir })
-    const safePath = resolveProjectPath(c, '/api/render', resolver)
-    expect(safePath as unknown as string).toBe(
+    const result = resolveProjectPath(c, '/api/render', resolver)
+    expect(result.project).toBe('myproject')
+    expect(result.relativePath).toBe('docs/guide.md')
+    expect(result.safePath as unknown as string).toBe(
       path.join(tmpDir, 'myproject', 'docs', 'guide.md'),
     )
   })
@@ -119,6 +121,21 @@ describe('resolveProjectPath', () => {
       expect(err).toBeInstanceOf(VibedocsError)
       expect((err as VibedocsError).code).toBe('invalid')
     }
+  })
+
+  it('allows an empty relativePath when allowEmptyPath is set (upload-to-project-root case)', () => {
+    // The /api/upload route accepts `/api/upload/myproject/` as "upload to
+    // project root". Without allowEmptyPath this is a 400; with it set, the
+    // helper resolves to the project root SafePath.
+    const c = fakeContext(
+      'http://localhost:8080/api/upload/myproject/',
+      { project: 'myproject', '*': '' },
+    )
+    const resolver = new PathResolver({ projectsDir: tmpDir })
+    const result = resolveProjectPath(c, '/api/upload', resolver, { allowEmptyPath: true })
+    expect(result.project).toBe('myproject')
+    expect(result.relativePath).toBe('')
+    expect(result.safePath as unknown as string).toBe(path.join(tmpDir, 'myproject'))
   })
 
   it('propagates VibedocsError(traversal) from the resolver on .. paths', () => {
