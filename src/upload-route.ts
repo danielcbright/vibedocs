@@ -1,13 +1,19 @@
-import type { Hono } from 'hono'
+import type { Hono, Context } from 'hono'
 import { stat as fsStat } from 'fs/promises'
 import { VibedocsError } from './errors.js'
 import { safeWriteFile } from './upload.js'
 import type { PathResolver } from './path-resolver.js'
-import {
-  checkUploadAuth,
-  checkExtensionAllowed,
-  type UploadAuthConfig,
-} from './upload-auth.js'
+import type { UploadAuthConfig } from './upload-auth.js'
+import { runPipelinePhase, type UploadError } from './upload-pipeline.js'
+
+/**
+ * Turn an UploadError into a Hono response. Single point of HTTP translation
+ * so route handlers don't have to know how to render each error shape.
+ */
+function respondWithUploadError(c: Context, err: UploadError) {
+  if (err.bodyType === 'text') return c.text(err.message, err.status)
+  return c.json({ error: err.message }, err.status)
+}
 
 // ── /api/config ──────────────────────────────────────────────────────────────
 //
@@ -42,17 +48,23 @@ export function registerUploadRoute(
   onUploadSuccess: () => void,
 ): void {
   app.post('/api/upload/:project/*', async (c) => {
-    // ── 1. Auth gates first (cheapest, no body parse) ────────────────────────
-    const auth = checkUploadAuth(authCfg, c.req.header('Authorization'))
-    if (auth === 'read-only' || auth === 'no-token-configured') {
-      // Pretend the endpoint doesn't exist — don't reveal it to scanners.
-      return c.text('Not Found', 404)
-    }
-    if (auth === 'unauthorized') {
-      return c.json({ error: 'Unauthorized' }, 401)
+    // ── Phase 1: auth gates (no body parse yet) ──────────────────────────────
+    //
+    // Run the 'auth' phase before touching the request body. Unauthenticated
+    // requests get rejected without paying for multipart parsing. The gate
+    // ordering (read-only → no-token-configured → unauthorized) lives in
+    // src/upload-pipeline.ts; reordering there breaks the structural
+    // ordering test in tests/upload-pipeline.test.ts.
+    const authPhase = runPipelinePhase('auth', {
+      authCfg,
+      authorizationHeader: c.req.header('Authorization'),
+      files: [],
+    })
+    if (authPhase.kind === 'reject') {
+      return respondWithUploadError(c, authPhase.error)
     }
 
-    // ── 2. Resolve target directory (path traversal defense) ─────────────────
+    // ── Resolve target directory (path traversal defense) ────────────────────
     const project = c.req.param('project')
     const fullPath = new URL(c.req.url).pathname
     const prefix = `/api/upload/${encodeURIComponent(project)}/`
@@ -72,7 +84,7 @@ export function registerUploadRoute(
       throw new VibedocsError('invalid', 'Target is not a directory')
     }
 
-    // ── 3. Parse body ────────────────────────────────────────────────────────
+    // ── Parse body (now that auth has passed) ────────────────────────────────
     const body = await c.req.parseBody({ all: true })
     const files = body['files']
     if (!files) {
@@ -85,29 +97,17 @@ export function registerUploadRoute(
       return c.json({ error: 'No files provided' }, 400)
     }
 
-    // ── 4. Extension allowlist (all-or-nothing) ──────────────────────────────
-    for (const file of uploaded) {
-      if (!checkExtensionAllowed(file.name)) {
-        return c.json(
-          { error: `File extension not allowed: "${file.name}"` },
-          400,
-        )
-      }
+    // ── Phase 2: content gates (extension allowlist, size cap) ───────────────
+    const contentPhase = runPipelinePhase('content', {
+      authCfg,
+      authorizationHeader: c.req.header('Authorization'),
+      files: uploaded,
+    })
+    if (contentPhase.kind === 'reject') {
+      return respondWithUploadError(c, contentPhase.error)
     }
 
-    // ── 5. Per-file size cap ─────────────────────────────────────────────────
-    for (const file of uploaded) {
-      if (file.size > authCfg.maxBytes) {
-        return c.json(
-          {
-            error: `File "${file.name}" exceeds maximum size of ${authCfg.maxBytes} bytes`,
-          },
-          413,
-        )
-      }
-    }
-
-    // ── 6. Write ─────────────────────────────────────────────────────────────
+    // ── Write ────────────────────────────────────────────────────────────────
     const results: Awaited<ReturnType<typeof safeWriteFile>>[] = []
     for (const file of uploaded) {
       const buffer = Buffer.from(await file.arrayBuffer())

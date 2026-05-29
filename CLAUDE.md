@@ -33,14 +33,16 @@ VibeDocs — self-hosted markdown documentation browser. Hono backend + React fr
 | Trusted team | set | unset | Upload requires `Authorization: Bearer <token>`. `/api/config` → `{ uploadEnabled: true }`. Upload UI visible. |
 | Public read-only | any | `true` | `POST /api/upload/*` → 404 (endpoint pretends not to exist). `/api/config` → `{ uploadEnabled: false }`. Upload UI hidden. |
 
-Upload route gate ordering (matches `src/upload-auth.ts`):
+Upload route gate ordering (defined in `src/upload-pipeline.ts` `UPLOAD_GATES`):
 
-1. **Read-only check** → 404 (precedence over everything)
-2. **No token configured** → 404 (don't reveal the endpoint exists)
-3. **Token mismatch** → 401
-4. **Denied extension** → 400 (allowlist: `.md .markdown .png .jpg .jpeg .gif .webp .pdf .txt`; deny: `.html .htm .xhtml .svg .js .mjs .json .css .wasm`)
-5. **Per-file size cap exceeded** → 413
+1. **Read-only check** (`readOnlyGate`, phase `auth`) → 404 (precedence over everything)
+2. **No token configured** (`tokenConfiguredGate`, phase `auth`) → 404 (don't reveal the endpoint exists)
+3. **Token mismatch** (`authorizedGate`, phase `auth`) → 401
+4. **Denied extension** (`extensionGate`, phase `content`) → 400 (allowlist: `.md .markdown .png .jpg .jpeg .gif .webp .pdf .txt`; deny: `.html .htm .xhtml .svg .js .mjs .json .css .wasm`)
+5. **Per-file size cap exceeded** (`sizeGate`, phase `content`) → 413
 6. **Success** → 200 `{ data: WriteResult[] }`
+
+The ordering above lives in the `UPLOAD_GATES` array in `src/upload-pipeline.ts` — the array order IS the security ordering. Two structural tests in `tests/upload-pipeline.test.ts` enforce it: one asserts the exact `name` sequence; the other asserts every `auth`-phase gate precedes every `content`-phase gate. Reordering either invariant in source breaks a test. The route handler (`src/upload-route.ts`) runs `runPipelinePhase('auth', …)` before parsing the request body (so unauthenticated requests don't pay for multipart parsing), then `runPipelinePhase('content', …)` after.
 
 ### Static-build hydration policy
 
@@ -85,6 +87,7 @@ src/                    # Backend (Hono server)
   server.ts             # HTTP server, route wiring, WebSocket, SPA fallback
   server-routes.ts      # Route handlers extracted for testability
   upload-route.ts       # POST /api/upload/* + GET /api/config (registerUploadRoute, registerConfigRoute)
+  upload-pipeline.ts    # Ordered UPLOAD_GATES + runPipelinePhase('auth'|'content', ctx); enforces gate order via array structure
   upload-auth.ts        # parseUploadAuthConfig, checkUploadAuth, checkExtensionAllowed (pure policy fns)
   discovery.ts          # Project/file tree discovery (all file types, isAsset flag)
   markdown.ts           # Markdown render pipeline (remark/rehype/shiki + remarkMermaid + rehypeWrapTables)
@@ -147,7 +150,8 @@ npm run test:watch    # Run tests in watch mode
 - **Search index:** Rebuilt in-memory on startup and on markdown file watcher events
 - **Path validation:** `src/path-resolver.ts` — `PathResolver` returns a `SafePath` branded type that downstream FS calls require; throws typed `VibedocsError` (traversal / invalid / not-found) on failure. Two instances (`docResolver`, `assetResolver`) configured at server startup.
 - **File upload:** `src/upload.ts` `safeWriteFile(targetDir: SafePath, ...)` does filename sanitization via `path.basename()` and conflict auto-renaming (`file-1.ext`, `file-2.ext`, up to 100 suffixes). Path validation happens earlier at the resolver.
-- **Upload auth:** `src/upload-auth.ts` exposes pure functions used by `src/upload-route.ts`: `parseUploadAuthConfig(env)` reads `VIBEDOCS_UPLOAD_TOKEN`/`VIBEDOCS_READ_ONLY`/`VIBEDOCS_UPLOAD_MAX_BYTES`; `checkUploadAuth(cfg, authHeader)` returns a discriminated `'read-only' | 'no-token-configured' | 'unauthorized' | 'ok'`; `checkExtensionAllowed(filename)` enforces an allowlist (`.md`, images, `.pdf`, `.txt`) with explicit deny for `.html`/`.svg`/`.js`/etc. Read-only mode hides the endpoint (404) regardless of token; an unset token also returns 404 (not 401) so unauthenticated scanners can't fingerprint the feature. Bearer-token comparison is constant-time (`crypto.timingSafeEqual`).
+- **Upload auth:** `src/upload-auth.ts` exposes pure functions used by `src/upload-pipeline.ts`: `parseUploadAuthConfig(env)` reads `VIBEDOCS_UPLOAD_TOKEN`/`VIBEDOCS_READ_ONLY`/`VIBEDOCS_UPLOAD_MAX_BYTES`; `checkUploadAuth(cfg, authHeader)` returns a discriminated `'read-only' | 'no-token-configured' | 'unauthorized' | 'ok'`; `checkExtensionAllowed(filename)` enforces an allowlist (`.md`, images, `.pdf`, `.txt`) with explicit deny for `.html`/`.svg`/`.js`/etc. Read-only mode hides the endpoint (404) regardless of token; an unset token also returns 404 (not 401) so unauthenticated scanners can't fingerprint the feature. Bearer-token comparison is constant-time (`crypto.timingSafeEqual`).
+- **Upload pipeline:** `src/upload-pipeline.ts` composes the auth policy + extension/size checks into a typed, ordered `UPLOAD_GATES` array — each gate is a tagged `UploadGate` with a `phase: 'auth' | 'content'` field. The route handler in `src/upload-route.ts` calls `runPipelinePhase('auth', ctx)` first (no body parse needed) then `runPipelinePhase('content', ctx)` after parsing files. Gate ordering is enforced by code: `tests/upload-pipeline.test.ts` asserts both the exact `UPLOAD_GATES.map(g => g.name)` sequence and the phase invariant (every auth gate precedes every content gate).
 - **Mobile tap-targets:** `frontend/src/index.css` `@media (hover: none) and (pointer: coarse)` block exposes `.tap-target` (44×44), `.tap-row` (44px min-height), `.tap-visible-on-touch` (overrides hover-revealed UI), `.tap-active-feedback` (visible :active background). Prefer these on new mobile-facing controls over bespoke responsive sizing.
 - **Navigation:** `frontend/src/App.tsx` `navigateSmart(project, path)` — file paths navigate directly; empty/folder paths resolve to the first markdown file under that scope via depth-first tree walk. Used by `DocContent` (so breadcrumb folder/project clicks land on a real doc). Sidebar uses plain `navigate` since its clicks always have full file paths.
 - **Discovery:** `buildTree()` includes all file types; non-markdown files get `isAsset: true` flag. Root-level discovery stays markdown-only.
