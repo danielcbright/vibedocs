@@ -60,3 +60,53 @@ describe('AppState — cache invalidation on config change', () => {
     await state.shutdown()
   })
 })
+
+describe('AppState — search index rebuild on markdown change', () => {
+  it('bumps searchVersion when a markdown file changes', async () => {
+    const projectDir = path.join(tmpDir, 'alpha')
+    await mkdir(projectDir, { recursive: true })
+    await writeFile(path.join(projectDir, 'notes.md'), '# old\n')
+
+    const { state, fsEvents } = buildState()
+    await state.start()
+    expect(state.searchVersion).toBe(1)
+
+    await writeFile(path.join(projectDir, 'notes.md'), '# new content\nsphinx\n')
+    fsEvents.emit({ kind: 'change', path: path.join(projectDir, 'notes.md') })
+
+    // Search rebuild is fire-and-forget — drain pending microtasks until it lands.
+    await waitForVersion(state, 2)
+    expect(state.searchVersion).toBe(2)
+
+    // And the new content is searchable.
+    expect(state.search('sphinx')).toHaveLength(1)
+
+    await state.shutdown()
+  })
+
+  it('does NOT rebuild the search index when a non-markdown file changes', async () => {
+    const projectDir = path.join(tmpDir, 'alpha')
+    await mkdir(projectDir, { recursive: true })
+    await writeFile(path.join(projectDir, 'logo.png'), 'fake-png')
+
+    const { state, fsEvents } = buildState()
+    await state.start()
+    expect(state.searchVersion).toBe(1)
+
+    fsEvents.emit({ kind: 'change', path: path.join(projectDir, 'logo.png') })
+
+    // Wait a couple of microtasks to be sure no rebuild slipped through.
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(state.searchVersion).toBe(1)
+
+    await state.shutdown()
+  })
+})
+
+async function waitForVersion(state: { searchVersion: number }, target: number) {
+  for (let i = 0; i < 50; i++) {
+    if (state.searchVersion >= target) return
+    await new Promise((r) => setTimeout(r, 10))
+  }
+}
