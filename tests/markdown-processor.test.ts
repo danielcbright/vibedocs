@@ -50,3 +50,36 @@ describe('createMarkdownProcessor — honors mode in URL rewriter', () => {
     expect(html).not.toMatch(/install\.md/)
   })
 })
+
+describe('createMarkdownProcessor — applies sanitize schema', () => {
+  it('strips raw <script> tags from the rendered output (the security boundary holds)', async () => {
+    const processor = createMarkdownProcessor({
+      mode: 'live',
+      projectName: 'p',
+      currentDocPath: 'doc.md',
+    })
+    // Raw HTML in markdown: a script tag the sanitizer must drop.
+    const result = await processor.process(
+      'Hello\n\n<script>alert(1)</script>\n\nWorld',
+    )
+    const html = String(result)
+    expect(html).not.toMatch(/<script/i)
+    expect(html).not.toContain('alert(1)')
+  })
+
+  it('preserves Shiki className on <pre> in fenced code blocks (sanitize schema allows it)', async () => {
+    const processor = createMarkdownProcessor({
+      mode: 'live',
+      projectName: 'p',
+      currentDocPath: 'doc.md',
+    })
+    // Shiki emits <pre class="shiki ..."> for highlighted code. The
+    // sanitize schema's override on `pre` keeps that className so the
+    // dark/light tokens are visible. If the schema regressed to the
+    // default (which restricts className on <pre>), the class would
+    // be stripped here.
+    const result = await processor.process('```js\nconsole.log(1)\n```\n')
+    const html = String(result)
+    expect(html).toMatch(/<pre[^>]*class="[^"]*shiki/)
+  })
+})
