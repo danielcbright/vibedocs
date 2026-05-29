@@ -90,7 +90,11 @@ src/                    # Backend (Hono server)
   upload-pipeline.ts    # Ordered UPLOAD_GATES + runPipelinePhase('auth'|'content', ctx); enforces gate order via array structure
   upload-auth.ts        # parseUploadAuthConfig, checkUploadAuth, checkExtensionAllowed (pure policy fns)
   discovery.ts          # Project/file tree discovery (all file types, isAsset flag)
-  markdown.ts           # Markdown render pipeline (remark/rehype/shiki + remarkMermaid + rehypeWrapTables)
+  excluded-paths.ts     # Single source of truth for EXCLUDED_DIRS (shared by discovery/search/path-resolver)
+  render.ts             # renderProject orchestration: per-project walk, missingRefs detection, RenderResult assembly
+  markdown-processor.ts # createMarkdownProcessor(opts) factory — unified() pipeline (remark/rehype/shiki/mermaid/sanitize)
+  url-rewriter.ts       # rehypeRewriteUrls + RewriteOptions + RenderMode — pure URL transformation by mode
+  reference-collector.ts # createReferenceCollector — captures resolved asset refs during build for missing-ref detection
   search.ts             # In-memory full-text search index (factory, versioned)
   upload.ts             # safeWriteFile(targetDir: SafePath, ...): conflict renaming + safe writes
   path-resolver.ts      # PathResolver: validates project+path → SafePath; throws VibedocsError
