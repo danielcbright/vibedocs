@@ -22,6 +22,16 @@ _Avoid_: "renderer" (overloaded with the higher-level `renderProject`), "markdow
 A receiver that records every asset URL the URL Rewriter resolves while rendering. Used during `build` to detect references to files that don't exist (missing refs). One instance per project build. Lives in `src/reference-collector.ts`.
 _Avoid_: "ref tracker," "link collector."
 
+### Orchestration
+
+**AppState**:
+The single named seam that owns runtime state in **live** Render Mode: the project cache, site-config cache, search index, file-system event source, WebSocket broadcaster, and upload auth config. Constructed once at startup; drivable from tests without HTTP. Stateless allocations (path resolvers) stay module-level outside AppState. Build mode does not use AppState — `renderProject` runs standalone.
+_Avoid_: "app context," "server state," "globals" — AppState is the named module that replaces what would otherwise be implicit module-level state in `server.ts`.
+
+**File-system Event Source**:
+The chokidar watcher rooted at the workspace `PROJECTS_DIR`. Emits events that subscribers consume: site-config cache invalidates, search index rebuilds, WebSocket broadcaster sends `reload` / `refresh-tree` to connected clients. Owned by AppState; the wiring between events and subscribers is internal to AppState.
+_Avoid_: "watcher" (overloaded with frontend "live reload watcher"), "chokidar" (the library, not the concept).
+
 ### Discovery & policy
 
 **Project**:
@@ -43,6 +53,8 @@ _Avoid_: "upload middleware" (it's not a Hono middleware chain — it's a typed 
 
 ## Relationships
 
+- **AppState** owns the project cache, site-config cache, search index, **File-system Event Source**, WebSocket broadcaster, and upload auth config — all live-mode runtime state
+- The **File-system Event Source** publishes events that AppState's subscribers consume (cache invalidation, search rebuild, WS broadcast)
 - A **Project** is rendered into one or more **Pages** by the **Markdown Processor**
 - The **Markdown Processor** delegates URL transformation to the **URL Rewriter**
 - The **URL Rewriter** consults the current **Render Mode** for every link/asset
