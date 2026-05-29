@@ -23,8 +23,12 @@ export interface WsClientChannelOptions {
 }
 
 export function createWsClientChannel(opts: WsClientChannelOptions): ClientChannel {
+  // Hono's `serve()` returns a `net.Server`; `ws`'s WebSocketServer typings
+  // want an `http.Server`. The runtime contract is fine — they're the same
+  // object — but TS can't see through the structural mismatch. The same
+  // cast lived in server.ts before this adapter existed (issue #92 ADR).
   const wss = new WebSocketServer({
-    server: opts.server,
+    server: opts.server as unknown as Server,
     verifyClient: opts.verifyClient,
   })
 

@@ -203,6 +203,72 @@ export function createAppState(opts: CreateAppStateOptions): AppState {
   }
 }
 
+// ── Live boot one-liner ──────────────────────────────────────────────────────
+
+import { parseUploadAuthConfig } from './upload-auth.js'
+import { createChokidarFsEventSource } from './adapters/chokidar-fs-event-source.js'
+import { createInMemoryClientChannel } from './adapters/in-memory-client-channel.js'
+import { PROJECTS_DIR } from './discovery.js'
+
+export interface LiveAppState extends AppState {
+  /** Projects-directory absolute path (snapshot of env at boot). */
+  readonly projectsDir: string
+  /**
+   * Swap the broadcast sink — used by server.ts after the HTTP server boots
+   * to wire the real ws ClientChannel in. Pre-swap broadcasts go to the
+   * placeholder in-memory channel so events that fire during boot are not lost.
+   */
+  setClientChannel(channel: ClientChannel): void
+}
+
+/**
+ * Production boot: parse env, build the chokidar FsEventSource, build a
+ * placeholder in-memory ClientChannel (server.ts swaps in the ws channel
+ * once the HTTP server is ready), build AppState, kick off start().
+ *
+ * server.ts calls this, then constructs the HTTP server, then calls
+ * `setClientChannel(createWsClientChannel(...))` to wire the real fan-out.
+ * This split keeps server.ts a small composition root without leaking
+ * chokidar or ws imports into it.
+ */
+export async function runLive(env: NodeJS.ProcessEnv = process.env): Promise<LiveAppState> {
+  const projectsDir = PROJECTS_DIR
+  const fsEventSource = createChokidarFsEventSource({
+    watchGlob: `${projectsDir}/**/*`,
+  })
+  let clientChannel: ClientChannel = createInMemoryClientChannel()
+
+  const inner = createAppState({
+    projectsDir,
+    fsEventSource,
+    // Pass a proxy that always delegates to the current clientChannel so the
+    // server.ts swap takes effect for all subsequent broadcasts.
+    clientChannel: {
+      broadcast: (msg) => clientChannel.broadcast(msg),
+      close: () => clientChannel.close(),
+    },
+    uploadAuth: parseUploadAuthConfig(env),
+  })
+
+  await inner.start()
+
+  return {
+    listProjects: inner.listProjects.bind(inner),
+    renderPage: inner.renderPage.bind(inner),
+    search: inner.search.bind(inner),
+    get searchVersion() { return inner.searchVersion },
+    broadcast: inner.broadcast.bind(inner),
+    get uploadAuth() { return inner.uploadAuth },
+    start: inner.start.bind(inner),
+    shutdown: inner.shutdown.bind(inner),
+    siteConfigCacheHas: inner.siteConfigCacheHas.bind(inner),
+    projectsDir,
+    setClientChannel(channel) {
+      clientChannel = channel
+    },
+  }
+}
+
 /**
  * Read a file via the live-mode raw route. Convenience for callers that have
  * already validated to a SafePath — translates ENOENT/IO to typed errors.
