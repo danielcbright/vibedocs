@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react"
 import type { SiteConfig } from "@shared/site-config-types"
+import { apiClient, type ApiClient } from "@/lib/api-client"
 
 export interface FileNode {
   name: string
@@ -21,21 +22,23 @@ export interface ProjectInfo {
 
 export type FileTypeFilter = "all" | "markdown" | "assets"
 
-export function useProjects(fileType: FileTypeFilter = "all") {
+export function useProjects(
+  fileType: FileTypeFilter = "all",
+  client: ApiClient = apiClient,
+) {
   const [projects, setProjects] = useState<ProjectInfo[]>([])
   const [loading, setLoading] = useState(true)
 
   const refresh = useCallback(async () => {
     try {
-      const res = await fetch(`/api/projects?fileType=${fileType}`)
-      const json = await res.json()
-      setProjects(json.data || [])
+      const data = await client.getProjects(fileType)
+      setProjects(data)
     } catch (err) {
       console.error("Failed to fetch projects:", err)
     } finally {
       setLoading(false)
     }
-  }, [fileType])
+  }, [fileType, client])
 
   useEffect(() => {
     refresh()

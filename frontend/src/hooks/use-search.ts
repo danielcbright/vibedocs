@@ -1,13 +1,9 @@
 import { useState, useEffect, useRef } from "react"
+import { apiClient, type ApiClient, type SearchResult } from "@/lib/api-client"
 
-export interface SearchResult {
-  project: string
-  path: string
-  filename: string
-  snippet: string
-}
+export type { SearchResult }
 
-export function useSearch(query: string) {
+export function useSearch(query: string, client: ApiClient = apiClient) {
   const [results, setResults] = useState<SearchResult[]>([])
   const [loading, setLoading] = useState(false)
   const abortRef = useRef<AbortController>()
@@ -28,12 +24,9 @@ export function useSearch(query: string) {
       abortRef.current = controller
 
       try {
-        const res = await fetch(`/api/search?q=${encodeURIComponent(trimmed)}`, {
-          signal: controller.signal,
-        })
-        const json = await res.json()
+        const data = await client.search(trimmed, { signal: controller.signal })
         if (!controller.signal.aborted) {
-          setResults(json.data || [])
+          setResults(data)
           setLoading(false)
         }
       } catch (err: unknown) {
@@ -45,7 +38,7 @@ export function useSearch(query: string) {
     }, 250)
 
     return () => clearTimeout(timer)
-  }, [query])
+  }, [query, client])
 
   return { results, loading }
 }
