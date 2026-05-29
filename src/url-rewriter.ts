@@ -11,6 +11,7 @@ import path from 'path'
 import { visit } from 'unist-util-visit'
 import type { Node } from 'unist'
 import type { ReferenceCollector } from './reference-collector.js'
+import { isMarkdownPath } from './markdown-paths.js'
 
 /**
  * Render mode controls URL shape for in-project links and assets.
@@ -31,13 +32,6 @@ export interface RewriteOptions {
   currentDocPath: string
   /** When present, the rewriter records each resolved asset reference here. */
   collector?: ReferenceCollector
-}
-
-// Markdown extension match — case-insensitive everywhere.
-const MD_EXTENSION_RE = /\.(md|markdown)$/i
-
-function isMarkdown(filePath: string): boolean {
-  return MD_EXTENSION_RE.test(filePath)
 }
 
 /**
@@ -164,7 +158,7 @@ function rewriteHref(href: string, opts: RewriteOptions): string | null {
   const pathPart = match[1] ?? ''
   const suffix = match[2] ?? ''
 
-  if (!isMarkdown(pathPart)) {
+  if (!isMarkdownPath(pathPart)) {
     if (opts.mode === 'build') {
       return rewriteAssetUrl(href, opts)
     }
