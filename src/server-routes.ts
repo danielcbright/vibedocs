@@ -1,12 +1,24 @@
 import type { Hono } from 'hono'
 import { readFile } from 'fs/promises'
 import path from 'path'
-import type { IndexStore } from './search.js'
+import type { SearchResult } from './search.js'
 import type { PathResolver } from './path-resolver.js'
 import { VibedocsError } from './errors.js'
 import { resolveProjectPath } from './route-path.js'
 
-export function registerSearchRoute(app: Hono, store: IndexStore): void {
+/**
+ * Minimal contract the search route needs from its data source — a search
+ * function and a version counter. Both `IndexStore` (direct legacy wiring,
+ * still used by `tests/search-route.test.ts`) and `AppState` (new live-mode
+ * orchestrator that exposes `searchVersion`) satisfy this shape via an
+ * adapter object in server.ts.
+ */
+export interface SearchEndpoint {
+  search(query: string, maxResults?: number): SearchResult[]
+  readonly version: number
+}
+
+export function registerSearchRoute(app: Hono, store: SearchEndpoint): void {
   app.get('/api/search', (c) => {
     const q = c.req.query('q') || ''
     if (q.trim().length < 2) {
