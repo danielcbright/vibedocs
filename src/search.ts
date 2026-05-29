@@ -1,6 +1,7 @@
 import { readFile, readdir, stat } from 'fs/promises'
 import path from 'path'
 import { PROJECTS_DIR } from './discovery.js'
+import { EXCLUDED_DIRS } from './excluded-paths.js'
 
 interface IndexEntry {
   project: string
@@ -8,12 +9,6 @@ interface IndexEntry {
   filename: string
   content: string // lowercase for matching
 }
-
-const EXCLUDED_DIRS = new Set([
-  'node_modules', '.git', '.next', 'dist', 'build', 'out',
-  'coverage', 'tmp', 'temp', '_archived',
-  '.project-template', 'test-projects',
-])
 
 export interface SearchResult {
   project: string
