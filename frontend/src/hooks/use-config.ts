@@ -1,39 +1,36 @@
 import { useState, useEffect } from "react"
+import { apiClient, type ApiClient, type ServerConfig } from "@/lib/api-client"
 
-export interface ServerConfig {
-  /** True iff the server has VIBEDOCS_UPLOAD_TOKEN set AND VIBEDOCS_READ_ONLY is not set.
-   *  Frontend uses this to hide upload affordances on deployments where
-   *  POST /api/upload/* would return 404. */
-  uploadEnabled: boolean
-}
+export type { ServerConfig }
 
 const DEFAULT_CONFIG: ServerConfig = { uploadEnabled: false }
 
 /**
  * Fetches /api/config once on mount. Safe defaults (uploadEnabled=false)
  * apply while loading and on fetch failure — the upload UI stays hidden
- * unless the server explicitly says it's available.
+ * unless the server explicitly says it's available. The client itself
+ * normalises errors to defaults, so this hook only has to thread the value
+ * through React state.
  */
-export function useConfig(): ServerConfig {
+export function useConfig(client: ApiClient = apiClient): ServerConfig {
   const [config, setConfig] = useState<ServerConfig>(DEFAULT_CONFIG)
 
   useEffect(() => {
     let cancelled = false
-    fetch("/api/config")
-      .then((res) => res.json())
-      .then((json) => {
+    client
+      .getConfig()
+      .then((next) => {
         if (cancelled) return
-        if (typeof json?.uploadEnabled === "boolean") {
-          setConfig({ uploadEnabled: json.uploadEnabled })
-        }
+        setConfig(next)
       })
       .catch(() => {
-        // Stay on safe defaults if config endpoint is unreachable
+        // Defensive — the client already swallows errors, but stay on
+        // safe defaults if anything slips through.
       })
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [client])
 
   return config
 }

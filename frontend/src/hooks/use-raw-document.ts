@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react"
+import { apiClient, type ApiClient } from "@/lib/api-client"
 
 /**
  * Pre-fetches the raw markdown for a document so callers can read it
@@ -20,6 +21,7 @@ export function useRawDocument(
   project: string | null,
   docPath: string | null,
   reloadNonce?: number,
+  client: ApiClient = apiClient,
 ) {
   const contentRef = useRef<string>("")
   const [state, setState] = useState<{ loading: boolean; error: string | null }>({
@@ -43,11 +45,8 @@ export function useRawDocument(
 
     setState({ loading: true, error: null })
 
-    fetch(`/api/raw/${encodeURIComponent(project)}/${docPath}`)
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        return res.text()
-      })
+    client
+      .getRawDoc(project, docPath)
       .then((text) => {
         if (requestId !== requestIdRef.current) return
         contentRef.current = text
@@ -59,7 +58,7 @@ export function useRawDocument(
         const message = err instanceof Error ? err.message : "Failed to load raw markdown"
         setState({ loading: false, error: message })
       })
-  }, [project, docPath])
+  }, [project, docPath, client])
 
   // `reloadNonce` is listed so live-reload events trigger a re-fetch
   // without callers needing to invoke `refresh` themselves.
