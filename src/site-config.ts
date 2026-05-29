@@ -19,7 +19,7 @@ import * as esbuild from 'esbuild'
 import { VibedocsError } from './errors.js'
 import type { SiteConfig } from './shared/site-config-types.js'
 
-export type { SiteConfig } from './shared/site-config-types.js'
+export type { SiteConfig, HydrationPolicy } from './shared/site-config-types.js'
 
 const CONFIG_FILENAME = '.vibedocs.config.ts'
 
@@ -229,6 +229,16 @@ function validateSiteConfig(raw: unknown, filename: string): SiteConfig {
       branch: requireString(filename, e.branch, 'editOnGitHub.branch'),
       rootPath: requireString(filename, e.rootPath, 'editOnGitHub.rootPath'),
     }
+  }
+
+  if (obj.hydration !== undefined) {
+    if (obj.hydration !== 'full' && obj.hydration !== 'minimal') {
+      fail(
+        filename,
+        `invalid field: hydration (expected "full" or "minimal", got ${describe(obj.hydration)}${typeof obj.hydration === 'string' ? ` "${obj.hydration}"` : ''})`,
+      )
+    }
+    result.hydration = obj.hydration
   }
 
   return result

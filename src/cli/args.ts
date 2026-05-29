@@ -1,7 +1,9 @@
 // Tiny hand-rolled arg parser for `vibedocs build`. No external dep — the
-// surface is small enough (5 flags) that pulling in commander/yargs costs
+// surface is small enough (~6 flags) that pulling in commander/yargs costs
 // more than it saves. Throws on malformed input; the dispatcher catches
 // and converts the error into an actionable stderr message + exit code.
+
+import type { HydrationPolicy } from '../shared/site-config-types.js'
 
 export interface ParsedBuildArgs {
   projectName: string
@@ -11,6 +13,8 @@ export interface ParsedBuildArgs {
   verbose: boolean
   port?: number
   frontendDist?: string
+  /** `--hydration <full|minimal>` override; absent → resolve via siteConfig.hydration → 'full'. */
+  hydration?: HydrationPolicy
 }
 
 const FLAGS_WITH_VALUE = new Set([
@@ -19,8 +23,11 @@ const FLAGS_WITH_VALUE = new Set([
   '--base-url',
   '--port',
   '--frontend-dist',
+  '--hydration',
 ])
 const BOOL_FLAGS = new Set(['--serve', '--verbose'])
+
+const HYDRATION_VALUES: ReadonlySet<HydrationPolicy> = new Set(['full', 'minimal'])
 
 export function parseBuildArgs(argv: string[]): ParsedBuildArgs {
   const out: Partial<ParsedBuildArgs> = { serve: false, verbose: false }
@@ -70,5 +77,28 @@ function assignFlagValue(out: Partial<ParsedBuildArgs>, flag: string, value: str
       out.port = n
       break
     }
+    case '--hydration': {
+      if (!HYDRATION_VALUES.has(value as HydrationPolicy)) {
+        throw new Error(
+          `--hydration must be one of "full" | "minimal" (got "${value}")`,
+        )
+      }
+      out.hydration = value as HydrationPolicy
+      break
+    }
   }
+}
+
+/**
+ * Resolve the effective hydration policy from the CLI flag + siteConfig
+ * field + hard-coded default, in that precedence order. Pure function so the
+ * resolver is testable without spinning up a real build.
+ *
+ *   CLI --hydration → siteConfig.hydration → 'full'
+ */
+export function resolveHydration(
+  cliFlag: HydrationPolicy | undefined,
+  siteConfigHydration: HydrationPolicy | undefined,
+): HydrationPolicy {
+  return cliFlag ?? siteConfigHydration ?? 'full'
 }

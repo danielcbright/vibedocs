@@ -92,3 +92,90 @@ describe('composePageHtml — minimal template (slice #49)', () => {
     expect(out).toContain('>Install<')
   })
 })
+
+describe('composePageHtml — hydration policy (#76)', () => {
+  it('omits the <script type="module"> tag when hydration === "minimal"', () => {
+    const out = composePageHtml(page(), {
+      bundleEntry: '/assets/index.js',
+      title: 'T',
+      hydration: 'minimal',
+    })
+    expect(out).not.toContain('<script type="module"')
+    // CSS link is still preserved when supplied — minimal mode keeps Shiki +
+    // prose styles.
+    const css = composePageHtml(page(), {
+      bundleEntry: '/assets/index.js',
+      title: 'T',
+      hydration: 'minimal',
+      stylesheet: '/assets/index-FAKEHASH.css',
+    })
+    expect(css).toContain('rel="stylesheet"')
+    expect(css).toContain('/assets/index-FAKEHASH.css')
+  })
+
+  it('keeps the <script type="module"> tag when hydration === "full" (default behaviour)', () => {
+    const out = composePageHtml(page(), {
+      bundleEntry: '/assets/index-abc.js',
+      title: 'T',
+      hydration: 'full',
+    })
+    expect(out).toContain('<script type="module" src="/assets/index-abc.js"></script>')
+  })
+
+  it('treats omitted hydration as "full" (back-compat)', () => {
+    const out = composePageHtml(page(), {
+      bundleEntry: '/assets/index.js',
+      title: 'T',
+    })
+    expect(out).toContain('<script type="module"')
+  })
+
+  it('renders semantic curated nav when hydration=minimal AND siteConfigNav provided', () => {
+    const out = composePageHtml(page(), {
+      bundleEntry: '/assets/index.js',
+      title: 'T',
+      hydration: 'minimal',
+      siteConfigNav: {
+        sections: [
+          { label: 'Getting Started', items: ['README.md', 'docs/install.md'] },
+          { label: 'Reference', items: ['docs/api.md'] },
+        ],
+      },
+      // Flat fallback is supplied alongside so the test asserts the curated
+      // nav WINS, not that flat is missing globally.
+      navLinks: [{ url: '/', label: 'Home' }, { url: '/docs/install/', label: 'Install' }],
+    })
+
+    // a11y: nav landmark explicitly labelled.
+    expect(out).toContain('<nav aria-label="Main navigation">')
+    // Section labels rendered as headings (the markup choice is <h2> inside
+    // the curated nav; we only require that the label text is present).
+    expect(out).toContain('Getting Started')
+    expect(out).toContain('Reference')
+    // Items become clean URLs — README.md → `/`, docs/install.md → `/docs/install/`.
+    expect(out).toContain('href="/"')
+    expect(out).toContain('href="/docs/install/"')
+    expect(out).toContain('href="/docs/api/"')
+    // The flat fallback's data-attr should NOT appear when the curated nav wins.
+    expect(out).not.toContain('data-vd-fallback-nav')
+  })
+
+  it('falls back to flat-link nav when hydration=minimal AND siteConfigNav is absent', () => {
+    const out = composePageHtml(page(), {
+      bundleEntry: '/assets/index.js',
+      title: 'T',
+      hydration: 'minimal',
+      navLinks: [
+        { url: '/', label: 'Home' },
+        { url: '/docs/install/', label: 'Install' },
+      ],
+    })
+
+    // Curated nav landmark must NOT appear.
+    expect(out).not.toContain('aria-label="Main navigation"')
+    // Flat-link nav DOES — same shape as full-mode no-JS fallback.
+    expect(out).toContain('data-vd-fallback-nav')
+    expect(out).toContain('href="/docs/install/"')
+    expect(out).toContain('>Install<')
+  })
+})
