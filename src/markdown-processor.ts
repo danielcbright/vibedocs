@@ -14,7 +14,7 @@
 //
 // Issue #85.
 
-import { unified, type Processor } from 'unified'
+import { unified } from 'unified'
 import remarkParse from 'remark-parse'
 import remarkGfm from 'remark-gfm'
 import remarkRehype from 'remark-rehype'
@@ -49,7 +49,7 @@ export type CreateMarkdownProcessorOptions = RewriteOptions
  */
 export function createMarkdownProcessor(
   options: CreateMarkdownProcessorOptions,
-): Processor {
+) {
   return unified()
     .use(remarkParse)
     .use(remarkGfm)
@@ -68,5 +68,5 @@ export function createMarkdownProcessor(
     })
     .use(rehypeRewriteUrls, options)
     .use(rehypeSanitize, sanitizeSchema)
-    .use(rehypeStringify) as unknown as Processor
+    .use(rehypeStringify)
 }
