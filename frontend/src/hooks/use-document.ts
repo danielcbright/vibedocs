@@ -1,10 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-
-interface TocEntry {
-  level: number
-  id: string
-  text: string
-}
+import { apiClient, ApiError, type ApiClient, type TocEntry } from "@/lib/api-client"
 
 interface DocumentState {
   html: string
@@ -13,7 +8,11 @@ interface DocumentState {
   error: string | null
 }
 
-export function useDocument(project: string | null, docPath: string | null) {
+export function useDocument(
+  project: string | null,
+  docPath: string | null,
+  client: ApiClient = apiClient,
+) {
   const [state, setState] = useState<DocumentState>({
     html: "",
     toc: [],
@@ -30,24 +29,14 @@ export function useDocument(project: string | null, docPath: string | null) {
     setState((prev) => ({ ...prev, loading: true, error: null }))
 
     try {
-      const res = await fetch(`/api/render/${encodeURIComponent(project)}/${docPath}`)
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: "Failed to load" }))
-        setState({ html: "", toc: [], loading: false, error: err.error || "Failed to load" })
-        return
-      }
-      const json = await res.json()
-      setState({
-        html: json.data?.html || "",
-        toc: json.data?.toc || [],
-        loading: false,
-        error: null,
-      })
+      const doc = await client.renderDoc(project, docPath)
+      setState({ html: doc.html, toc: doc.toc, loading: false, error: null })
     } catch (err) {
       console.error("Failed to fetch document:", err)
-      setState({ html: "", toc: [], loading: false, error: "Network error" })
+      const message = err instanceof ApiError ? err.message : "Network error"
+      setState({ html: "", toc: [], loading: false, error: message })
     }
-  }, [project, docPath])
+  }, [project, docPath, client])
 
   useEffect(() => {
     fetchDoc()
