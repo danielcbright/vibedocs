@@ -69,10 +69,12 @@ async function buildTree(dir: string, projectRoot: string): Promise<FileNode[]> 
   return nodes
 }
 
-export async function discoverProjects(): Promise<ProjectInfo[]> {
+export async function discoverProjects(
+  projectsDir: string = PROJECTS_DIR,
+): Promise<ProjectInfo[]> {
   let entries: string[]
   try {
-    entries = await readdir(PROJECTS_DIR)
+    entries = await readdir(projectsDir)
   } catch {
     return []
   }
@@ -82,7 +84,7 @@ export async function discoverProjects(): Promise<ProjectInfo[]> {
   for (const name of entries.sort()) {
     if (name.startsWith('.') || EXCLUDED_DIRS.has(name)) continue
 
-    const projectDir = path.join(PROJECTS_DIR, name)
+    const projectDir = path.join(projectsDir, name)
     try {
       const s = await stat(projectDir)
       if (!s.isDirectory()) continue
