@@ -2,6 +2,7 @@ import { readFile, readdir, stat } from 'fs/promises'
 import path from 'path'
 import { PROJECTS_DIR } from './discovery.js'
 import { EXCLUDED_DIRS } from './excluded-paths.js'
+import { isMarkdownPath } from './markdown-paths.js'
 
 interface IndexEntry {
   project: string
@@ -51,7 +52,7 @@ async function collectFiles(dir: string, projectName: string, projectRoot: strin
       if (EXCLUDED_DIRS.has(name)) continue
       const sub = await collectFiles(fullPath, projectName, projectRoot)
       entries.push(...sub)
-    } else if (name.endsWith('.md') || name.endsWith('.markdown')) {
+    } else if (isMarkdownPath(name)) {
       if (s.size === 0) continue
       try {
         const content = await readFile(fullPath, 'utf-8')

@@ -28,6 +28,7 @@ import {
 } from './shared/ws-messages.js'
 import { VibedocsError, registerErrorHandler } from './errors.js'
 import { parseAllowedOrigins, buildVerifyClient } from './ws-auth.js'
+import { MARKDOWN_EXTENSIONS, isMarkdownPath } from './markdown-paths.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const FRONTEND_DIST = path.join(__dirname, '..', 'frontend', 'dist')
@@ -45,7 +46,7 @@ const siteConfigCache = createSiteConfigCache({
 // - assetResolver: arbitrary file routes (upload, file)
 const docResolver = new PathResolver({
   projectsDir: PROJECTS_DIR,
-  requireExtensions: ['.md', '.markdown'],
+  requireExtensions: MARKDOWN_EXTENSIONS,
 })
 const assetResolver = new PathResolver({ projectsDir: PROJECTS_DIR })
 
@@ -264,10 +265,6 @@ function broadcast(message: WsMessage) {
 
 const watchGlob = path.join(PROJECTS_DIR, '**/*')
 
-function isMarkdown(filePath: string): boolean {
-  return filePath.endsWith('.md') || filePath.endsWith('.markdown')
-}
-
 function isSiteConfig(filePath: string): boolean {
   return path.basename(filePath) === '.vibedocs.config.ts'
 }
@@ -292,7 +289,7 @@ chokidar
     // call re-parses the file. TODO(#62): each invalidation leaks one ESM
     // module entry — see src/site-config-cache.ts header.
     if (isSiteConfig(filePath)) siteConfigCache.invalidateFromPath(filePath)
-    if (isMarkdown(filePath)) {
+    if (isMarkdownPath(filePath)) {
       // Only broadcast paths that resolve under PROJECTS_DIR. Anything else
       // would leak the absolute filesystem path to every connected client.
       if (rel !== null) broadcast(reloadMessage(rel))
@@ -306,7 +303,7 @@ chokidar
     console.log(`  +  added:   ${rel ?? filePath}`)
     if (isSiteConfig(filePath)) siteConfigCache.invalidateFromPath(filePath)
     broadcast(refreshTreeMessage())
-    if (isMarkdown(filePath)) {
+    if (isMarkdownPath(filePath)) {
       rebuildSearchIndex()
     }
   })
@@ -315,7 +312,7 @@ chokidar
     console.log(`  -  removed: ${rel ?? filePath}`)
     if (isSiteConfig(filePath)) siteConfigCache.invalidateFromPath(filePath)
     broadcast(refreshTreeMessage())
-    if (isMarkdown(filePath)) {
+    if (isMarkdownPath(filePath)) {
       rebuildSearchIndex()
     }
   })
