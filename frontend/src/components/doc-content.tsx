@@ -2,14 +2,15 @@ import { useEffect, useRef, useCallback } from "react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
-import { Copy, Check, AlertCircle, Search } from "lucide-react"
+import { Copy, Check, AlertCircle } from "lucide-react"
 import { useState } from "react"
 import { BreadcrumbNav } from "./breadcrumb-nav"
 import { ConnectionStatus } from "./connection-status"
+import { ProjectPicker } from "./project-picker"
 import { useTheme } from "./theme-provider"
 import { useRawDocument } from "@/hooks/use-raw-document"
 import { renderMermaidIn } from "@/lib/mermaid-loader"
-import type { FileNode } from "@/hooks/use-projects"
+import type { FileNode, ProjectInfo } from "@/hooks/use-projects"
 
 interface DocContentProps {
   html: string
@@ -21,6 +22,11 @@ interface DocContentProps {
   /** Active project's file tree, used by the breadcrumb dropdowns. */
   projectTree?: FileNode[]
   /**
+   * Full project list, used by the empty-state ProjectPicker to render
+   * one card per discovered project.
+   */
+  projects?: ProjectInfo[]
+  /**
    * Monotonically-increasing counter that bumps on every WebSocket reload
    * event. The hook re-fetches raw markdown when this changes so the Copy
    * button always returns the latest content.
@@ -28,14 +34,15 @@ interface DocContentProps {
   reloadNonce?: number
   onNavigate?: (project: string, path: string) => void
   /**
-   * When provided, the welcome screen renders a tappable "Search documentation"
-   * button instead of the keyboard-only "Press Ctrl+K to search" hint. Used on
-   * mobile where the keyboard hint is meaningless on touch devices.
+   * Mobile-only: tappable "Search documentation" button trigger. Currently
+   * unused in the empty-state branch (the ProjectPicker IS the primary
+   * affordance there) but kept on the prop surface for backward
+   * compatibility with callers that still pass it.
    */
   mobileSearchTrigger?: () => void
 }
 
-export function DocContent({ html, loading, error, project, docPath, connected, projectTree, reloadNonce, onNavigate, mobileSearchTrigger }: DocContentProps) {
+export function DocContent({ html, loading, error, project, docPath, connected, projectTree, projects, reloadNonce, onNavigate }: DocContentProps) {
   const contentRef = useRef<HTMLDivElement>(null)
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle")
   const { resolvedTheme } = useTheme()
@@ -92,28 +99,11 @@ export function DocContent({ html, loading, error, project, docPath, connected, 
 
   if (!project || !docPath) {
     return (
-      <div className="flex flex-1 items-center justify-center text-muted-foreground p-6">
-        <div className="text-center">
-          <h2 className="text-lg font-medium mb-1">Welcome to VibeDocs</h2>
-          <p className="text-sm">Select a document from the sidebar to get started.</p>
-          {mobileSearchTrigger ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className="mt-4 h-11 min-w-[160px] gap-2"
-              onClick={mobileSearchTrigger}
-              aria-label="Search documentation"
-              data-testid="welcome-search-button"
-            >
-              <Search className="h-4 w-4" />
-              <span>Search docs</span>
-            </Button>
-          ) : (
-            <p className="text-xs mt-4 text-muted-foreground/60">
-              Press <kbd className="px-1.5 py-0.5 rounded border text-[10px] font-mono">Ctrl+K</kbd> to search
-            </p>
-          )}
-        </div>
+      <div className="flex flex-1 flex-col overflow-auto">
+        <ProjectPicker
+          projects={projects ?? []}
+          onNavigate={onNavigate ?? (() => {})}
+        />
       </div>
     )
   }
