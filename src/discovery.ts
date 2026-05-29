@@ -5,11 +5,6 @@ import { EXCLUDED_DIRS } from './excluded-paths.js'
 
 export const PROJECTS_DIR = process.env.VIBEDOCS_ROOT || process.cwd()
 
-// Re-exported for backward compatibility with existing call sites that import
-// EXCLUDED_DIRS from this module. New code should import directly from
-// './excluded-paths.js'.
-export { EXCLUDED_DIRS }
-
 export interface FileNode {
   name: string
   path: string  // relative to project root
