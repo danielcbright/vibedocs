@@ -19,3 +19,34 @@ describe('createMarkdownProcessor — basic pipeline', () => {
     expect(html).toContain('Hello World')
   })
 })
+
+describe('createMarkdownProcessor — honors mode in URL rewriter', () => {
+  it('leaves in-project .md links unchanged in live mode (SPA hash router intercepts)', async () => {
+    const processor = createMarkdownProcessor({
+      mode: 'live',
+      projectName: 'myproject',
+      currentDocPath: 'README.md',
+    })
+    const result = await processor.process(
+      'See the [install guide](./docs/install.md).',
+    )
+    const html = String(result)
+    // Live mode: the .md extension stays.
+    expect(html).toMatch(/href="\.\/docs\/install\.md"/)
+  })
+
+  it('rewrites in-project .md links to clean URLs in build mode', async () => {
+    const processor = createMarkdownProcessor({
+      mode: 'build',
+      projectName: 'myproject',
+      currentDocPath: 'README.md',
+    })
+    const result = await processor.process(
+      'See the [install guide](./docs/install.md).',
+    )
+    const html = String(result)
+    // Build mode: clean URL, no .md extension.
+    expect(html).toMatch(/href="\.\/docs\/install\/"/)
+    expect(html).not.toMatch(/install\.md/)
+  })
+})
