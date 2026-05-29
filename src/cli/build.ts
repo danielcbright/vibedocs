@@ -15,6 +15,8 @@ import path from 'path'
 import { stat, mkdir, writeFile, readFile, readdir, cp } from 'fs/promises'
 import { renderProject, type HtmlPage } from '../render.js'
 import { loadSiteConfig, type SiteConfig } from '../site-config.js'
+import type { HydrationPolicy } from '../shared/site-config-types.js'
+import { resolveHydration } from './args.js'
 import { composePageHtml, type NavLink } from './template.js'
 
 export interface BuildOptions {
@@ -32,6 +34,12 @@ export interface BuildOptions {
   cwd?: string
   /** When true, list each copied asset path before the summary. */
   verbose?: boolean
+  /**
+   * Static-build hydration policy. CLI flag wins, otherwise resolved from
+   * `siteConfig.hydration`, otherwise `'full'`. When `'minimal'`, the SPA
+   * bundle copy is skipped and the bootstrap `<script>` tag is omitted.
+   */
+  hydration?: HydrationPolicy
 }
 
 /**
@@ -170,6 +178,11 @@ export async function runBuild(opts: BuildOptions): Promise<void> {
 
   const result = await renderProject(projectPath, siteConfig, 'build')
 
+  // Resolve effective hydration policy: CLI > siteConfig > 'full'. This is the
+  // single seam where the policy is decided; template + bundle-copy branches
+  // below both read from this one value.
+  const hydration = resolveHydration(opts.hydration, siteConfig?.hydration)
+
   // Detect bundle paths up front so we fail fast if the frontend hasn't
   // been built yet.
   const bundleEntry = await detectBundleEntry(opts.frontendDist)
@@ -194,6 +207,8 @@ export async function runBuild(opts: BuildOptions): Promise<void> {
       title: titleFromPage(page, opts.projectName),
       stylesheet,
       navLinks,
+      hydration,
+      ...(siteConfig?.nav ? { siteConfigNav: siteConfig.nav } : {}),
     })
     await writeFile(outPath, html, 'utf-8')
   }
@@ -222,12 +237,54 @@ export async function runBuild(opts: BuildOptions): Promise<void> {
     `Copied ${result.assets.length} referenced assets (${missingCount} missing reference${missingCount === 1 ? '' : 's'})\n`,
   )
 
-  // Copy the React bundle (frontend/dist/assets → <outDir>/assets).
+  // Bundle stats — used by both the copy step (full mode) and the summary
+  // line (minimal mode prints "saved ~XXX KB"). Walking the dir once up-front
+  // keeps the cost minimal and makes the summary honest in both modes.
   const bundleAssetsSrc = path.join(opts.frontendDist, 'assets')
-  if (await isDir(bundleAssetsSrc)) {
+  const bundleStats = (await isDir(bundleAssetsSrc))
+    ? await sumDirBytes(bundleAssetsSrc)
+    : { fileCount: 0, totalBytes: 0 }
+
+  // Copy the React bundle (frontend/dist/assets → <outDir>/assets) only in
+  // full-hydration mode. Minimal mode ships no SPA bundle, so the copy is
+  // pure waste — and worse, the unreferenced JS/CSS would inflate the
+  // published `dist/` for no benefit. EXCEPT for the single CSS file the
+  // emitted `<link rel="stylesheet">` still references — Shiki tokens,
+  // prose typography, and table styles all live there. The spec is explicit:
+  // "Preserve the CSS link." Skipping the JS chunks but keeping the one CSS
+  // bundle delivers ~99% of the savings while keeping pages looking correct.
+  if (hydration === 'full' && bundleStats.fileCount > 0) {
     const bundleAssetsDest = path.join(opts.outDir, 'assets')
     await mkdir(bundleAssetsDest, { recursive: true })
     await copyDirContents(bundleAssetsSrc, bundleAssetsDest)
+  } else if (hydration === 'minimal' && stylesheet) {
+    // Copy ONLY the CSS file the stylesheet link references.
+    const cssBasename = path.basename(stylesheet)
+    const cssSrc = path.join(bundleAssetsSrc, cssBasename)
+    if (await fileExists(cssSrc)) {
+      const cssDest = path.join(opts.outDir, 'assets', cssBasename)
+      await mkdir(path.dirname(cssDest), { recursive: true })
+      await copyFileSafe(cssSrc, cssDest)
+    }
+  }
+
+  // Saved-bytes math: in minimal mode we DID copy the CSS file, so the
+  // honest "saved" number is bundleStats.totalBytes minus the CSS bytes.
+  const cssBytesIfMinimal =
+    hydration === 'minimal' && stylesheet
+      ? await fileSizeOrZero(path.join(bundleAssetsSrc, path.basename(stylesheet)))
+      : 0
+
+  // Hydration summary — final line(s) of stdout. Names what was decided AND
+  // makes the cost visible, so a consumer sees the tradeoff at a glance.
+  if (hydration === 'full') {
+    process.stdout.write(
+      `Hydration policy: full (SPA bundle copied — ${bundleStats.fileCount} files, ~${humanBytes(bundleStats.totalBytes)})\n`,
+    )
+  } else {
+    process.stdout.write(
+      `Hydration policy: minimal — no SPA bundle (saved ~${humanBytes(bundleStats.totalBytes - cssBytesIfMinimal)})\n`,
+    )
   }
 
   // baseUrl is accepted but not yet emitted — slice #50/#54 wire it into
@@ -253,5 +310,51 @@ async function copyDirContents(src: string, dest: string): Promise<void> {
     } else {
       await cp(s, d)
     }
+  }
+}
+
+interface BundleStats {
+  fileCount: number
+  totalBytes: number
+}
+
+/**
+ * Sum the byte size of every file under `dir` (recursively). Used to honestly
+ * report "saved ~XXX KB" in minimal mode and "SPA bundle copied — N files,
+ * ~XXX KB" in full mode. Same walk in both branches so the numbers match.
+ */
+async function sumDirBytes(dir: string): Promise<BundleStats> {
+  const entries = await readdir(dir, { withFileTypes: true })
+  let fileCount = 0
+  let totalBytes = 0
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name)
+    if (entry.isDirectory()) {
+      const sub = await sumDirBytes(full)
+      fileCount += sub.fileCount
+      totalBytes += sub.totalBytes
+    } else {
+      const s = await stat(full)
+      fileCount += 1
+      totalBytes += s.size
+    }
+  }
+  return { fileCount, totalBytes }
+}
+
+function humanBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  const kb = bytes / 1024
+  if (kb < 1024) return `${kb.toFixed(1)} KB`
+  const mb = kb / 1024
+  return `${mb.toFixed(2)} MB`
+}
+
+async function fileSizeOrZero(p: string): Promise<number> {
+  try {
+    const s = await stat(p)
+    return s.size
+  } catch {
+    return 0
   }
 }

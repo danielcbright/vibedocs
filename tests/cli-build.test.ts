@@ -36,6 +36,7 @@ beforeEach(async () => {
     path.join(frontendDist, 'index.html'),
     '<!doctype html><html><head><title>X</title>'
       + '<script type="module" src="/assets/index-FAKEHASH.js"></script>'
+      + '<link rel="stylesheet" href="/assets/index-FAKEHASH.css">'
       + '</head><body><div id="root"></div></body></html>',
   )
   await writeFile(path.join(frontendDist, 'assets', 'index-FAKEHASH.js'), 'console.log("hi")')
@@ -247,6 +248,166 @@ describe('runBuild — referenced-asset filtering and summary (#74)', () => {
 
     const combined = stderrLines.join('')
     expect(combined).toMatch(/warning:.*README\.md.*references.*ghost\.png.*does not exist/)
+  })
+})
+
+describe('runBuild — hydration policy (#76)', () => {
+  it('with hydration="minimal", skips copying the SPA JS bundle but preserves the CSS file the <link> still references', async () => {
+    await runBuild({
+      projectName: 'myproject',
+      projectsRoot,
+      outDir,
+      frontendDist,
+      hydration: 'minimal',
+    })
+
+    // SPA JS bundle NOT copied.
+    expect(await pathExists(path.join(outDir, 'assets', 'index-FAKEHASH.js'))).toBe(false)
+    // BUT — the CSS file IS still copied, because the emitted HTML still has
+    // a <link rel="stylesheet" href=".../index-FAKEHASH.css"> and the page
+    // needs Shiki + prose styles to look correct. Spec: "Preserve the CSS link."
+    expect(await pathExists(path.join(outDir, 'assets', 'index-FAKEHASH.css'))).toBe(true)
+    // User-content asset (referenced by docs/install.md) IS copied — separate
+    // code path from the SPA bundle.
+    expect(await pathExists(path.join(outDir, 'docs', 'images', 'diagram.png'))).toBe(true)
+  })
+
+  it('with hydration="minimal", emitted HTML contains NO <script type="module"> tag', async () => {
+    await runBuild({
+      projectName: 'myproject',
+      projectsRoot,
+      outDir,
+      frontendDist,
+      hydration: 'minimal',
+    })
+
+    const rootHtml = await readFile(path.join(outDir, 'index.html'), 'utf-8')
+    expect(rootHtml).not.toContain('<script type="module"')
+
+    const installHtml = await readFile(
+      path.join(outDir, 'docs', 'install', 'index.html'),
+      'utf-8',
+    )
+    expect(installHtml).not.toContain('<script type="module"')
+  })
+
+  it('with hydration="minimal" AND a siteConfig.nav.sections, emits <nav aria-label="Main navigation">', async () => {
+    // Drop a .vibedocs.config.ts at the project root configuring curated nav.
+    const configSource = `
+      export default {
+        name: 'myproject',
+        domain: 'example.com',
+        description: 'd',
+        theme: { tokens: {} },
+        llms: { summary: 's', keyDocs: [] },
+        nav: {
+          sections: [
+            { label: 'Getting Started', items: ['README.md', 'docs/install.md'] },
+          ],
+        },
+      }
+    `
+    await writeFile(path.join(projectPath, '.vibedocs.config.ts'), configSource, 'utf8')
+
+    await runBuild({
+      projectName: 'myproject',
+      projectsRoot,
+      outDir,
+      frontendDist,
+      hydration: 'minimal',
+    })
+
+    const html = await readFile(path.join(outDir, 'index.html'), 'utf-8')
+    expect(html).toContain('<nav aria-label="Main navigation">')
+    expect(html).toContain('Getting Started')
+    expect(html).toContain('href="/docs/install/"')
+    // Flat-fallback nav must not appear when curated wins.
+    expect(html).not.toContain('data-vd-fallback-nav')
+  })
+
+  it('with hydration="minimal" AND NO siteConfig.nav, falls back to the flat-link nav', async () => {
+    // No .vibedocs.config.ts at all — runBuild defaults siteConfig to null.
+    await runBuild({
+      projectName: 'myproject',
+      projectsRoot,
+      outDir,
+      frontendDist,
+      hydration: 'minimal',
+    })
+
+    const html = await readFile(path.join(outDir, 'index.html'), 'utf-8')
+    expect(html).not.toContain('aria-label="Main navigation"')
+    expect(html).toContain('data-vd-fallback-nav')
+    // The page links the renderer found should be present as flat <a>s.
+    expect(html).toContain('href="/docs/install/"')
+  })
+
+  it('with hydration="full" (default), preserves today\'s behaviour — SPA bundle copied AND script tag present', async () => {
+    await runBuild({
+      projectName: 'myproject',
+      projectsRoot,
+      outDir,
+      frontendDist,
+      // No `hydration` field — exercises the default-to-'full' path.
+    })
+
+    // SPA bundle copied.
+    expect(await pathExists(path.join(outDir, 'assets', 'index-FAKEHASH.js'))).toBe(true)
+    expect(await pathExists(path.join(outDir, 'assets', 'index-FAKEHASH.css'))).toBe(true)
+    // Script tag present in emitted HTML.
+    const html = await readFile(path.join(outDir, 'index.html'), 'utf-8')
+    expect(html).toContain('<script type="module"')
+  })
+
+  it('emits a "Hydration policy: minimal" summary line with saved-bytes context', async () => {
+    const stdoutLines: string[] = []
+    const origWrite = process.stdout.write.bind(process.stdout)
+    vi.spyOn(process.stdout, 'write').mockImplementation((chunk, ...args) => {
+      if (typeof chunk === 'string') stdoutLines.push(chunk)
+      return origWrite(chunk, ...args)
+    })
+
+    try {
+      await runBuild({
+        projectName: 'myproject',
+        projectsRoot,
+        outDir,
+        frontendDist,
+        hydration: 'minimal',
+      })
+    } finally {
+      vi.restoreAllMocks()
+    }
+
+    const combined = stdoutLines.join('')
+    expect(combined).toMatch(/Hydration policy: minimal/)
+    // Saved-bytes context: the would-have-been-copied SPA bundle is summed.
+    expect(combined).toMatch(/saved/i)
+  })
+
+  it('emits a "Hydration policy: full (SPA bundle copied — N files, ~XXX)" summary line in full mode', async () => {
+    const stdoutLines: string[] = []
+    const origWrite = process.stdout.write.bind(process.stdout)
+    vi.spyOn(process.stdout, 'write').mockImplementation((chunk, ...args) => {
+      if (typeof chunk === 'string') stdoutLines.push(chunk)
+      return origWrite(chunk, ...args)
+    })
+
+    try {
+      await runBuild({
+        projectName: 'myproject',
+        projectsRoot,
+        outDir,
+        frontendDist,
+        hydration: 'full',
+      })
+    } finally {
+      vi.restoreAllMocks()
+    }
+
+    const combined = stdoutLines.join('')
+    expect(combined).toMatch(/Hydration policy: full/)
+    expect(combined).toMatch(/SPA bundle copied/)
   })
 })
 

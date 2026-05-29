@@ -20,8 +20,8 @@ import { parseBuildArgs } from './args.js'
 import { runBuild } from './build.js'
 
 const USAGE = `Usage:
-  vibedocs build --project <name> --out <dir> [--base-url <url>] [--frontend-dist <path>]
-  vibedocs build --project <name> --serve [--port <n>] [--frontend-dist <path>]
+  vibedocs build --project <name> --out <dir> [--base-url <url>] [--frontend-dist <path>] [--hydration full|minimal]
+  vibedocs build --project <name> --serve [--port <n>] [--frontend-dist <path>] [--hydration full|minimal]
 `
 
 export async function main(argv: string[]): Promise<number> {
@@ -67,6 +67,7 @@ export async function main(argv: string[]): Promise<number> {
       outDir,
       frontendDist,
       ...(parsed.baseUrl !== undefined ? { baseUrl: parsed.baseUrl } : {}),
+      ...(parsed.hydration !== undefined ? { hydration: parsed.hydration } : {}),
     })
   } catch (err) {
     process.stderr.write(`vibedocs build: ${(err as Error).message}\n`)

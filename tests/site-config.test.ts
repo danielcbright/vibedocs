@@ -173,4 +173,47 @@ describe('loadSiteConfig', () => {
       expect((err as VibedocsError).message).toMatch(/domain/)
     }
   })
+
+  it('accepts hydration: "full" and "minimal"; rejects other strings (#76)', async () => {
+    for (const value of ['full', 'minimal'] as const) {
+      const projectDir = path.join(tmpDir, `hydration-${value}`)
+      await mkdir(projectDir, { recursive: true })
+      const source = `
+        export default {
+          name: 'h',
+          domain: 'h.example',
+          description: 'd',
+          theme: { tokens: {} },
+          llms: { summary: 's', keyDocs: [] },
+          hydration: '${value}',
+        }
+      `
+      await writeFile(path.join(projectDir, '.vibedocs.config.ts'), source, 'utf8')
+      const result = await loadSiteConfig(projectDir)
+      expect(result?.hydration).toBe(value)
+    }
+
+    // And reject something else with a clear field-path error.
+    const projectDir = path.join(tmpDir, 'hydration-bad')
+    await mkdir(projectDir, { recursive: true })
+    const source = `
+      export default {
+        name: 'h',
+        domain: 'h.example',
+        description: 'd',
+        theme: { tokens: {} },
+        llms: { summary: 's', keyDocs: [] },
+        hydration: 'progressive',
+      }
+    `
+    await writeFile(path.join(projectDir, '.vibedocs.config.ts'), source, 'utf8')
+    try {
+      await loadSiteConfig(projectDir)
+      throw new Error('expected loadSiteConfig to throw')
+    } catch (err) {
+      expect(err).toBeInstanceOf(VibedocsError)
+      expect((err as VibedocsError).code).toBe('invalid')
+      expect((err as VibedocsError).message).toMatch(/hydration/)
+    }
+  })
 })

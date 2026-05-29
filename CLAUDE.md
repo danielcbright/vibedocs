@@ -42,6 +42,35 @@ Upload route gate ordering (matches `src/upload-auth.ts`):
 5. **Per-file size cap exceeded** → 413
 6. **Success** → 200 `{ data: WriteResult[] }`
 
+### Static-build hydration policy
+
+`vibedocs build` accepts a `--hydration <full|minimal>` flag (or `hydration: 'full' | 'minimal'` field on `siteConfig`). Resolution order: CLI flag → `siteConfig.hydration` → `'full'` (default).
+
+| Policy | Behaviour |
+|---|---|
+| `full` (default) | Today's behaviour — copies `frontend/dist/assets/*` into `<out>/assets/` and emits `<script type="module">` so the SPA hydrates on page load. Reader gets search (Ctrl+K), theme toggle, mermaid render, copy-md, mobile drawer, live reload. |
+| `minimal` | Skips the SPA bundle copy AND the bootstrap `<script>` tag. Still emits the Vite-generated CSS link (Shiki tokens, prose typography, table styles). When `siteConfig.nav.sections` is set, renders a semantic `<nav aria-label="Main navigation">` with nested `<ul>` server-side; otherwise falls back to the flat-link `data-vd-fallback-nav` list. Ships ~500 KB less JS per page. |
+
+`composePageHtml` is the single seam — both the script-tag and the nav-rendering branch read from `hydration`. `runBuild` resolves the policy once via `resolveHydration(cliFlag, siteConfig?.hydration)` in `src/cli/args.ts` and threads the result through.
+
+End-of-build summary names what was decided:
+
+- `Hydration policy: full (SPA bundle copied — N files, ~XXX KB)` OR
+- `Hydration policy: minimal — no SPA bundle (saved ~XXX KB)`
+
+Saved/copied bytes come from a single `sumDirBytes(frontendDist/assets)` walk that runs in both modes, so the numbers match what the copy actually does.
+
+**UX caveats for `minimal` mode** — these are intentional tradeoffs, document them in any consumer-facing README:
+
+- Search dialog (Ctrl+K) — gone until Pagefind slice #56 lands AND a static Pagefind integration is wired
+- Theme toggle button — gone. Readers get system-preference theme only (CSS `prefers-color-scheme` still works via the existing theme-var setup)
+- Rendered Mermaid diagrams — gone. Raw `<pre>` source visible instead. Server-side Mermaid is a follow-up slice.
+- "Copy markdown" button per-page — gone
+- Mobile drawer toggle — gone (use plain CSS navigation or no-JS `<details>`)
+- WebSocket live-reload — gone (not relevant in production builds anyway)
+
+Pick `minimal` for public docs sites (example.io, etc.) where most readers land on one page and leave. Pick `full` for the live workspace where you want the interactive app.
+
 ## Tech Stack
 
 - **Backend:** Node.js + Hono 4 + TypeScript
