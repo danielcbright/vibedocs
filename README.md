@@ -9,7 +9,7 @@
   \_/   |_|_.__|___| |___/\___|__|/__/
 ```
 
-> Self-hosted markdown documentation browser. Live mode for editing, static-build mode for publishing. Built entirely with Claude Code.
+> Self-hosted markdown documentation browser. Live mode for editing, static-build mode for publishing. Built in collaboration with Claude Code.
 
 [![Release](https://img.shields.io/github/v/release/danielcbright/vibedocs)](https://github.com/danielcbright/vibedocs/releases)
 [![License](https://img.shields.io/github/license/danielcbright/vibedocs)](LICENSE)
@@ -159,11 +159,13 @@ When exposing beyond localhost (tailnet, LAN, public), set `VIBEDOCS_WS_ALLOWED_
 - [`docs/adr/`](docs/adr/) — architectural decision records
 - [`CLAUDE.md`](CLAUDE.md) — project memory and conventions for Claude Code sessions
 
-## Built with Claude Code
+## Built in collaboration with Claude Code
 
-VibeDocs was built end-to-end with [Claude Code](https://claude.ai/code) — Anthropic's agentic coding tool. Every line, from the Hono backend and unified markdown pipeline to the React frontend with shadcn/ui components, came out of conversational prompts with Claude.
+VibeDocs was built in collaboration with [Claude Code](https://claude.ai/code) — Anthropic's agentic coding tool. Every line of the Hono backend, the unified markdown pipeline, the React frontend with shadcn/ui components, and the test suite came out of conversational sessions with Claude.
 
-It started as a one-shot "show me my markdown" viewer and grew iteratively: discovery, rendering, search, live reload, theming, table of contents, then two render modes, the AppState consolidation, and the URL Rewriter — each one a focused session. The `CLAUDE.md` file in this repo is the project memory that ties those sessions together.
+Deep adversarial reviews — stress-testing architectural plans, surfacing failure modes, grilling design assumptions before they shipped — came from **Grok 4.x**. Several of the decisions recorded in [`docs/adr/`](docs/adr/) and the audit work in v0.2.0 were shaped by that two-model loop: Claude proposes, Grok pushes back, the design that lands is whatever survives both rounds. See [`docs/arch-viz-adversarial-review.md`](docs/arch-viz-adversarial-review.md) and [`docs/arch-viz-grounded-response.md`](docs/arch-viz-grounded-response.md) for one example of that pattern in action.
+
+It started as a one-shot "show me my markdown" viewer and grew iteratively: discovery, rendering, search, live reload, theming, table of contents, then two render modes, the AppState consolidation, and the URL Rewriter — each one a focused session. The [`CLAUDE.md`](CLAUDE.md) file in this repo is the project memory that ties those sessions together.
 
 ## License
 
