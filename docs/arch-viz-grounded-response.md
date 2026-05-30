@@ -1,6 +1,6 @@
 # Grounded Response to the Adversarial Reviewer's 12 Questions
 
-> Companion to [arch-viz.md](./arch-viz.md), [arch-viz-adversarial-review.md](./arch-viz-adversarial-review.md), and [arch-viz-counter-review.md](./arch-viz-counter-review.md). The reviewer pushed back with 12 high-leverage questions designed to separate folklore from receipts. This is what the actual code says.
+> Companion to [arch-viz-adversarial-review.md](./arch-viz-adversarial-review.md) and [arch-viz-counter-review.md](./arch-viz-counter-review.md). The reviewer pushed back with 12 high-leverage questions designed to separate folklore from receipts. This is what the actual code says.
 
 ## Two corrections before the answers
 
@@ -8,7 +8,7 @@ I owe these upfront — better to surface them than let them quietly weaken ever
 
 1. **There is no render cache.** I previously claimed `server.ts:63` was a render cache. Re-reading: that's `siteConfigCache` (parsed `.vibedocs.config.ts` per project). The `/api/render/:project/*` route at `server.ts:95` calls `renderSinglePage` raw, every request, full unified pipeline. **The reviewer's "on-demand rendering on every request" critique is literally correct.** Recommendation R3 ("cache aggressively") is therefore *not* already done.
 
-2. **Workspace watcher scale is real-ish.** Chokidar watches `~/workspace/projects/**/*` = **2,475 files** today (excluding `node_modules`/`.git`/`dist`). Not the reviewer's 50k strawman, but not trivial either. One `git pull` on a large project can fire dozens of events.
+2. **Workspace watcher scale is real-ish.** Chokidar watches `~/your-workspace/projects/**/*` = **2,475 files** today (excluding `node_modules`/`.git`/`dist`). Not the reviewer's 50k strawman, but not trivial either. One `git pull` on a large project can fire dozens of events.
 
 ---
 
@@ -49,7 +49,7 @@ The structural divergence is **URL shape** + **theme scope**. Both will exist as
 
 ### Q4 — Render caching
 
-*Does not exist.* No content-hash key, no config-hash key, no persistence across restarts. Every `/api/render` re-runs the unified pipeline including Shiki tokenization and Mermaid AST manipulation. On a fresh server start, hitting a 200-page demo repo would cost 200 cold renders.
+*Does not exist.* No content-hash key, no config-hash key, no persistence across restarts. Every `/api/render` re-runs the unified pipeline including Shiki tokenization and Mermaid AST manipulation. On a fresh server start, hitting a 200-page project would cost 200 cold renders.
 
 I have not personally measured latency, but Shiki cold cost is typically 50–300ms per page depending on language count. The amortised case (after `@shikijs/rehype`'s singleton warms) is much better, but each hit still does the full remark/rehype traversal.
 
@@ -63,15 +63,15 @@ I have not personally measured latency, but Shiki cold cost is typically 50–30
 
 ### Q6 — Consumer experience for #57 / PR #68
 
-Target shape: a downstream repo (demo) adds `"vibedocs": "github:danielcbright/vibedocs#main"` to devDeps, then `npx vibedocs build`. The `prepare` script in `package.json` runs `npm run build && npm run build:cli`, which builds the frontend SPA into `frontend/dist/` and compiles the CLI to `dist-cli/`. `bin: vibedocs → dist-cli/cli/index.js`.
+Target shape: a downstream consumer repo adds `"vibedocs": "github:danielcbright/vibedocs#main"` to devDeps, then `npx vibedocs build`. The `prepare` script in `package.json` runs `npm run build && npm run build:cli`, which builds the frontend SPA into `frontend/dist/` and compiles the CLI to `dist-cli/`. `bin: vibedocs → dist-cli/cli/index.js`.
 
 **What still ships that shouldn't:** the `files:` array in `package.json` includes `src/` — so consumers download the entire TypeScript source for the runtime server (`src/server.ts`, etc.) even though they'll only ever use `dist-cli/`. Not a security/correctness issue, but it's noise and contradicts the "easy adoption" goal.
 
-**#65's pain:** `runBuild` mirrors *every* non-markdown file (`build.ts:200-205`). For the vibedocs repo itself, that means `dist/` ends up with `package.json`, `tsconfig.json`, `.ts` source, lockfiles, `LICENSE`, tests. The `EXCLUDED_DIRS` filter only stops `node_modules`/`.git`/`dist`. So today, if you `vibedocs build demo`, the public site at example.io will publish demo's source tree. Embarrassing on the day you flip the DNS.
+**#65's pain:** `runBuild` mirrors *every* non-markdown file (`build.ts:200-205`). For the vibedocs repo itself, that means `dist/` ends up with `package.json`, `tsconfig.json`, `.ts` source, lockfiles, `LICENSE`, tests. The `EXCLUDED_DIRS` filter only stops `node_modules`/`.git`/`dist`. So today, if you `vibedocs build <project>`, the consumer's docs site will publish that project's source tree. Embarrassing on the day you flip the DNS.
 
 ### Q7 — Zero-JS option
 
-No. `build.ts:208-213` copies `frontend/dist/assets/` to `<outDir>/assets/` unconditionally, and `composePageHtml` always emits the `<script type="module" src="...">` tag. Every reader of every page on example.io will download the full SPA bundle even if they only read one page and leave. The bundle exists for Mode A's live navigation; Mode B inherits it because that's the cheapest code path. The reviewer's "hydration tax" critique is real — no tree-shaking, no conditional emit.
+No. `build.ts:208-213` copies `frontend/dist/assets/` to `<outDir>/assets/` unconditionally, and `composePageHtml` always emits the `<script type="module" src="...">` tag. Every reader of every page on the consumer's docs site will download the full SPA bundle even if they only read one page and leave. The bundle exists for Mode A's live navigation; Mode B inherits it because that's the cheapest code path. The reviewer's "hydration tax" critique is real — no tree-shaking, no conditional emit.
 
 ---
 

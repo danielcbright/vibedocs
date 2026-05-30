@@ -15,9 +15,9 @@ describe('parseBuildArgs', () => {
     const r = parseBuildArgs([
       '--project', 'demo',
       '--out', './dist',
-      '--base-url', 'https://example.io',
+      '--base-url', 'https://example.com',
     ])
-    expect(r.baseUrl).toBe('https://example.io')
+    expect(r.baseUrl).toBe('https://example.com')
   })
 
   it('parses --serve without --out (serve implies a default out dir if missing)', () => {

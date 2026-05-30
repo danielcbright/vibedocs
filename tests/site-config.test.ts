@@ -11,7 +11,7 @@ import { VibedocsError } from '../src/errors.js'
 
 const VALID_CONFIG: SiteConfig = {
   name: 'demo',
-  domain: 'example.io',
+  domain: 'example.com',
   description: 'Drop-in observability for AI agents',
   theme: {
     tokens: {
@@ -37,7 +37,7 @@ const VALID_CONFIG: SiteConfig = {
     twitterHandle: '@demolabs',
   },
   editOnGitHub: {
-    repo: 'exampleorg/example-project',
+    repo: 'demolabs/demo',
     branch: 'main',
     rootPath: '',
   },
@@ -80,7 +80,7 @@ describe('loadSiteConfig', () => {
       import { defineSite } from 'vibedocs/config'
       export default defineSite({
         name: 'demo',
-        domain: 'example.io',
+        domain: 'example.com',
         description: 'observability',
         theme: { tokens: { primary: '#39ff14' } },
         llms: { summary: 'demo is obs', keyDocs: ['README.md'] },
@@ -90,7 +90,7 @@ describe('loadSiteConfig', () => {
     const result = await loadSiteConfig(projectDir)
     expect(result).not.toBeNull()
     expect(result?.name).toBe('demo')
-    expect(result?.domain).toBe('example.io')
+    expect(result?.domain).toBe('example.com')
     expect(result?.theme.tokens.primary).toBe('#39ff14')
     expect(result?.llms.keyDocs).toEqual(['README.md'])
   })

@@ -14,8 +14,7 @@
  * - `minimal`: skip the SPA bundle and the bootstrap script tag. The page is
  *              the rendered article HTML plus a server-rendered nav and CSS.
  *              Loses search/theme-toggle/mermaid/copy-md/mobile-drawer but
- *              ships ~500 KB less JS — the right call for public docs sites
- *              like example.io.
+ *              ships ~500 KB less JS — the right call for public docs sites.
  */
 export type HydrationPolicy = 'full' | 'minimal'
 

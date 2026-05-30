@@ -1,12 +1,5 @@
 # CLAUDE.md - VibeDocs
 
-<!-- demo
-port: 8080
-name: vibedocs
-health_path: /healthz
-description: Markdown docs renderer for workspace projects
--->
-
 ## Project Overview
 
 VibeDocs — self-hosted markdown documentation browser. Hono backend + React frontend that auto-discovers markdown files across project directories and renders them with rich formatting.
@@ -71,7 +64,7 @@ Saved/copied bytes come from a single `sumDirBytes(frontendDist/assets)` walk th
 - Mobile drawer toggle — gone (use plain CSS navigation or no-JS `<details>`)
 - WebSocket live-reload — gone (not relevant in production builds anyway)
 
-Pick `minimal` for public docs sites (example.io, etc.) where most readers land on one page and leave. Pick `full` for the live workspace where you want the interactive app.
+Pick `minimal` for public docs sites where most readers land on one page and leave. Pick `full` for the live workspace where you want the interactive app.
 
 ## Tech Stack
 

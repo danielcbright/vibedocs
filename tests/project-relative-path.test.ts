@@ -37,7 +37,7 @@ describe('toProjectRelativePath', () => {
   it('returns null for a path that resolves outside via traversal', () => {
     // A literal absolute path that doesn't start with projectsDir
     expect(
-      toProjectRelativePath('/example/workspace/other/foo.md', projectsDir),
+      toProjectRelativePath('/example/other/foo.md', projectsDir),
     ).toBeNull()
   })
 
@@ -51,7 +51,7 @@ describe('toProjectRelativePath', () => {
     const abs = path.join(projectsDir, 'vibedocs', 'docs', 'guide.md')
     const result = toProjectRelativePath(abs, projectsDir)
     expect(result).not.toContain(projectsDir)
-    expect(result).not.toMatch(/^\/home/)
+    expect(result).not.toMatch(/^\/example/)
   })
 })
 
@@ -76,7 +76,7 @@ describe('chokidar change → reload broadcast wire format', () => {
     const msg = simulateChokidarChangeBroadcast(abs, projectsDir)
     expect(msg).not.toBeNull()
     expect(msg!.path).not.toContain(projectsDir)
-    expect(msg!.path).not.toMatch(/^\/home/)
+    expect(msg!.path).not.toMatch(/^\/example/)
     expect(msg!.path.startsWith('/')).toBe(false)
   })
 

@@ -44,7 +44,7 @@ function createTestApp(
 
 const VALID_CONFIG: SiteConfig = {
   name: 'demo',
-  domain: 'example.io',
+  domain: 'example.com',
   description: 'observability',
   theme: { tokens: { primary: '#39ff14' } },
   llms: { summary: 'demo', keyDocs: ['README.md'] },
@@ -110,23 +110,23 @@ describe('site-config cache behaviour exposed by /api/projects', () => {
 
   it('cache.invalidate(name) forces a fresh load on the next request, returning updated config', async () => {
     const projects: ProjectInfo[] = [{ name: 'demo', hasDocsFolder: false, tree: tree() }]
-    let returned: SiteConfig = { ...VALID_CONFIG, domain: 'v1.example.io' }
+    let returned: SiteConfig = { ...VALID_CONFIG, domain: 'v1.example.com' }
     const { app, cache } = createTestApp(projects, async () => returned)
 
     const first = await (await app.request('/api/projects')).json()
-    expect(first.data[0].siteConfig.domain).toBe('v1.example.io')
+    expect(first.data[0].siteConfig.domain).toBe('v1.example.com')
 
     // Simulate the user editing .vibedocs.config.ts on disk and bumping the version.
-    returned = { ...VALID_CONFIG, domain: 'v2.example.io' }
+    returned = { ...VALID_CONFIG, domain: 'v2.example.com' }
 
     // Without invalidation we hit the cache.
     const cached = await (await app.request('/api/projects')).json()
-    expect(cached.data[0].siteConfig.domain).toBe('v1.example.io')
+    expect(cached.data[0].siteConfig.domain).toBe('v1.example.com')
 
     // Invalidation triggers a fresh load.
     cache.invalidate('demo')
     const refreshed = await (await app.request('/api/projects')).json()
-    expect(refreshed.data[0].siteConfig.domain).toBe('v2.example.io')
+    expect(refreshed.data[0].siteConfig.domain).toBe('v2.example.com')
   })
 
   it('invalidateFromPath maps a .vibedocs.config.ts absolute path to the right project', async () => {
@@ -243,7 +243,7 @@ describe('GET /api/projects with real loadSiteConfig + on-disk fixtures', () => 
       import { defineSite } from 'vibedocs/config'
       export default defineSite({
         name: 'demo',
-        domain: 'example.io',
+        domain: 'example.com',
         description: 'observability',
         theme: { tokens: { primary: '#39ff14' } },
         llms: { summary: 'demo is obs', keyDocs: ['README.md'] },
@@ -259,7 +259,7 @@ describe('GET /api/projects with real loadSiteConfig + on-disk fixtures', () => 
     expect(json.data[0].name).toBe('demo')
     expect(json.data[0].siteConfig).not.toBeNull()
     expect(json.data[0].siteConfig.name).toBe('demo')
-    expect(json.data[0].siteConfig.domain).toBe('example.io')
+    expect(json.data[0].siteConfig.domain).toBe('example.com')
     expect(json.data[0].siteConfig.theme.tokens.primary).toBe('#39ff14')
   })
 
@@ -281,27 +281,27 @@ describe('GET /api/projects with real loadSiteConfig + on-disk fixtures', () => 
       await writeFile(configPath, source, 'utf8')
     }
 
-    await writeConfig('v1.example.io')
+    await writeConfig('v1.example.com')
     const projects: ProjectInfo[] = [
       { name: 'demo', hasDocsFolder: false, tree: tree() },
     ]
     const { app, cache } = buildApp(projects)
 
     const first = await (await app.request('/api/projects')).json()
-    expect(first.data[0].siteConfig.domain).toBe('v1.example.io')
+    expect(first.data[0].siteConfig.domain).toBe('v1.example.com')
 
     // Author edits the config on disk.
-    await writeConfig('v2.example.io')
+    await writeConfig('v2.example.com')
 
     // Without an invalidation event we still see the cached v1 — proving the
     // cache is actually doing its job.
     const cached = await (await app.request('/api/projects')).json()
-    expect(cached.data[0].siteConfig.domain).toBe('v1.example.io')
+    expect(cached.data[0].siteConfig.domain).toBe('v1.example.com')
 
     // Simulate the chokidar event for `.vibedocs.config.ts`.
     cache.invalidateFromPath(configPath)
 
     const refreshed = await (await app.request('/api/projects')).json()
-    expect(refreshed.data[0].siteConfig.domain).toBe('v2.example.io')
+    expect(refreshed.data[0].siteConfig.domain).toBe('v2.example.com')
   })
 })

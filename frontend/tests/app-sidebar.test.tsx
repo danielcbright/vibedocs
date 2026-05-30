@@ -57,7 +57,7 @@ const SITE_NAV_PROJECT: ProjectInfo = {
   ],
   siteConfig: {
     name: 'demo',
-    domain: 'example.io',
+    domain: 'example.com',
     description: 'observability',
     theme: { tokens: {} },
     llms: { summary: 's', keyDocs: [] },
