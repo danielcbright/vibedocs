@@ -102,6 +102,12 @@ VibeDocs is designed to run as a persistent service. A systemd unit file is incl
 
 See `scripts/promote.sh` for a build-validate-restart workflow.
 
+## Documentation
+
+- [`CONTEXT.md`](CONTEXT.md) — domain language and architecture overview (AppState seam, ports/adapters split, Render Modes, URL Rewriter)
+- [`docs/adr/`](docs/adr/) — architectural decision records
+- [`CLAUDE.md`](CLAUDE.md) — project memory and conventions for Claude Code sessions
+
 ## How Claude Built This
 
 VibeDocs was built entirely using [Claude Code](https://claude.ai/code) — Anthropic's agentic coding tool. Every line of code, from the Hono backend and unified markdown pipeline to the React frontend with shadcn/ui components, was generated through conversational prompts with Claude.
