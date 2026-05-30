@@ -8,4 +8,11 @@ describe('StaticPreviewHint', () => {
     const { container } = render(<StaticPreviewHint project={null} />)
     expect(container).toBeEmptyDOMElement()
   })
+
+  it('renders a trigger button labelled "Preview as static site" when a project is provided', () => {
+    render(<StaticPreviewHint project="argus" />)
+    expect(
+      screen.getByRole('button', { name: /preview as static site/i }),
+    ).toBeInTheDocument()
+  })
 })
