@@ -18,6 +18,7 @@ import { useDocument } from "@/hooks/use-document"
 import { useWebSocket } from "@/hooks/use-websocket"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useConfig } from "@/hooks/use-config"
+import { findFirstMarkdown } from "@/lib/find-first-markdown"
 
 function parseHash(): { project: string | null; path: string | null } {
   const hash = window.location.hash.slice(1)
@@ -32,18 +33,6 @@ function parseHash(): { project: string | null; path: string | null } {
 
 function isMarkdownPath(p: string): boolean {
   return p.endsWith(".md") || p.endsWith(".markdown")
-}
-
-// Depth-first walk that returns the first markdown file under `nodes`.
-function findFirstMarkdown(nodes: FileNode[]): FileNode | null {
-  for (const n of nodes) {
-    if (n.type === "file" && !n.isAsset && isMarkdownPath(n.path)) return n
-    if (n.type === "folder" && n.children) {
-      const found = findFirstMarkdown(n.children)
-      if (found) return found
-    }
-  }
-  return null
 }
 
 // Find a node by its exact path in the tree, or null if not present.
