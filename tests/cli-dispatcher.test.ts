@@ -53,10 +53,10 @@ afterEach(async () => {
 })
 
 function stdoutString(): string {
-  return stdoutSpy.mock.calls.map((c) => String(c[0])).join('')
+  return stdoutSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
 }
 function stderrString(): string {
-  return stderrSpy.mock.calls.map((c) => String(c[0])).join('')
+  return stderrSpy.mock.calls.map((c: unknown[]) => String(c[0])).join('')
 }
 
 describe('CLI dispatcher — usage / --help', () => {
