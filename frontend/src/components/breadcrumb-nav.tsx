@@ -111,15 +111,15 @@ export function BreadcrumbNav({ project, docPath, tree, onNavigate }: Breadcrumb
         </BreadcrumbItem>
         <BreadcrumbSeparator />
         <BreadcrumbItem>
-          {parts.length > 1 ? (
-            <DirectoryDropdown
-              label={project}
-              children={projectTree}
-              onPick={(childPath) => onNavigate?.(project, childPath)}
-            />
-          ) : (
-            <BreadcrumbPage className="font-medium">{project}</BreadcrumbPage>
-          )}
+          {/* The project segment is always a DirectoryDropdown rooted at the
+              project tree, regardless of how deep docPath goes. At
+              single-segment paths the user still needs a way to browse
+              sibling root-level files without backtracking to the picker. */}
+          <DirectoryDropdown
+            label={project}
+            children={projectTree}
+            onPick={(childPath) => onNavigate?.(project, childPath)}
+          />
         </BreadcrumbItem>
         {parts.map((part, i) => {
           const isLast = i === parts.length - 1
