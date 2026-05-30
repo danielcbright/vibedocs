@@ -15,4 +15,18 @@ describe('StaticPreviewHint', () => {
       screen.getByRole('button', { name: /preview as static site/i }),
     ).toBeInTheDocument()
   })
+
+  it('opening the popover reveals a CLI command containing the selected project name', async () => {
+    render(<StaticPreviewHint project="argus" />)
+    await userEvent.click(
+      screen.getByRole('button', { name: /preview as static site/i }),
+    )
+    // The exact command string is the contract — readers will copy-paste it
+    // verbatim into a shell, so the test pins the format.
+    expect(
+      await screen.findByText(
+        /npx vibedocs build --project argus --serve --port 9001/,
+      ),
+    ).toBeInTheDocument()
+  })
 })
