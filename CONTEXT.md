@@ -13,6 +13,7 @@ _Avoid_: "live mode" / "build mode" used as standalone phrases — they're value
 **URL Rewriter**:
 The pure mapping from a markdown link/image URL plus a Render Mode plus a current-doc context to its destination URL on the rendered page. Lives in `src/url-rewriter.ts` as a rehype plugin factory. The single canonical place where "which URL shape do we emit?" is answered.
 _Avoid_: "asset rewriter," "URL rewrite logic," "link rewriter" — one term, all link/asset URL transformations.
+_Non-obvious semantics_: absolute-root URLs in markdown (e.g. `<img src="/foo.png">`) are **not** treated as workspace-root absolute — they resolve **relative to the current doc directory**. This is a side effect of `path.posix.join(currentDir, '/foo.png')` discarding the leading slash, so `/foo.png` from `docs/guide.md` resolves to `docs/foo.png`. Behavior is identical in `live` and `build` Render Modes. Pinned by `tests/url-rewriter.test.ts` under the "absolute-root URLs (/foo.png)" describe block. Document this in any consumer-facing README that explains authoring conventions — markdown authors expecting workspace-absolute paths will get surprised.
 
 **Markdown Processor**:
 A configured unified pipeline (remark → rehype → shiki → mermaid → rewrite → sanitize → stringify) ready to convert one markdown document to one HTML string. Constructed per-page by the factory in `src/markdown-processor.ts` because the URL Rewriter captures per-page state.
@@ -21,6 +22,7 @@ _Avoid_: "renderer" (overloaded with the higher-level `renderProject`), "markdow
 **Reference Collector**:
 A receiver that records every asset URL the URL Rewriter resolves while rendering. Used during `build` to detect references to files that don't exist (missing refs). One instance per project build. Lives in `src/reference-collector.ts`.
 _Avoid_: "ref tracker," "link collector."
+_Dedup contract_: the collector intentionally **preserves duplicates** in insertion order — it does not dedup. Within-doc duplicate refs (same asset linked twice on the same page) produce duplicate `missingRefs` entries, which can be noisy. Cross-doc duplicates (same asset referenced from N different pages) are valuable signal because they tell the build operator which pages break when a referenced file is missing. The asymmetry is real but the consistent "don't dedup" rule keeps the collector pure and side-effect-free. If duplicate-warning noise becomes a real operator problem, **dedup at the consumer** (`src/cli/build.ts`) rather than mutating the collector — the collector's append-only contract is what makes it cheap to reason about.
 
 ### Orchestration
 
