@@ -1,4 +1,5 @@
-import { Globe } from "lucide-react"
+import { useState } from "react"
+import { Check, Copy, Globe } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   Popover,
@@ -20,10 +21,23 @@ function buildCommand(project: string): string {
 }
 
 export function StaticPreviewHint({ project }: StaticPreviewHintProps) {
+  const [copied, setCopied] = useState(false)
+
   if (!project) return null
 
   const command = buildCommand(project)
   const previewUrl = `http://localhost:${PREVIEW_PORT}`
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(command)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch {
+      // Clipboard API can reject under restricted contexts. Silent failure
+      // is acceptable — the command is still visible for manual selection.
+    }
+  }
 
   return (
     <Popover>
@@ -50,9 +64,29 @@ export function StaticPreviewHint({ project }: StaticPreviewHintProps) {
         <pre className="mt-3 overflow-x-auto rounded-md border bg-muted px-3 py-2 text-xs font-mono">
           <code>{command}</code>
         </pre>
-        <p className="mt-2 text-xs text-muted-foreground">
-          Then open {previewUrl}
-        </p>
+        <div className="mt-2 flex items-center justify-between gap-2">
+          <p className="text-xs text-muted-foreground">
+            Then open {previewUrl}
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1.5 text-xs"
+            onClick={handleCopy}
+          >
+            {copied ? (
+              <>
+                <Check className="h-3 w-3 text-green-500" />
+                Copied
+              </>
+            ) : (
+              <>
+                <Copy className="h-3 w-3" />
+                Copy command
+              </>
+            )}
+          </Button>
+        </div>
       </PopoverContent>
     </Popover>
   )

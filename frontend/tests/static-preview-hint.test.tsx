@@ -4,6 +4,15 @@ import userEvent from '@testing-library/user-event'
 import { StaticPreviewHint } from '@/components/static-preview-hint'
 
 describe('StaticPreviewHint', () => {
+  beforeEach(() => {
+    // jsdom doesn't expose a real navigator.clipboard; mock writeText so each
+    // test starts from a clean spy.
+    Object.assign(navigator, {
+      clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
+    })
+  })
+
+
   it('renders nothing when project is null', () => {
     const { container } = render(<StaticPreviewHint project={null} />)
     expect(container).toBeEmptyDOMElement()
@@ -28,5 +37,17 @@ describe('StaticPreviewHint', () => {
         /npx vibedocs build --project argus --serve --port 9001/,
       ),
     ).toBeInTheDocument()
+  })
+
+  it('clicking "Copy command" writes the full CLI command to the clipboard', async () => {
+    render(<StaticPreviewHint project="argus" />)
+    await userEvent.click(
+      screen.getByRole('button', { name: /preview as static site/i }),
+    )
+    const copyBtn = await screen.findByRole('button', { name: /copy command/i })
+    await userEvent.click(copyBtn)
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+      'npx vibedocs build --project argus --serve --port 9001',
+    )
   })
 })
