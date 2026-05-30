@@ -7,6 +7,7 @@ import { useState } from "react"
 import { BreadcrumbNav } from "./breadcrumb-nav"
 import { ConnectionStatus } from "./connection-status"
 import { ProjectPicker } from "./project-picker"
+import { StaticPreviewHint } from "./static-preview-hint"
 import { useTheme } from "./theme-provider"
 import { useRawDocument } from "@/hooks/use-raw-document"
 import { renderMermaidIn } from "@/lib/mermaid-loader"
@@ -116,6 +117,7 @@ export function DocContent({ html, loading, error, project, docPath, connected, 
           <BreadcrumbNav project={project} docPath={docPath} tree={projectTree} onNavigate={onNavigate} />
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          <StaticPreviewHint project={project} />
           <Button
             variant="ghost"
             size="icon"
