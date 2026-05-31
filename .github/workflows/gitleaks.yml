@@ -22,7 +22,7 @@ jobs:
     name: gitleaks scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           # Needed for gitleaks to scan full history on push events; PR scans
           # run against the diff so the default fetch-depth is fine, but a
