@@ -92,7 +92,9 @@ src/                    # Backend (Hono server)
   upload.ts             # safeWriteFile(targetDir: SafePath, ...): conflict renaming + safe writes
   path-resolver.ts      # PathResolver: validates project+path → SafePath; throws VibedocsError
   errors.ts             # VibedocsError taxonomy + registerErrorHandler (single HTTP translation point)
-  shared/ws-messages.ts # Typed WS message envelope (shared with frontend)
+  shared/               # Canonical home for types shared between backend (src/) and frontend (frontend/src/) — import via the `@shared/*` alias from the frontend
+    ws-messages.ts      # Typed WS message envelope
+    site-config-types.ts # SiteConfig + RenderMode + related (shared so frontend can render config-driven UI)
 frontend/               # Frontend (Vite React app)
   src/
     App.tsx             # Root layout: mobile (hamburger drawer + bottom-sheet TOC) / desktop (3-panel resizable). navigateSmart resolves folder/empty paths to first markdown file.
