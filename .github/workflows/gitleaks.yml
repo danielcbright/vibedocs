@@ -1,0 +1,39 @@
+name: gitleaks
+
+# Backstop secret + PII scanner. Catches what the husky pre-commit hook
+# would have caught locally, in case it was bypassed (--no-verify) or
+# never installed.
+#
+# Custom rules in .gitleaks.toml include workspace-identifier patterns
+# (claudebot, tailnet IDs, real project names) that historically leaked
+# in May 2026; re-introducing them fails this check.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly Sunday scan as a fail-safe in case rules change but no PRs ran
+    - cron: "0 8 * * 0"
+
+jobs:
+  scan:
+    name: gitleaks scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Needed for gitleaks to scan full history on push events; PR scans
+          # run against the diff so the default fetch-depth is fine, but a
+          # full clone is cheap on this repo.
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        with:
+          config-path: .gitleaks.toml
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # GITLEAKS_LICENSE is only required for the Action when used on
+          # organisations. Free for personal repos.

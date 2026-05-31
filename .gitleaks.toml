@@ -1,0 +1,101 @@
+# VibeDocs security-scan config.
+#
+# Used by:
+#   - .husky/pre-commit          (blocks local commits)
+#   - .github/workflows/gitleaks.yml (blocks PRs at CI)
+#
+# Inherits gitleaks's default rules (AWS keys, OpenAI keys, GitHub PATs,
+# Slack tokens, etc.) and adds project-specific rules for the workspace
+# identifiers we spent four passes scrubbing in May 2026 (commit f0ee96d).
+
+title = "VibeDocs gitleaks config"
+
+[extend]
+useDefault = true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Workspace-identifier rules
+# ─────────────────────────────────────────────────────────────────────────────
+# These match the patterns historically present in the maintainer's local
+# workspace. None of them should ever ship in tracked content. Re-introduction
+# is treated as a leak.
+
+[[rules]]
+id          = "vibedocs-workspace-name"
+description = "Maintainer's local workspace directory name"
+regex       = '''\bclaudebot\b'''
+tags        = ["pii", "workspace-leak"]
+
+[[rules]]
+id          = "vibedocs-tailnet-id"
+description = "Maintainer's tailnet identifier"
+regex       = '''tailc9eea3'''
+tags        = ["pii", "tailnet-leak"]
+
+[[rules]]
+id          = "vibedocs-tailnet-ip"
+description = "Maintainer's tailnet IP (CGNAT 100.64/10 range, but this is the specific one)"
+regex       = '''\b100\.117\.179\.63\b'''
+tags        = ["pii", "tailnet-leak"]
+
+[[rules]]
+id          = "vibedocs-home-path"
+description = "Hardcoded maintainer home directory path"
+regex       = '''/home/dbright(/|\b)'''
+tags        = ["pii", "path-leak"]
+
+[[rules]]
+id          = "vibedocs-real-project-name-1"
+description = "Workspace project name that should not appear (use 'demo' / 'example' in fixtures)"
+regex       = '''\bargus\b'''
+tags        = ["pii", "project-name-leak"]
+
+[[rules]]
+id          = "vibedocs-real-project-name-2"
+description = "Workspace company/product names"
+regex       = '''(?i)brightops(inc)?(\.ai)?|brightdiagram'''
+tags        = ["pii", "project-name-leak"]
+
+[[rules]]
+id          = "vibedocs-real-github-org"
+description = "Maintainer's other private GitHub org references"
+regex       = '''arguslabs(/|\b)'''
+tags        = ["pii", "github-org-leak"]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Allowlist
+# ─────────────────────────────────────────────────────────────────────────────
+# Things that look like our patterns but are legitimate / public.
+
+[allowlist]
+description = "Paths and patterns we don't scan or that are intentionally public"
+
+paths = [
+  '''(^|/)node_modules/''',
+  '''(^|/)frontend/dist/''',
+  '''(^|/)dist-cli/''',
+  '''(^|/)dist/''',
+  '''(^|/)\.git/''',
+  '''(^|/)\.scratch/''',
+  '''(^|/)docs/screenshots/.*\.png$''',
+  '''(^|/)docs/vibedocs-demo\.gif$''',
+  # The gitleaks config itself contains the patterns it's looking for —
+  # do not scan ourselves for self-references.
+  '''(^|/)\.gitleaks\.toml$''',
+  # The gitleaks CI workflow + pre-commit hook reference the patterns in
+  # their explanatory headers; same self-reference exemption.
+  '''(^|/)\.github/workflows/gitleaks\.yml$''',
+  '''(^|/)\.husky/pre-commit$''',
+  # CONTRIBUTING.md describes the scanning posture — same.
+  '''(^|/)CONTRIBUTING\.md$''',
+  # Demo workspace ships fictional content; intentionally generic.
+  '''(^|/)demo/''',
+]
+
+regexes = [
+  # Public GitHub username + repo URL — necessarily exposed
+  '''danielcbright(/vibedocs)?''',
+  '''github\.com/danielcbright''',
+  # Public email contact (standard OSS-maintainer convention)
+  '''danielcbright@gmail\.com''',
+]

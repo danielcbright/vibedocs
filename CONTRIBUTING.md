@@ -47,6 +47,27 @@ See `CLAUDE.md` for detailed architecture notes. If you use Claude Code, it will
 - Backend tests use Vitest — add tests in `tests/` for new backend functionality
 - Frontend uses shadcn/ui — add new UI components via the shadcn CLI
 
+## Security: secret + PII scanning
+
+Every commit is scanned by [gitleaks](https://github.com/gitleaks/gitleaks) for credentials and the project-specific PII patterns defined in `.gitleaks.toml`. Pre-commit catches it locally; CI catches it on push as a backstop.
+
+**Install gitleaks once per machine** so the local hook actually runs:
+
+```bash
+# macOS
+brew install gitleaks
+
+# Linux (binary to ~/.local/bin)
+curl -sSfL https://raw.githubusercontent.com/gitleaks/gitleaks/master/scripts/install.sh | sh -s -- -b ~/.local/bin
+
+# Verify
+gitleaks version
+```
+
+Without gitleaks installed, the pre-commit hook prints a warning and lets the commit through — CI is the backstop, but you'll have to amend or force-push if it fails there.
+
+If a scan flags a false positive, add an allowlist entry to `.gitleaks.toml` rather than `--no-verify`-ing.
+
 ## Reporting Issues
 
 Open an issue at https://github.com/danielcbright/vibedocs/issues with:

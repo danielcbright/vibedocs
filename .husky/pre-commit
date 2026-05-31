@@ -1,0 +1,30 @@
+# Pre-commit hook for VibeDocs.
+#
+# Runs gitleaks against staged changes to block PII / secret leaks before
+# they leave your machine. CI runs the same scan as a backstop, but
+# catching it locally avoids force-pushing or amending a public commit.
+#
+# Installing gitleaks (one-time, per dev machine):
+#   macOS:  brew install gitleaks
+#   Linux:  curl -sSfL https://raw.githubusercontent.com/gitleaks/gitleaks/master/scripts/install.sh | sh -s -- -b ~/.local/bin
+#   Or:     download a release from https://github.com/gitleaks/gitleaks/releases
+#
+# Bypass (use sparingly + document why in commit message):
+#   git commit --no-verify
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  cat >&2 <<'EOF'
+
+⚠️  gitleaks not installed — skipping local pre-commit secret scan.
+
+Install it so leaks get caught before they hit GitHub:
+  macOS:  brew install gitleaks
+  Linux:  curl -sSfL https://raw.githubusercontent.com/gitleaks/gitleaks/master/scripts/install.sh | sh -s -- -b ~/.local/bin
+
+CI will still scan this commit on push — see .github/workflows/gitleaks.yml.
+
+EOF
+  exit 0
+fi
+
+gitleaks protect --staged --redact --config .gitleaks.toml

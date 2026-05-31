@@ -45,7 +45,7 @@
     "dev:frontend": "cd frontend && npx vite",
     "build": "cd frontend && npm install && npx vite build",
     "build:cli": "tsc -p tsconfig.cli.json",
-    "prepare": "npm run build && npm run build:cli",
+    "prepare": "npm run build && npm run build:cli && husky",
     "start": "tsx src/server.ts",
     "test": "vitest run && cd frontend && npx vitest run",
     "test:watch": "vitest",
@@ -73,6 +73,7 @@
     "@types/node": "^22",
     "@types/ws": "^8",
     "concurrently": "^9.2.1",
+    "husky": "^9.1.7",
     "typescript": "^5",
     "vitest": "^4.0.18"
   }
