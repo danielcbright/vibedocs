@@ -23,8 +23,9 @@ const PNG_TARGETS = [
 ]
 
 // Brand background extracted from the master SVG's <rect fill="…">, reused for
-// the maskable icon's padding so the safe-zone inset is seamless.
-const BRAND_BG = '#8852e0'
+// the maskable icon's padding so the safe-zone inset is seamless. Keep this in
+// sync with the <rect> fill in icon-source.svg (and the manifest background_color).
+const BRAND_BG = '#020817'
 
 async function main() {
   await mkdir(OUT, { recursive: true })

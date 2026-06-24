@@ -9,29 +9,41 @@
 
       node frontend/scripts/generate-icons.mjs
 
-  Default brand: a static, full-bleed take on `.scratch/logo-variants/
-  03-monogram-draw.svg` (the "VD" monogram — monograms read best at small
-  icon sizes). The gallery's animated/`currentColor` original can't be
-  rasterised to a coloured icon, so this is a flattened derivative:
-    • Background  #8852e0  — the design palette accent  hsl(263 70% 60%)
-    • Monogram    #ffffff  — high contrast at 16–48px launcher sizes
-  The monogram sits inside the central ~66% so it survives the maskable
-  safe-zone crop on Android adaptive icons.
-
-  Full bleed (no transparent corners) on purpose: Android/iOS launchers
-  apply their own corner masking, so a square fill avoids double-rounding.
+  Current brand: a static, full-bleed take on `.scratch/logo-variants/
+  11-vd-ocean.svg` (the cyan→teal "VD" wordmark with a wave underline).
+  The gallery original animates the wave's dash offset; this flattens it to
+  a static resting frame so it rasterises cleanly:
+    • Background  #020817  — matches the manifest `background_color`, so the
+                            installed-app splash blends seamlessly into the icon
+    • Letters     linear-gradient #0ea5e9 → #06b6d4 → #14b8a6 (ocean)
+    • Wave        same gradient, dashed
+  The 64-unit gallery artwork is drawn at scale(8) to fill the 512 canvas,
+  matching the proportions shown in the picker. Full bleed (no transparent
+  corners) on purpose: launchers apply their own corner masking, so a square
+  fill avoids double-rounding. The maskable variant shrinks this to the 80%
+  safe zone and pads with the same #020817 (see BRAND_BG in generate-icons.mjs).
   ════════════════════════════════════════════════════════════════════════
 -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
-  <rect width="512" height="512" fill="#8852e0"/>
-  <!--
-    Monogram strokes. Coordinates scaled ~8x from the 64-unit original and
-    centred. stroke-width 28 keeps the marks legible when downscaled to 16px.
-  -->
-  <g fill="none" stroke="#ffffff" stroke-width="28" stroke-linecap="round" stroke-linejoin="round">
+  <rect width="512" height="512" fill="#020817"/>
+  <defs>
+    <linearGradient id="ocean-letters" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%"   stop-color="#0ea5e9"/>
+      <stop offset="55%"  stop-color="#06b6d4"/>
+      <stop offset="100%" stop-color="#14b8a6"/>
+    </linearGradient>
+    <linearGradient id="ocean-sine" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%"   stop-color="#06b6d4" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#14b8a6" stop-opacity="0.9"/>
+    </linearGradient>
+  </defs>
+  <!-- 64-unit gallery artwork, scaled 8x to fill the 512 canvas. -->
+  <g transform="scale(8)" fill="none" stroke-linecap="round" stroke-linejoin="round">
     <!-- V -->
-    <path d="M 150 176 L 230 400 L 310 176"/>
-    <!-- D (stylised, matching the original's curved bowl) -->
-    <path d="M 342 176 L 342 400 L 392 400 Q 432 400 432 336 L 432 240 Q 432 176 392 176 Z"/>
+    <path d="M 8 14 L 18 42 L 28 14" stroke="url(#ocean-letters)" stroke-width="5"/>
+    <!-- D (stylised bowl, matching the original) -->
+    <path d="M 36 14 L 36 42 L 46 42 Q 56 42 56 28 Q 56 14 46 14 Z" stroke="url(#ocean-letters)" stroke-width="5"/>
+    <!-- wave underline (static resting frame; gallery animates the dash offset) -->
+    <path d="M 6 54 C 10 50, 14 58, 18 54 S 26 50, 30 54 S 38 58, 42 54 S 50 50, 54 54 S 62 58, 66 54" stroke="url(#ocean-sine)" stroke-width="2.6" stroke-dasharray="6 4"/>
   </g>
 </svg>
