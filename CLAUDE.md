@@ -95,7 +95,8 @@ src/                    # Backend (Hono server)
   upload-auth.ts        # parseUploadAuthConfig, checkUploadAuth, checkExtensionAllowed (pure policy fns)
   discovery.ts          # Project/file tree discovery (all file types, isAsset flag)
   excluded-paths.ts     # Single source of truth for EXCLUDED_DIRS (shared by discovery/search/path-resolver)
-  render.ts             # renderProject orchestration: per-project walk, missingRefs detection, RenderResult assembly
+  render.ts             # renderProject orchestration: per-project walk, gray-matter frontmatter parse, missingRefs detection, RenderResult assembly
+  cli/seo.ts            # resolvePageSeo — pure per-page SEO meta resolution (title/description/og/twitter/canonical/noindex) from frontmatter + siteConfig
   markdown-processor.ts # createMarkdownProcessor(opts) factory — unified() pipeline (remark/rehype/shiki/mermaid/sanitize)
   url-rewriter.ts       # rehypeRewriteUrls + RewriteOptions + RenderMode — pure URL transformation by mode
   reference-collector.ts # createReferenceCollector — captures resolved asset refs during build for missing-ref detection
@@ -166,6 +167,7 @@ npm run test:watch    # Run tests in watch mode
 - **Navigation:** `frontend/src/App.tsx` `navigateSmart(project, path)` — file paths navigate directly; empty/folder paths resolve to the first markdown file under that scope via depth-first tree walk. Used by `DocContent` (so breadcrumb folder/project clicks land on a real doc). Sidebar uses plain `navigate` since its clicks always have full file paths.
 - **Discovery:** `buildTree()` includes all file types; non-markdown files get `isAsset: true` flag. Root-level discovery stays markdown-only.
 - **File watcher:** Watches all files (`**/*`), but only rebuilds search index for markdown changes
+- **Frontmatter + per-page SEO:** `src/render.ts` runs `gray-matter` per page — the parsed YAML lands in `HtmlPage.frontmatter` and the stripped body is what gets rendered (the author's H1 stays untouched; frontmatter `title:` drives `<title>` only — grill decision #18). `src/cli/seo.ts` `resolvePageSeo({ page, siteConfig, baseUrl })` is the pure resolver: title (frontmatter → first H1 → filename), description (frontmatter → `siteConfig.description`), `og_image` (frontmatter → `siteConfig.seo.ogImage`), canonical (`baseUrl` + clean URL), `twitter:card` (`summary_large_image` when an og:image exists), `twitter:site` (`siteConfig.seo.twitterHandle`), and `noindex` (frontmatter `noindex` OR `draft`). `composePageHtml` emits the tags from the resolved struct (all attribute-escaped — frontmatter is author-controlled). `runBuild` resolves `siteBaseUrl` once and shares it between per-page canonical URLs and the sitemap (#54), so they can't disagree; `noindex` pages get a `<meta name="robots" content="noindex">` AND are dropped from `sitemap.xml`.
 
 ## Deployment
 

@@ -13,6 +13,7 @@
 import type { HtmlPage } from '../render.js'
 import type { HydrationPolicy, SiteConfig } from '../shared/site-config-types.js'
 import { renderPwaHeadTags, type PwaHeadOptions } from './pwa.js'
+import type { PageSeo } from './seo.js'
 
 export interface NavLink {
   url: string
@@ -46,6 +47,14 @@ export interface ComposePageOptions {
    * in `minimal` mode). Omit it to emit a non-PWA page (back-compat).
    */
   pwa?: PwaHeadOptions
+  /**
+   * Resolved per-page SEO meta (from `resolvePageSeo` in `./seo.ts`). When
+   * supplied, `composePageHtml` emits `<meta name="description">`, Open Graph
+   * (`og:title`/`og:description`/`og:image`/`og:url`), Twitter card tags, a
+   * `<link rel="canonical">`, and — when `noindex` is set — a robots meta.
+   * Omit it (or its optional fields) to emit a non-SEO page (back-compat).
+   */
+  seo?: PageSeo
 }
 
 const HTML_ESCAPES: Record<string, string> = {
@@ -102,6 +111,10 @@ export function composePageHtml(page: HtmlPage, opts: ComposePageOptions): strin
   const pwaHeadTags = opts.pwa ? '\n    ' + renderPwaHeadTags(opts.pwa) : ''
   const swRegisterTag = opts.pwa ? '<script src="/sw-register.js"></script>' : ''
 
+  // Per-page SEO meta (#50): description, Open Graph, Twitter, canonical, and
+  // the optional robots noindex. Emitted only when an `seo` struct is supplied.
+  const seoTags = opts.seo ? '\n    ' + renderSeoTags(opts.seo) : ''
+
   // Note: page.html is rehype-sanitize'd output from render.ts — safe to
   // embed verbatim. Nothing else here interpolates user-controlled HTML.
   return `<!doctype html>
@@ -109,8 +122,7 @@ export function composePageHtml(page: HtmlPage, opts: ComposePageOptions): strin
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- SEO meta placeholders (slice #50): canonical, og:*, twitter:*, description -->
-    <title>${title}</title>
+    <title>${title}</title>${seoTags}
     ${stylesheetTag}${pwaHeadTags}
   </head>
   <body>
@@ -123,6 +135,37 @@ ${page.html}
   </body>
 </html>
 `
+}
+
+/**
+ * Render the per-page SEO `<head>` tags from a resolved {@link PageSeo}.
+ * Optional fields (`description`, `ogDescription`, `ogImage`, `twitterSite`)
+ * emit nothing when absent. The robots noindex meta appears only when
+ * `noindex` is set. All values are attribute-escaped — `seo.description` and
+ * friends originate from author frontmatter, so they're untrusted.
+ */
+function renderSeoTags(seo: PageSeo): string {
+  const tags: string[] = []
+  if (seo.description) {
+    tags.push(`<meta name="description" content="${escapeAttr(seo.description)}">`)
+  }
+  if (seo.noindex) {
+    tags.push(`<meta name="robots" content="noindex">`)
+  }
+  tags.push(`<link rel="canonical" href="${escapeAttr(seo.canonical)}">`)
+  tags.push(`<meta property="og:title" content="${escapeAttr(seo.ogTitle)}">`)
+  if (seo.ogDescription) {
+    tags.push(`<meta property="og:description" content="${escapeAttr(seo.ogDescription)}">`)
+  }
+  if (seo.ogImage) {
+    tags.push(`<meta property="og:image" content="${escapeAttr(seo.ogImage)}">`)
+  }
+  tags.push(`<meta property="og:url" content="${escapeAttr(seo.canonical)}">`)
+  tags.push(`<meta name="twitter:card" content="${escapeAttr(seo.twitterCard)}">`)
+  if (seo.twitterSite) {
+    tags.push(`<meta name="twitter:site" content="${escapeAttr(seo.twitterSite)}">`)
+  }
+  return tags.join('\n    ')
 }
 
 function renderNav(links: NavLink[] | undefined): string {

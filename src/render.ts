@@ -1,5 +1,6 @@
 import path from 'path'
 import { readFile } from 'fs/promises'
+import matter from 'gray-matter'
 import {
   buildTreePublic,
   type FileNode,
@@ -45,7 +46,7 @@ export interface HtmlPage {
   html: string
   /** Table-of-contents headings extracted from the rendered HTML. */
   toc: TocEntry[]
-  /** Parsed frontmatter. Empty until slice #50 wires gray-matter. */
+  /** Parsed YAML frontmatter (gray-matter). Empty object when none present. */
   frontmatter: Record<string, unknown>
 }
 
@@ -120,6 +121,24 @@ async function renderMarkdownForPage(
   return String(result)
 }
 
+/**
+ * Split a markdown source into its parsed YAML frontmatter and the body that
+ * follows. gray-matter strips the leading `--- ... ---` block; the body it
+ * returns is what gets rendered, so the author's H1 stays whatever they wrote
+ * (frontmatter `title:` sets `<title>` only — grill decision #18).
+ *
+ * Returns a plain `Record` so the frontmatter shape stays open; downstream
+ * SEO resolution reads known keys (`title`, `description`, `noindex`, …) and
+ * ignores the rest.
+ */
+function parseFrontmatter(source: string): {
+  frontmatter: Record<string, unknown>
+  body: string
+} {
+  const { data, content } = matter(source)
+  return { frontmatter: data as Record<string, unknown>, body: content }
+}
+
 export async function renderProject(
   projectPath: string,
   siteConfig: SiteConfig | null,
@@ -139,7 +158,8 @@ export async function renderProject(
     if (isMarkdownPath(posixPath)) {
       const absPath = path.join(projectPath, file.path)
       const content = await readFile(absPath, 'utf-8')
-      const html = await renderMarkdownForPage(content, {
+      const { frontmatter, body } = parseFrontmatter(content)
+      const html = await renderMarkdownForPage(body, {
         mode,
         projectName,
         currentDocPath: posixPath,
@@ -151,7 +171,7 @@ export async function renderProject(
         url: mode === 'build' ? buildPageUrl(posixPath) : posixPath,
         html,
         toc,
-        frontmatter: {},
+        frontmatter,
       })
     } else {
       allAssets.push({
@@ -220,7 +240,8 @@ export async function renderSinglePage(
 ): Promise<HtmlPage> {
   const posixPath = docPath.split(path.sep).join('/')
   const content = await readFile(absPath, 'utf-8')
-  const html = await renderMarkdownForPage(content, {
+  const { frontmatter, body } = parseFrontmatter(content)
+  const html = await renderMarkdownForPage(body, {
     mode,
     projectName,
     currentDocPath: posixPath,
@@ -231,6 +252,6 @@ export async function renderSinglePage(
     url: mode === 'build' ? buildPageUrl(posixPath) : posixPath,
     html,
     toc,
-    frontmatter: {},
+    frontmatter,
   }
 }

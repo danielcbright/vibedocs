@@ -146,6 +146,108 @@ describe('runBuild — file emission', () => {
   })
 })
 
+describe('runBuild — per-page SEO meta (#50)', () => {
+  async function writeConfig() {
+    await writeFile(
+      path.join(projectPath, '.vibedocs.config.ts'),
+      `export default {
+        name: 'My Docs',
+        domain: 'docs.example.com',
+        description: 'Site-level description.',
+        theme: { tokens: {} },
+        llms: { summary: 's', keyDocs: [] },
+        seo: { ogImage: 'https://cdn.example/default.png', twitterHandle: '@vibedocs' },
+      }`,
+      'utf8',
+    )
+  }
+
+  it('uses frontmatter.title for <title> while leaving the body H1 untouched', async () => {
+    await writeConfig()
+    await writeFile(
+      path.join(projectPath, 'docs', 'install.md'),
+      '---\ntitle: Installation Steps\ndescription: How to install.\n---\n# Install\n\nRun `npm install`.',
+    )
+
+    await runBuild({ projectName: 'myproject', projectsRoot, outDir, frontendDist })
+
+    const html = await readFile(path.join(outDir, 'docs', 'install', 'index.html'), 'utf-8')
+    // Frontmatter title drives <title>...
+    expect(html).toMatch(/<title>Installation Steps<\/title>/)
+    // ...but the author's H1 in the body is untouched.
+    expect(html).toMatch(/<h1[^>]*>[\s\S]*Install[\s\S]*<\/h1>/)
+    expect(html).not.toContain('Installation Steps</h1>')
+    // No raw frontmatter leaks into the body.
+    expect(html).not.toContain('How to install.</p>')
+  })
+
+  it('emits per-page description + og + canonical from frontmatter and siteConfig', async () => {
+    await writeConfig()
+    await writeFile(
+      path.join(projectPath, 'docs', 'install.md'),
+      '---\ntitle: Installation Steps\ndescription: How to install.\n---\n# Install',
+    )
+
+    await runBuild({
+      projectName: 'myproject',
+      projectsRoot,
+      outDir,
+      frontendDist,
+      baseUrl: 'https://docs.example.com',
+    })
+
+    const html = await readFile(path.join(outDir, 'docs', 'install', 'index.html'), 'utf-8')
+    expect(html).toContain('<meta name="description" content="How to install.">')
+    expect(html).toContain('<meta property="og:title" content="Installation Steps">')
+    expect(html).toContain('<meta property="og:image" content="https://cdn.example/default.png">')
+    expect(html).toContain('<meta name="twitter:site" content="@vibedocs">')
+    expect(html).toContain('<link rel="canonical" href="https://docs.example.com/docs/install/">')
+  })
+
+  it('falls back to siteConfig.description + ogImage for a page with no frontmatter', async () => {
+    await writeConfig()
+    await runBuild({
+      projectName: 'myproject',
+      projectsRoot,
+      outDir,
+      frontendDist,
+      baseUrl: 'https://docs.example.com',
+    })
+
+    // README.md has no frontmatter — H1 "My Project" → <title>, site
+    // description + default og:image fill in.
+    const html = await readFile(path.join(outDir, 'index.html'), 'utf-8')
+    expect(html).toMatch(/<title>My Project<\/title>/)
+    expect(html).toContain('<meta name="description" content="Site-level description.">')
+    expect(html).toContain('<meta property="og:image" content="https://cdn.example/default.png">')
+  })
+
+  it('emits a robots noindex meta and excludes the page from the sitemap when frontmatter.noindex is true', async () => {
+    await writeConfig()
+    await writeFile(
+      path.join(projectPath, 'docs', 'install.md'),
+      '---\nnoindex: true\n---\n# Secret Install',
+    )
+
+    await runBuild({
+      projectName: 'myproject',
+      projectsRoot,
+      outDir,
+      frontendDist,
+      baseUrl: 'https://docs.example.com',
+    })
+
+    const html = await readFile(path.join(outDir, 'docs', 'install', 'index.html'), 'utf-8')
+    expect(html).toContain('<meta name="robots" content="noindex">')
+
+    // The noindex page must NOT appear in sitemap.xml.
+    const xml = await readFile(path.join(outDir, 'sitemap.xml'), 'utf-8')
+    expect(xml).not.toContain('/docs/install/')
+    // ...but the indexed root page still does.
+    expect(xml).toContain('<loc>https://docs.example.com/</loc>')
+  })
+})
+
 describe('runBuild — base URL', () => {
   it('threads --base-url through (presence check; full canonical lands in slice #5)', async () => {
     // For slice #49 we only need to prove the option doesn't crash and the

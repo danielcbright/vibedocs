@@ -93,6 +93,118 @@ describe('composePageHtml — minimal template (slice #49)', () => {
   })
 })
 
+describe('composePageHtml — SEO meta (#50)', () => {
+  const seo = {
+    title: 'Install Guide',
+    description: 'How to install the thing.',
+    ogTitle: 'Install Guide',
+    ogDescription: 'How to install the thing.',
+    ogImage: 'https://cdn.example/og.png',
+    canonical: 'https://docs.example.com/docs/install/',
+    twitterCard: 'summary_large_image' as const,
+    twitterSite: '@vibedocs',
+    noindex: false,
+  }
+
+  it('emits a description meta from seo.description', () => {
+    const out = composePageHtml(page(), {
+      bundleEntry: '/assets/index.js',
+      title: 'Install Guide',
+      seo,
+    })
+    expect(out).toContain('<meta name="description" content="How to install the thing.">')
+  })
+
+  it('emits og:title, og:description, og:image, og:url', () => {
+    const out = composePageHtml(page(), {
+      bundleEntry: '/assets/index.js',
+      title: 'Install Guide',
+      seo,
+    })
+    expect(out).toContain('<meta property="og:title" content="Install Guide">')
+    expect(out).toContain('<meta property="og:description" content="How to install the thing.">')
+    expect(out).toContain('<meta property="og:image" content="https://cdn.example/og.png">')
+    expect(out).toContain('<meta property="og:url" content="https://docs.example.com/docs/install/">')
+  })
+
+  it('emits a canonical link', () => {
+    const out = composePageHtml(page(), {
+      bundleEntry: '/assets/index.js',
+      title: 'Install Guide',
+      seo,
+    })
+    expect(out).toContain('<link rel="canonical" href="https://docs.example.com/docs/install/">')
+  })
+
+  it('emits twitter:card and twitter:site', () => {
+    const out = composePageHtml(page(), {
+      bundleEntry: '/assets/index.js',
+      title: 'Install Guide',
+      seo,
+    })
+    expect(out).toContain('<meta name="twitter:card" content="summary_large_image">')
+    expect(out).toContain('<meta name="twitter:site" content="@vibedocs">')
+  })
+
+  it('emits a robots noindex meta only when seo.noindex is true', () => {
+    const indexed = composePageHtml(page(), {
+      bundleEntry: '/assets/index.js',
+      title: 'T',
+      seo,
+    })
+    expect(indexed).not.toContain('name="robots"')
+
+    const hidden = composePageHtml(page(), {
+      bundleEntry: '/assets/index.js',
+      title: 'T',
+      seo: { ...seo, noindex: true },
+    })
+    expect(hidden).toContain('<meta name="robots" content="noindex">')
+  })
+
+  it('omits optional tags when their seo fields are absent', () => {
+    const out = composePageHtml(page(), {
+      bundleEntry: '/assets/index.js',
+      title: 'T',
+      seo: {
+        title: 'T',
+        ogTitle: 'T',
+        canonical: 'https://docs.example.com/',
+        twitterCard: 'summary' as const,
+        noindex: false,
+      },
+    })
+    expect(out).not.toContain('name="description"')
+    expect(out).not.toContain('property="og:image"')
+    expect(out).not.toContain('property="og:description"')
+    expect(out).not.toContain('name="twitter:site"')
+    // og:title, og:url, canonical, twitter:card are always present.
+    expect(out).toContain('property="og:title"')
+    expect(out).toContain('property="og:url"')
+    expect(out).toContain('rel="canonical"')
+    expect(out).toContain('name="twitter:card"')
+  })
+
+  it('escapes attacker-controlled seo values in attribute context', () => {
+    const out = composePageHtml(page(), {
+      bundleEntry: '/assets/index.js',
+      title: 'T',
+      seo: {
+        ...seo,
+        description: 'Evil "><script>alert(1)</script>',
+      },
+    })
+    expect(out).not.toContain('<script>alert(1)</script>')
+    expect(out).toContain('&quot;&gt;&lt;script&gt;')
+  })
+
+  it('emits no SEO meta block when no seo option is supplied (back-compat)', () => {
+    const out = composePageHtml(page(), { bundleEntry: '/assets/index.js', title: 'T' })
+    expect(out).not.toContain('property="og:title"')
+    expect(out).not.toContain('rel="canonical"')
+  })
+})
+
 describe('composePageHtml — hydration policy (#76)', () => {
   it('omits the <script type="module"> tag when hydration === "minimal"', () => {
     const out = composePageHtml(page(), {
