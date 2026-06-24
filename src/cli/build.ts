@@ -16,8 +16,16 @@ import { stat, mkdir, writeFile, readFile, readdir, cp } from 'fs/promises'
 import { renderProject, type HtmlPage } from '../render.js'
 import { loadSiteConfig, type SiteConfig } from '../site-config.js'
 import type { HydrationPolicy } from '../shared/site-config-types.js'
+import { createHash } from 'crypto'
 import { resolveHydration } from './args.js'
 import { composePageHtml, type NavLink } from './template.js'
+import {
+  buildManifest,
+  resolveThemeColor,
+  staticServiceWorkerSource,
+  swRegisterScriptSource,
+  PWA_ICON_FILES,
+} from './pwa.js'
 
 export interface BuildOptions {
   /** Project name as supplied on the CLI (`--project <name>`). */
@@ -198,6 +206,13 @@ export async function runBuild(opts: BuildOptions): Promise<void> {
     label: titleFromPage(p, p.path),
   }))
 
+  // PWA install/offline metadata — derived from siteConfig where sensible,
+  // injected into every page's <head> in BOTH hydration modes (#143). The
+  // manifest's display title doubles as the iOS home-screen title.
+  const manifest = buildManifest(siteConfig, opts.projectName)
+  const themeColor = resolveThemeColor(siteConfig)
+  const pwa = { themeColor, appTitle: manifest.short_name }
+
   // Emit each page as <outDir>/<clean-url>/index.html.
   for (const page of result.pages) {
     const outPath = outputPathForUrl(opts.outDir, page.url)
@@ -208,10 +223,40 @@ export async function runBuild(opts: BuildOptions): Promise<void> {
       stylesheet,
       navLinks,
       hydration,
+      pwa,
       ...(siteConfig?.nav ? { siteConfigNav: siteConfig.nav } : {}),
     })
     await writeFile(outPath, html, 'utf-8')
   }
+
+  // PWA assets: manifest + icon set + service worker. Emitted in both hydration
+  // modes — in minimal mode the SW is the only JS the page ships, so it must be
+  // self-contained. Icons come from the built frontend bundle (Vite mirrors
+  // frontend/public/* into frontend/dist/) so we don't duplicate the #142 set.
+  await writeFile(
+    path.join(opts.outDir, 'manifest.webmanifest'),
+    JSON.stringify(manifest, null, 2),
+    'utf-8',
+  )
+
+  const copiedIcons: string[] = []
+  for (const icon of PWA_ICON_FILES) {
+    const src = path.join(opts.frontendDist, icon)
+    if (await fileExists(src)) {
+      await copyFileSafe(src, path.join(opts.outDir, icon))
+      copiedIcons.push(icon)
+    }
+  }
+
+  // SW cache version: hash of the asset list + this build's own SW/register
+  // source, so a rebuild that changes any shipped byte rotates the cache name
+  // and the activate handler purges the stale cache.
+  const swVersion = createHash('sha256')
+    .update([bundleEntry, stylesheet ?? '', ...copiedIcons].sort().join('|'))
+    .digest('hex')
+    .slice(0, 12)
+  await writeFile(path.join(opts.outDir, 'sw.js'), staticServiceWorkerSource(swVersion), 'utf-8')
+  await writeFile(path.join(opts.outDir, 'sw-register.js'), swRegisterScriptSource(), 'utf-8')
 
   // Emit per-missing-ref warnings to stderr.
   for (const ref of result.missingRefs) {

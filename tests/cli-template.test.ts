@@ -160,6 +160,43 @@ describe('composePageHtml — hydration policy (#76)', () => {
     expect(out).not.toContain('data-vd-fallback-nav')
   })
 
+  it('injects the PWA head tags in FULL mode (manifest, theme-color, iOS meta)', () => {
+    const out = composePageHtml(page(), {
+      bundleEntry: '/assets/index.js',
+      title: 'T',
+      hydration: 'full',
+      pwa: { themeColor: '#0ea5e9', appTitle: 'My Docs' },
+    })
+    expect(out).toContain('<link rel="manifest" href="/manifest.webmanifest"')
+    expect(out).toContain('name="theme-color"')
+    expect(out).toContain('#0ea5e9')
+    expect(out).toContain('apple-mobile-web-app-capable')
+    // SW registration script present (and NOT type=module so minimal-mode
+    // contract is untouched).
+    expect(out).toContain('src="/sw-register.js"')
+  })
+
+  it('injects the PWA head tags in MINIMAL mode too (SW is the only JS)', () => {
+    const out = composePageHtml(page(), {
+      bundleEntry: '/assets/index.js',
+      title: 'T',
+      hydration: 'minimal',
+      pwa: { themeColor: '#0ea5e9', appTitle: 'My Docs' },
+    })
+    expect(out).toContain('<link rel="manifest" href="/manifest.webmanifest"')
+    expect(out).toContain('name="theme-color"')
+    // SW registration script must ship even with no SPA bundle.
+    expect(out).toContain('src="/sw-register.js"')
+    // ...but it must NOT be a module script (minimal-mode contract).
+    expect(out).not.toContain('<script type="module"')
+  })
+
+  it('omits PWA tags entirely when no pwa option is supplied (back-compat)', () => {
+    const out = composePageHtml(page(), { bundleEntry: '/assets/index.js', title: 'T' })
+    expect(out).not.toContain('rel="manifest"')
+    expect(out).not.toContain('/sw-register.js')
+  })
+
   it('falls back to flat-link nav when hydration=minimal AND siteConfigNav is absent', () => {
     const out = composePageHtml(page(), {
       bundleEntry: '/assets/index.js',

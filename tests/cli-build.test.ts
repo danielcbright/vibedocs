@@ -41,6 +41,20 @@ beforeEach(async () => {
   )
   await writeFile(path.join(frontendDist, 'assets', 'index-FAKEHASH.js'), 'console.log("hi")')
   await writeFile(path.join(frontendDist, 'assets', 'index-FAKEHASH.css'), 'body{margin:0}')
+
+  // PWA icon/favicon set — Vite mirrors frontend/public/* into frontend/dist/.
+  for (const icon of [
+    'icon-192.png',
+    'icon-512.png',
+    'icon-maskable-512.png',
+    'apple-touch-icon.png',
+    'favicon.svg',
+    'favicon.ico',
+    'favicon-dark.png',
+    'favicon-light.png',
+  ]) {
+    await writeFile(path.join(frontendDist, icon), `FAKE-${icon}`)
+  }
 })
 
 afterEach(async () => {
@@ -408,6 +422,77 @@ describe('runBuild — hydration policy (#76)', () => {
     const combined = stdoutLines.join('')
     expect(combined).toMatch(/Hydration policy: full/)
     expect(combined).toMatch(/SPA bundle copied/)
+  })
+})
+
+describe('runBuild — PWA emission (#143)', () => {
+  for (const hydration of ['full', 'minimal'] as const) {
+    describe(`hydration=${hydration}`, () => {
+      it('writes manifest.webmanifest, sw.js, sw-register.js and copies the icon set', async () => {
+        await runBuild({ projectName: 'myproject', projectsRoot, outDir, frontendDist, hydration })
+
+        expect(await pathExists(path.join(outDir, 'manifest.webmanifest'))).toBe(true)
+        expect(await pathExists(path.join(outDir, 'sw.js'))).toBe(true)
+        expect(await pathExists(path.join(outDir, 'sw-register.js'))).toBe(true)
+        expect(await pathExists(path.join(outDir, 'icon-192.png'))).toBe(true)
+        expect(await pathExists(path.join(outDir, 'icon-512.png'))).toBe(true)
+        expect(await pathExists(path.join(outDir, 'icon-maskable-512.png'))).toBe(true)
+        expect(await pathExists(path.join(outDir, 'apple-touch-icon.png'))).toBe(true)
+        expect(await pathExists(path.join(outDir, 'favicon.svg'))).toBe(true)
+      })
+
+      it('emitted pages link the manifest + register the SW', async () => {
+        await runBuild({ projectName: 'myproject', projectsRoot, outDir, frontendDist, hydration })
+
+        const html = await readFile(path.join(outDir, 'index.html'), 'utf-8')
+        expect(html).toContain('rel="manifest"')
+        expect(html).toContain('href="/manifest.webmanifest"')
+        expect(html).toContain('name="theme-color"')
+        expect(html).toContain('src="/sw-register.js"')
+      })
+
+      it('manifest is valid JSON referencing the icons', async () => {
+        await runBuild({ projectName: 'myproject', projectsRoot, outDir, frontendDist, hydration })
+
+        const raw = await readFile(path.join(outDir, 'manifest.webmanifest'), 'utf-8')
+        const manifest = JSON.parse(raw) as { icons: { src: string }[]; display: string }
+        expect(manifest.display).toBe('standalone')
+        expect(manifest.icons.map((i) => i.src)).toContain('/icon-192.png')
+      })
+
+      it('sw.js is self-contained and references the precached shell', async () => {
+        await runBuild({ projectName: 'myproject', projectsRoot, outDir, frontendDist, hydration })
+
+        const sw = await readFile(path.join(outDir, 'sw.js'), 'utf-8')
+        expect(sw).toContain('/manifest.webmanifest')
+        expect(sw).toContain("addEventListener('fetch'")
+      })
+    })
+  }
+
+  it('derives manifest short_name + theme_color from siteConfig', async () => {
+    const configSource = `
+      export default {
+        name: 'Cirrus Docs',
+        domain: 'example.com',
+        description: 'Weather docs.',
+        theme: { tokens: { '--primary': '#0ea5e9' } },
+        llms: { summary: 's', keyDocs: [] },
+      }
+    `
+    await writeFile(path.join(projectPath, '.vibedocs.config.ts'), configSource, 'utf8')
+
+    await runBuild({ projectName: 'myproject', projectsRoot, outDir, frontendDist })
+
+    const manifest = JSON.parse(
+      await readFile(path.join(outDir, 'manifest.webmanifest'), 'utf-8'),
+    ) as { name: string; short_name: string; theme_color: string }
+    expect(manifest.name).toBe('Cirrus Docs')
+    expect(manifest.short_name).toBe('Cirrus Docs')
+    expect(manifest.theme_color).toBe('#0ea5e9')
+
+    const html = await readFile(path.join(outDir, 'index.html'), 'utf-8')
+    expect(html).toContain('content="#0ea5e9"')
   })
 })
 

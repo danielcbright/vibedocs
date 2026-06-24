@@ -12,6 +12,7 @@
 
 import type { HtmlPage } from '../render.js'
 import type { HydrationPolicy, SiteConfig } from '../shared/site-config-types.js'
+import { renderPwaHeadTags, type PwaHeadOptions } from './pwa.js'
 
 export interface NavLink {
   url: string
@@ -38,6 +39,13 @@ export interface ComposePageOptions {
    * semantic nested-list nav (`<nav aria-label="Main navigation">`).
    */
   siteConfigNav?: SiteConfig['nav']
+  /**
+   * PWA install/offline metadata. When supplied, `composePageHtml` injects the
+   * manifest link + theme-color + iOS meta into `<head>` and a tiny
+   * `/sw-register.js` script — in BOTH hydration modes (the SW is the only JS
+   * in `minimal` mode). Omit it to emit a non-PWA page (back-compat).
+   */
+  pwa?: PwaHeadOptions
 }
 
 const HTML_ESCAPES: Record<string, string> = {
@@ -86,6 +94,14 @@ export function composePageHtml(page: HtmlPage, opts: ComposePageOptions): strin
       ? `<script type="module" src="${bundleEntry}"></script>`
       : ''
 
+  // PWA: manifest + theme-color + iOS meta in <head>; SW registration script
+  // before </body>. Both fire in full AND minimal mode — the static service
+  // worker is the only JS minimal pages ship, so the register script is a
+  // plain (non-module) <script> to keep the minimal-mode "no module script"
+  // contract intact.
+  const pwaHeadTags = opts.pwa ? '\n    ' + renderPwaHeadTags(opts.pwa) : ''
+  const swRegisterTag = opts.pwa ? '<script src="/sw-register.js"></script>' : ''
+
   // Note: page.html is rehype-sanitize'd output from render.ts — safe to
   // embed verbatim. Nothing else here interpolates user-controlled HTML.
   return `<!doctype html>
@@ -95,7 +111,7 @@ export function composePageHtml(page: HtmlPage, opts: ComposePageOptions): strin
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- SEO meta placeholders (slice #50): canonical, og:*, twitter:*, description -->
     <title>${title}</title>
-    ${stylesheetTag}
+    ${stylesheetTag}${pwaHeadTags}
   </head>
   <body>
     <div id="root">
@@ -103,7 +119,7 @@ ${navHtml}<main data-vd-page-path="${escapeAttr(page.path)}">
 ${page.html}
 </main>
     </div>
-    ${scriptTag}
+    ${scriptTag}${swRegisterTag}
   </body>
 </html>
 `
