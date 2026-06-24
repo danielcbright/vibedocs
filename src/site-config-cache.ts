@@ -13,12 +13,11 @@
 // stays alive when a single config is broken — matches the "default behaviour
 // unchanged" guarantee in the issue spec.
 //
-// Note on the ESM module-leak: `loadSiteConfig` writes a temp `.mjs` and
-// dynamic-imports it; Node's ESM loader retains every imported module for the
-// process lifetime. With this cache wired to chokidar, each config edit leaks
-// one module entry. Small for normal use; tracked separately in issue #62.
-// TODO(#62): replace the temp-file dynamic-import in loadSiteConfig with an
-// approach that doesn't leak ESM module entries on each invalidation.
+// No ESM module-leak here: `loadSiteConfig` evaluates the esbuild-bundled
+// config as CommonJS in a fresh `vm` context (see `evaluateBundledConfig` in
+// site-config.ts) rather than dynamic-importing a temp file. That leaves no
+// permanent entry in Node's ESM loader cache, so re-loading on every chokidar
+// invalidation is safe to do indefinitely (fixed in issue #62).
 
 import path from 'path'
 import type { SiteConfig } from './site-config.js'
