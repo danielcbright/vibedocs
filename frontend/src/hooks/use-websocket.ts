@@ -6,6 +6,29 @@ interface UseWebSocketOptions {
   onRefreshTree?: () => void
 }
 
+type WsCallbacks = UseWebSocketOptions
+
+/**
+ * Pure dispatch for a parsed WebSocket message. Routes each variant to its
+ * callback. Extracted from the hook so the message-type switch can be tested
+ * without standing up a socket. Exhaustive over `WsMessage` — adding a variant
+ * forces a compile error here until it is handled.
+ */
+export function handleWsMessage(msg: WsMessage, callbacks: WsCallbacks): void {
+  switch (msg.type) {
+    case "reload":
+      callbacks.onReload?.(msg.path)
+      break
+    case "refresh-tree":
+      callbacks.onRefreshTree?.()
+      break
+    default: {
+      const _exhaustive: never = msg
+      void _exhaustive
+    }
+  }
+}
+
 export function useWebSocket({ onReload, onRefreshTree }: UseWebSocketOptions) {
   const [connected, setConnected] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
@@ -30,20 +53,12 @@ export function useWebSocket({ onReload, onRefreshTree }: UseWebSocketOptions) {
       const msg: WsMessage | null = parseWsMessage(event.data)
       if (!msg) return
 
-      switch (msg.type) {
-        case "reload":
-          onReloadRef.current?.(msg.path)
-          break
-        case "refresh-tree":
-          onRefreshTreeRef.current?.()
-          break
-        default: {
-          // Exhaustiveness check: adding a new variant to WsMessage forces
-          // a compile error here until it is handled above.
-          const _exhaustive: never = msg
-          void _exhaustive
-        }
-      }
+      // Read callbacks off the refs so a callback swap doesn't recreate the
+      // socket — the refs stay current via the effects above.
+      handleWsMessage(msg, {
+        onReload: onReloadRef.current,
+        onRefreshTree: onRefreshTreeRef.current,
+      })
     }
 
     ws.onclose = () => {
