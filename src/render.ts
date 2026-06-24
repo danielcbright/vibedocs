@@ -1,6 +1,7 @@
 import path from 'path'
 import { readFile } from 'fs/promises'
 import matter from 'gray-matter'
+import { load as loadYaml } from 'js-yaml'
 import {
   buildTreePublic,
   type FileNode,
@@ -130,12 +131,23 @@ async function renderMarkdownForPage(
  * Returns a plain `Record` so the frontmatter shape stays open; downstream
  * SEO resolution reads known keys (`title`, `description`, `noindex`, …) and
  * ignores the rest.
+ *
+ * gray-matter handles the delimiter/BOM/CRLF edge cases; we override its YAML
+ * engine with js-yaml@4's `load` so the parse runs on the maintained,
+ * non-vulnerable major. gray-matter's bundled default engine still pins
+ * js-yaml@3 (GHSA-h67p-54hq-rp68); the package.json `overrides` block dedupes
+ * that transitive copy up to js-yaml@4, and supplying this engine ensures
+ * gray-matter never calls v4's removed `safeLoad` stub. See issue #150.
  */
+const yamlEngine = {
+  parse: (input: string) => loadYaml(input) as object,
+}
+
 function parseFrontmatter(source: string): {
   frontmatter: Record<string, unknown>
   body: string
 } {
-  const { data, content } = matter(source)
+  const { data, content } = matter(source, { engines: { yaml: yamlEngine } })
   return { frontmatter: data as Record<string, unknown>, body: content }
 }
 

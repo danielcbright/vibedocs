@@ -52,6 +52,11 @@
     "test:watch": "vitest",
     "test:frontend": "cd frontend && npx vitest run"
   },
+  "overrides": {
+    "gray-matter": {
+      "js-yaml": "$js-yaml"
+    }
+  },
   "dependencies": {
     "@hono/node-server": "^1",
     "@shikijs/rehype": "^1",
@@ -59,6 +64,7 @@
     "esbuild": "^0.27.0",
     "gray-matter": "^4.0.3",
     "hono": "^4",
+    "js-yaml": "^4.2.0",
     "rehype-autolink-headings": "^7",
     "rehype-sanitize": "^6.0.0",
     "rehype-slug": "^6",
@@ -72,6 +78,7 @@
     "ws": "^8"
   },
   "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^22",
     "@types/ws": "^8",
     "concurrently": "^9.2.1",
