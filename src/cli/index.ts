@@ -18,6 +18,7 @@ import { fileURLToPath } from 'url'
 import { realpathSync } from 'fs'
 import { parseBuildArgs } from './args.js'
 import { runBuild } from './build.js'
+import { indexWithPagefind } from './pagefind.js'
 
 const USAGE = `Usage:
   vibedocs build --project <name> --out <dir> [--base-url <url>] [--frontend-dist <path>] [--hydration full|minimal]
@@ -66,6 +67,11 @@ export async function main(argv: string[]): Promise<number> {
       projectsRoot,
       outDir,
       frontendDist,
+      // Wire the real Pagefind indexer for the production build path. runBuild's
+      // unit tests omit this so they never spawn the binary; here we always
+      // supply it and let `siteConfig.search` decide whether it actually runs.
+      pagefindIndexer: indexWithPagefind,
+      verbose: parsed.verbose,
       ...(parsed.baseUrl !== undefined ? { baseUrl: parsed.baseUrl } : {}),
       ...(parsed.hydration !== undefined ? { hydration: parsed.hydration } : {}),
     })

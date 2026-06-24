@@ -277,5 +277,12 @@ function validateSiteConfig(raw: unknown, filename: string): SiteConfig {
     result.hydration = obj.hydration
   }
 
+  if (obj.search !== undefined) {
+    if (typeof obj.search !== 'boolean') {
+      fail(filename, `invalid field: search (expected a boolean, got ${describe(obj.search)})`)
+    }
+    result.search = obj.search
+  }
+
   return result
 }

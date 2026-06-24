@@ -13,6 +13,7 @@
 import type { HtmlPage } from '../render.js'
 import type { HydrationPolicy, SiteConfig } from '../shared/site-config-types.js'
 import { renderPwaHeadTags, type PwaHeadOptions } from './pwa.js'
+import { renderPagefindHeadTags, renderPagefindUiTags } from './pagefind.js'
 import type { PageSeo } from './seo.js'
 import { renderThemeStyleTag } from './theme.js'
 
@@ -69,6 +70,15 @@ export interface ComposePageOptions {
    * so author CSS can override vibedocs defaults. Omit → no link.
    */
   themeCssHref?: string
+  /**
+   * Static full-text search (#56). When `true`, `composePageHtml` injects the
+   * Pagefind UI stylesheet into `<head>` and the search widget + bootstrap
+   * before `</body>` — in BOTH hydration modes (the widget loads the
+   * self-hosted `/pagefind/` bundle, not the SPA). `runBuild` indexes the
+   * output with Pagefind so those paths resolve. Omit / `false` → no search
+   * markup (back-compat default).
+   */
+  search?: boolean
 }
 
 const HTML_ESCAPES: Record<string, string> = {
@@ -146,6 +156,14 @@ export function composePageHtml(page: HtmlPage, opts: ComposePageOptions): strin
   const pwaHeadTags = opts.pwa ? '\n    ' + renderPwaHeadTags(opts.pwa) : ''
   const swRegisterTag = opts.pwa ? '<script src="/sw-register.js"></script>' : ''
 
+  // Static full-text search (#56): the Pagefind UI stylesheet goes in <head>,
+  // the widget + bootstrap before </body>. Both fire in full AND minimal mode —
+  // the widget loads the self-hosted /pagefind/ bundle Pagefind writes during
+  // the build, so search never depends on the SPA. The bootstrap is a plain
+  // (non-module) <script>, keeping minimal mode's "no module script" contract.
+  const pagefindHeadTags = opts.search ? '\n    ' + renderPagefindHeadTags() : ''
+  const pagefindUiTags = opts.search ? '\n    ' + renderPagefindUiTags() : ''
+
   // Per-page SEO meta (#50): description, Open Graph, Twitter, canonical, and
   // the optional robots noindex. Emitted only when an `seo` struct is supplied.
   const seoTags = opts.seo ? '\n    ' + renderSeoTags(opts.seo) : ''
@@ -158,14 +176,14 @@ export function composePageHtml(page: HtmlPage, opts: ComposePageOptions): strin
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>${title}</title>${seoTags}
-    ${headStyles}${pwaHeadTags}
+    ${headStyles}${pwaHeadTags}${pagefindHeadTags}
   </head>
   <body>
     <div id="root">
 ${navHtml}<main data-vd-page-path="${escapeAttr(page.path)}">
 ${page.html}
 </main>
-    </div>
+    </div>${pagefindUiTags}
     ${scriptTag}${swRegisterTag}
   </body>
 </html>

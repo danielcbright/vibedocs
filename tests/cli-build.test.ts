@@ -921,3 +921,83 @@ describe('resolveProjectPath', () => {
     ).rejects.toThrow(/nope/)
   })
 })
+
+describe('runBuild — static search / Pagefind (#56)', () => {
+  it('injects the Pagefind search UI into every page and runs the indexer by default', async () => {
+    const indexed: string[] = []
+    await runBuild({
+      projectName: 'myproject',
+      projectsRoot,
+      outDir,
+      frontendDist,
+      pagefindIndexer: async (dir) => {
+        indexed.push(dir)
+        return { pageCount: 2 }
+      },
+    })
+
+    const rootHtml = await readFile(path.join(outDir, 'index.html'), 'utf-8')
+    const installHtml = await readFile(
+      path.join(outDir, 'docs', 'install', 'index.html'),
+      'utf-8',
+    )
+    expect(rootHtml).toContain('id="vd-search"')
+    expect(rootHtml).toContain('/pagefind/pagefind-ui.js')
+    expect(installHtml).toContain('id="vd-search"')
+
+    // The indexer ran against the output directory exactly once.
+    expect(indexed).toEqual([outDir])
+  })
+
+  it('injects search in minimal hydration mode too', async () => {
+    let indexerRan = false
+    await runBuild({
+      projectName: 'myproject',
+      projectsRoot,
+      outDir,
+      frontendDist,
+      hydration: 'minimal',
+      pagefindIndexer: async () => {
+        indexerRan = true
+        return { pageCount: 2 }
+      },
+    })
+
+    const html = await readFile(path.join(outDir, 'index.html'), 'utf-8')
+    expect(html).toContain('/pagefind/pagefind-ui.js')
+    expect(html).not.toContain('type="module"')
+    expect(indexerRan).toBe(true)
+  })
+
+  it('skips Pagefind entirely when siteConfig.search is false', async () => {
+    await writeFile(
+      path.join(projectPath, '.vibedocs.config.ts'),
+      `export default {
+        name: 'My Docs',
+        domain: 'docs.example.com',
+        description: 'd',
+        theme: { tokens: {} },
+        llms: { summary: 's', keyDocs: [] },
+        search: false,
+      }`,
+      'utf8',
+    )
+
+    let indexerRan = false
+    await runBuild({
+      projectName: 'myproject',
+      projectsRoot,
+      outDir,
+      frontendDist,
+      pagefindIndexer: async () => {
+        indexerRan = true
+        return { pageCount: 0 }
+      },
+    })
+
+    const html = await readFile(path.join(outDir, 'index.html'), 'utf-8')
+    expect(html).not.toContain('pagefind')
+    expect(html).not.toContain('id="vd-search"')
+    expect(indexerRan).toBe(false)
+  })
+})

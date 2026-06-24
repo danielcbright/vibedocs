@@ -83,6 +83,7 @@
     "@types/ws": "^8",
     "concurrently": "^9.2.1",
     "husky": "^9.1.7",
+    "pagefind": "^1.5.2",
     "typescript": "^5",
     "vitest": "^4.0.18"
   }

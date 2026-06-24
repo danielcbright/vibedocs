@@ -46,4 +46,10 @@ export interface SiteConfig {
   }
   /** Static-build hydration policy; defaults to `'full'` when absent. */
   hydration?: HydrationPolicy
+  /**
+   * Static full-text search (Pagefind, #56). Defaults to `true` — a built
+   * docs site indexes its HTML and ships the search widget in both hydration
+   * modes. Set `false` to skip Pagefind indexing and omit the search UI.
+   */
+  search?: boolean
 }
