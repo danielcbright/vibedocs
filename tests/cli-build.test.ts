@@ -496,6 +496,97 @@ describe('runBuild — PWA emission (#143)', () => {
   })
 })
 
+describe('runBuild — sitemap + robots emission (#54)', () => {
+  async function writeConfig(domain: string) {
+    await writeFile(
+      path.join(projectPath, '.vibedocs.config.ts'),
+      `export default {
+        name: 'My Project',
+        domain: ${JSON.stringify(domain)},
+        description: 'Docs.',
+        theme: { tokens: {} },
+        llms: { summary: 's', keyDocs: [] },
+      }`,
+      'utf8',
+    )
+  }
+
+  it('emits sitemap.xml with absolute URLs derived from siteConfig.domain', async () => {
+    await writeConfig('docs.example.com')
+    await runBuild({ projectName: 'myproject', projectsRoot, outDir, frontendDist })
+
+    const xml = await readFile(path.join(outDir, 'sitemap.xml'), 'utf-8')
+    expect(xml).toContain('<?xml version="1.0" encoding="UTF-8"?>')
+    expect(xml).toContain('xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"')
+    // README.md → site root; docs/install.md → /docs/install/
+    expect(xml).toContain('<loc>https://docs.example.com/</loc>')
+    expect(xml).toContain('<loc>https://docs.example.com/docs/install/</loc>')
+  })
+
+  it('emits a permissive robots.txt referencing the sitemap', async () => {
+    await writeConfig('docs.example.com')
+    await runBuild({ projectName: 'myproject', projectsRoot, outDir, frontendDist })
+
+    const txt = await readFile(path.join(outDir, 'robots.txt'), 'utf-8')
+    expect(txt).toContain('User-agent: *')
+    expect(txt).toContain('Allow: /')
+    expect(txt).toContain('Sitemap: https://docs.example.com/sitemap.xml')
+  })
+
+  it('prefers an explicit --base-url over siteConfig.domain', async () => {
+    await writeConfig('docs.example.com')
+    await runBuild({
+      projectName: 'myproject',
+      projectsRoot,
+      outDir,
+      frontendDist,
+      baseUrl: 'https://canonical.example.org',
+    })
+
+    const xml = await readFile(path.join(outDir, 'sitemap.xml'), 'utf-8')
+    expect(xml).toContain('<loc>https://canonical.example.org/</loc>')
+    const txt = await readFile(path.join(outDir, 'robots.txt'), 'utf-8')
+    expect(txt).toContain('Sitemap: https://canonical.example.org/sitemap.xml')
+  })
+
+  // noindex exclusion: runBuild threads each page's `frontmatter` straight
+  // into formatSitemap, which drops `noindex: true` pages. The exclusion
+  // logic itself is pinned exhaustively in tests/cli-sitemap.test.ts. We
+  // can't drive it end-to-end here until frontmatter parsing lands (slice
+  // #50) — renderProject currently hardcodes `frontmatter: {}` — so this
+  // test asserts the wiring contract: a built page that DOES carry the flag
+  // is excluded. We synthesize that by stubbing renderProject's output shape
+  // is overkill; instead we trust the unit test + verify the seam exists by
+  // confirming the sitemap is built from result.pages (every emitted page
+  // appears, none extra).
+  it('lists exactly the rendered markdown pages (sitemap built from result.pages)', async () => {
+    await writeConfig('example.com')
+    await runBuild({ projectName: 'myproject', projectsRoot, outDir, frontendDist })
+
+    const xml = await readFile(path.join(outDir, 'sitemap.xml'), 'utf-8')
+    const locs = [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1])
+    expect(locs.sort()).toEqual([
+      'https://example.com/',
+      'https://example.com/docs/install/',
+    ])
+  })
+
+  it('still emits sitemap + robots without a siteConfig, using --base-url', async () => {
+    await runBuild({
+      projectName: 'myproject',
+      projectsRoot,
+      outDir,
+      frontendDist,
+      baseUrl: 'https://nodomain.example',
+    })
+
+    expect(await pathExists(path.join(outDir, 'sitemap.xml'))).toBe(true)
+    expect(await pathExists(path.join(outDir, 'robots.txt'))).toBe(true)
+    const xml = await readFile(path.join(outDir, 'sitemap.xml'), 'utf-8')
+    expect(xml).toContain('<loc>https://nodomain.example/</loc>')
+  })
+})
+
 describe('resolveProjectPath', () => {
   it('returns <root>/<name> when that directory exists', async () => {
     const resolved = await resolveProjectPath('myproject', projectsRoot, projectsRoot)
