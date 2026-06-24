@@ -1,31 +1,23 @@
-import { useState, useMemo, useRef, useCallback, useEffect } from "react"
+import { useState, useRef, useCallback, useEffect } from "react"
 import {
   SidebarContent,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarHeader,
-  SidebarMenu,
-  SidebarMenuItem,
-  SidebarMenuSub,
-  SidebarMenuSubItem,
-  SidebarMenuSubButton,
 } from "@/components/ui/sidebar"
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible"
 import { Input } from "@/components/ui/input"
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { ChevronRight, File, FileText, Folder, Image, Search, Upload } from "lucide-react"
+import { Search, Upload } from "lucide-react"
 import { VibedocsLogo } from "@/components/vibedocs-logo"
 import { ThemeToggle } from "@/components/theme-toggle"
-import type { ProjectInfo, FileNode } from "@/hooks/use-projects"
+import { type UploadStatus } from "@/components/file-tree-item"
+import { SiteNavSections } from "@/components/site-nav-sections"
+import { ProjectTreeGroup } from "@/components/project-tree-group"
+import { matchesFilter } from "@/lib/file-tree-filter"
+import { uploadFiles } from "@/lib/upload-files"
+import type { ProjectInfo } from "@/hooks/use-projects"
 
 type ViewMode = "docs" | "all"
 
@@ -45,275 +37,6 @@ interface AppSidebarProps {
   uploadEnabled?: boolean
 }
 
-const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"])
-
-function isImageFile(name: string): boolean {
-  const ext = name.slice(name.lastIndexOf(".")).toLowerCase()
-  return IMAGE_EXTENSIONS.has(ext)
-}
-
-async function uploadFiles(project: string, folderPath: string, files: FileList) {
-  const formData = new FormData()
-  for (const file of Array.from(files)) {
-    formData.append('files', file)
-  }
-  const encodedPath = folderPath.split('/').map(encodeURIComponent).join('/')
-  const res = await fetch(`/api/upload/${encodeURIComponent(project)}/${encodedPath}`, {
-    method: 'POST',
-    body: formData,
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: 'Upload failed' }))
-    throw new Error(err.error || 'Upload failed')
-  }
-  return res.json()
-}
-
-function matchesFilter(node: FileNode, filter: string): boolean {
-  const lower = filter.toLowerCase()
-  if (node.name.toLowerCase().includes(lower)) return true
-  if (node.path.toLowerCase().includes(lower)) return true
-  if (node.children) {
-    return node.children.some((c) => matchesFilter(c, lower))
-  }
-  return false
-}
-
-function FileTreeItem({
-  node,
-  project,
-  activePath,
-  filter,
-  onNavigate,
-  onUploadStatus,
-  depth,
-  uploadEnabled,
-}: {
-  node: FileNode
-  project: string
-  activePath: string | null
-  filter: string
-  onNavigate: (project: string, path: string) => void
-  onUploadStatus: (status: { message: string; type: "success" | "error" }) => void
-  depth: number
-  uploadEnabled: boolean
-}) {
-  const [open, setOpen] = useState(false)
-  const [userClosed, setUserClosed] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-
-  // Auto-expand if active file is inside this folder, or if filtering
-  const shouldAutoExpand = useMemo(() => {
-    if (filter && matchesFilter(node, filter)) return true
-    if (activePath && node.type === "folder" && activePath.startsWith(node.path + "/")) return true
-    return false
-  }, [filter, activePath, node])
-
-  // Reset userClosed when the auto-expand reason changes (e.g. navigated to a different file)
-  const prevAutoExpand = useRef(shouldAutoExpand)
-  useEffect(() => {
-    if (shouldAutoExpand && !prevAutoExpand.current) {
-      setUserClosed(false)
-    }
-    prevAutoExpand.current = shouldAutoExpand
-  }, [shouldAutoExpand])
-
-  const isOpen = open || (shouldAutoExpand && !userClosed)
-
-  const handleOpenChange = useCallback((value: boolean) => {
-    setOpen(value)
-    if (!value && shouldAutoExpand) {
-      setUserClosed(true)
-    }
-  }, [shouldAutoExpand])
-
-  const handleUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files
-    if (!files || files.length === 0) return
-    try {
-      const result = await uploadFiles(project, node.path, files)
-      const count = result.data?.length ?? files.length
-      onUploadStatus({ message: `Uploaded ${count} file(s) to ${node.name}`, type: "success" })
-    } catch (err) {
-      onUploadStatus({ message: err instanceof Error ? err.message : "Upload failed", type: "error" })
-    }
-    e.target.value = ""
-  }, [project, node.path, node.name, onUploadStatus])
-
-  if (node.type === "folder") {
-    if (filter && !matchesFilter(node, filter)) return null
-
-    return (
-      <Collapsible open={isOpen} onOpenChange={handleOpenChange}>
-        <SidebarMenuSubItem>
-          <CollapsibleTrigger asChild>
-            <SidebarMenuSubButton className="group/folder cursor-pointer text-xs h-6 tap-row tap-active-feedback">
-              <ChevronRight
-                className={`h-3 w-3 shrink-0 transition-transform ${isOpen ? "rotate-90" : ""}`}
-              />
-              <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span className="truncate">{node.name}</span>
-                </TooltipTrigger>
-                <TooltipContent side="right" className="text-xs">
-                  {node.path}
-                </TooltipContent>
-              </Tooltip>
-              {uploadEnabled && (
-                <>
-                  <button
-                    type="button"
-                    // `.tap-visible-on-touch` overrides opacity-0 on touch so
-                    // there's no hover dependency. `.tap-target` gives it 44×44.
-                    className="ml-auto opacity-0 group-hover/folder:opacity-100 transition-opacity p-0.5 rounded hover:bg-sidebar-accent tap-target tap-visible-on-touch tap-active-feedback"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      fileInputRef.current?.click()
-                    }}
-                    aria-label={`Upload files to ${node.name}`}
-                  >
-                    <Upload className="h-3 w-3 text-muted-foreground" />
-                  </button>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    multiple
-                    className="hidden"
-                    onChange={handleUpload}
-                  />
-                </>
-              )}
-            </SidebarMenuSubButton>
-          </CollapsibleTrigger>
-          <CollapsibleContent>
-            <SidebarMenuSub>
-              {node.children?.map((child) => (
-                <FileTreeItem
-                  key={child.path}
-                  node={child}
-                  project={project}
-                  activePath={activePath}
-                  filter={filter}
-                  onNavigate={onNavigate}
-                  onUploadStatus={onUploadStatus}
-                  depth={depth + 1}
-                  uploadEnabled={uploadEnabled}
-                />
-              ))}
-            </SidebarMenuSub>
-          </CollapsibleContent>
-        </SidebarMenuSubItem>
-      </Collapsible>
-    )
-  }
-
-  // File node
-  if (filter && !matchesFilter(node, filter)) return null
-
-  const isActive = activePath === node.path
-  const isAsset = node.isAsset === true
-
-  // Determine file icon
-  let FileIcon = FileText
-  if (isAsset) {
-    FileIcon = isImageFile(node.name) ? Image : File
-  }
-
-  const handleFileClick = () => {
-    if (isAsset) {
-      const encodedPath = node.path.split('/').map(encodeURIComponent).join('/')
-      window.open(`/api/file/${encodeURIComponent(project)}/${encodedPath}`, "_blank")
-    } else {
-      onNavigate(project, node.path)
-    }
-  }
-
-  return (
-    <SidebarMenuSubItem>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <SidebarMenuSubButton
-            isActive={isActive}
-            className="cursor-pointer text-xs h-6 tap-row tap-active-feedback"
-            onClick={handleFileClick}
-          >
-            <FileIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-            <span className="truncate">{node.name}</span>
-          </SidebarMenuSubButton>
-        </TooltipTrigger>
-        <TooltipContent side="right" className="text-xs">
-          {node.path}
-        </TooltipContent>
-      </Tooltip>
-    </SidebarMenuSubItem>
-  )
-}
-
-/**
- * Curated nav renderer used when `project.siteConfig.nav` is present.
- *
- * Renders each section as a flat list of plain `<a>` links pointing at the
- * project's hash URL. Plain anchors (rather than JS click handlers) keep the
- * markup hydration-friendly for the eventual static-site build mode — the
- * static HTML is functional without React, and rehydration is a no-op swap.
- *
- * No expand/collapse, no filter input: curated nav is already short and
- * authored deliberately, so the file-tree affordances are out of scope.
- */
-function SiteNavSections({
-  project,
-  activePath,
-  onNavigate,
-}: {
-  project: ProjectInfo
-  activePath: string | null
-  onNavigate: (project: string, path: string) => void
-}) {
-  const sections = project.siteConfig?.nav?.sections ?? []
-  return (
-    <>
-      {sections.map((section, sectionIdx) => (
-        <SidebarGroup key={`${section.label}-${sectionIdx}`} className="p-1 px-2">
-          <SidebarGroupLabel
-            data-testid="site-nav-section-label"
-            className="h-7 text-xs font-medium text-muted-foreground"
-          >
-            {section.label}
-          </SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu className="gap-0">
-              {section.items.map((item) => {
-                const label = item.split('/').pop() ?? item
-                const isActive = activePath === item
-                return (
-                  <SidebarMenuItem key={item}>
-                    <a
-                      href={`#${project.name}/${item}`}
-                      data-testid="site-nav-link"
-                      data-active={isActive ? 'true' : undefined}
-                      onClick={(e) => {
-                        // Intercept so the SPA's hash-router handles navigation
-                        // through the same path the file-tree mode uses.
-                        // Plain `<a>` markup remains for the static-build mode.
-                        e.preventDefault()
-                        onNavigate(project.name, item)
-                      }}
-                      className="tap-row tap-active-feedback flex items-center gap-2 rounded-md px-2 text-xs h-7 transition-colors hover:bg-sidebar-accent data-[active=true]:bg-sidebar-accent data-[active=true]:font-medium"
-                    >
-                      <span className="truncate">{label}</span>
-                    </a>
-                  </SidebarMenuItem>
-                )
-              })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-      ))}
-    </>
-  )
-}
-
 export function AppSidebar({
   projects,
   activeProject,
@@ -325,7 +48,7 @@ export function AppSidebar({
   uploadEnabled = false,
 }: AppSidebarProps) {
   const [filter, setFilter] = useState("")
-  const [uploadStatus, setUploadStatus] = useState<{ message: string; type: "success" | "error" } | null>(null)
+  const [uploadStatus, setUploadStatus] = useState<UploadStatus | null>(null)
   const toolbarFileInputRef = useRef<HTMLInputElement>(null)
 
   // Per-project user open/close overrides. Cleared for both the previous and the
@@ -529,43 +252,18 @@ export function AppSidebar({
           const isOpen = filter ? autoExpand : override !== undefined ? override : autoExpand
 
           return (
-            <Collapsible
+            <ProjectTreeGroup
               key={project.name}
-              open={isOpen}
+              project={project}
+              isOpen={isOpen}
+              isProjectActive={isProjectActive}
+              activePath={activePath}
+              filter={filter}
+              onNavigate={onNavigate}
               onOpenChange={(open) => handleProjectOpenChange(project.name, open)}
-            >
-              <SidebarGroup className="p-1 px-2">
-                <CollapsibleTrigger asChild>
-                  <SidebarGroupLabel className="cursor-pointer hover:bg-sidebar-accent rounded-md transition-colors h-7 tap-row tap-active-feedback">
-                    <ChevronRight className="h-3 w-3 mr-1 shrink-0 transition-transform group-data-[state=open]/collapsible:rotate-90" />
-                    <span className="truncate">{project.name}</span>
-                  </SidebarGroupLabel>
-                </CollapsibleTrigger>
-                <CollapsibleContent>
-                  <SidebarGroupContent>
-                    <SidebarMenu className="gap-0">
-                      <SidebarMenuItem>
-                        <SidebarMenuSub className="gap-0 py-0">
-                          {project.tree.map((node) => (
-                            <FileTreeItem
-                              key={node.path}
-                              node={node}
-                              project={project.name}
-                              activePath={isProjectActive ? activePath : null}
-                              filter={filter}
-                              onNavigate={onNavigate}
-                              onUploadStatus={setUploadStatus}
-                              depth={0}
-                              uploadEnabled={uploadEnabled}
-                            />
-                          ))}
-                        </SidebarMenuSub>
-                      </SidebarMenuItem>
-                    </SidebarMenu>
-                  </SidebarGroupContent>
-                </CollapsibleContent>
-              </SidebarGroup>
-            </Collapsible>
+              onUploadStatus={setUploadStatus}
+              uploadEnabled={uploadEnabled}
+            />
           )
         })}
       </SidebarContent>
