@@ -26,6 +26,7 @@ import {
   swRegisterScriptSource,
   PWA_ICON_FILES,
 } from './pwa.js'
+import { formatSitemap, formatRobots, normalizeBaseUrl } from './sitemap.js'
 
 export interface BuildOptions {
   /** Project name as supplied on the CLI (`--project <name>`). */
@@ -332,10 +333,21 @@ export async function runBuild(opts: BuildOptions): Promise<void> {
     )
   }
 
-  // baseUrl is accepted but not yet emitted — slice #50/#54 wire it into
-  // canonical URLs and sitemap.xml. Touching it here keeps the option in
-  // the public surface so the CLI flag stays valid.
-  void opts.baseUrl
+  // SEO: sitemap.xml + robots.txt (#54). Base URL precedence: explicit
+  // `--base-url` (already a full URL) > `siteConfig.domain` (a bare hostname)
+  // > a localhost fallback so the build never fails purely on a missing
+  // domain. `normalizeBaseUrl` makes all three forms a clean origin.
+  const siteBaseUrl = normalizeBaseUrl(opts.baseUrl ?? siteConfig?.domain ?? 'localhost')
+  await writeFile(
+    path.join(opts.outDir, 'sitemap.xml'),
+    formatSitemap({ pages: result.pages, baseUrl: siteBaseUrl }),
+    'utf-8',
+  )
+  await writeFile(
+    path.join(opts.outDir, 'robots.txt'),
+    formatRobots({ baseUrl: siteBaseUrl }),
+    'utf-8',
+  )
 }
 
 async function copyFileSafe(src: string, dest: string): Promise<void> {
