@@ -191,3 +191,4 @@ Without this, cross-origin pages cannot establish WebSocket connections — whic
 - Backend tsconfig is at root; frontend tsconfig is at `frontend/tsconfig.json`
 - Path alias `@/` resolves to `frontend/src/` in the frontend code
 - The `files:` array in `package.json` is an enforceable public surface — changes to it require updating `tests/package-shape.test.ts` to match
+- The `prepare` lifecycle script is `scripts/prepare.mjs`. `prepare` fires on every `npm install`, including local self-installs where the ~13s Vite frontend build is pure waste. The script skips that build when `INIT_CWD === <package dir>` (npm's signal for a self-install in the source repo) and runs it otherwise (consumer git-dep installs, where `frontend/dist/` genuinely must materialize). `build:cli` (cheap `tsc`) and husky hook setup run in both paths; husky is best-effort so a consumer's prod-deps install (no husky devDep, no git repo) doesn't break.
