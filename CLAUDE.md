@@ -167,6 +167,16 @@ npm run test:watch    # Run tests in watch mode
 - **Discovery:** `buildTree()` includes all file types; non-markdown files get `isAsset: true` flag. Root-level discovery stays markdown-only.
 - **File watcher:** Watches all files (`**/*`), but only rebuilds search index for markdown changes
 
+## Publishing a site
+
+A consumer project adopts vibedocs as a static-site engine by copying three example artefacts and wiring them to AWS (S3 + CloudFront):
+
+- `examples/release.yml.template` — GitHub Actions workflow (checkout → `npm ci` → `npx vibedocs build` → `aws s3 sync` → `cloudfront create-invalidation`). All consumer-specific values are `{{REPLACE_ME}}` markers. Action versions are pinned (`actions/checkout@v4`, `actions/setup-node@v4`, `aws-actions/configure-aws-credentials@v4`).
+- `examples/.vibedocs.config.example.ts` — fully-annotated `SiteConfig` example. Every field documented with when-to-use comments; required fields (`name`, `domain`, `description`, `theme.tokens`, `llms`) uncommented, optional fields commented out.
+- `docs/adopt-vibedocs.md` — operator integration guide: one-time AWS prereqs (S3 bucket, CloudFront distribution, ACM cert in us-east-1, DNS record), adding the `github:danielcbright/vibedocs` dep, dropping in the workflow + config, the GitHub Actions secrets to set (`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`, least-privilege IAM, optional OIDC), and a troubleshooting table.
+
+This is the vibedocs-side capstone of the publishable-static-site engine (#45 spec §4). The per-customer adoption (each consumer repo creating its own `release.yml` + `.vibedocs.config.ts` and going live) is out of scope — these are the templates customers pick up. When the `vibedocs build` CLI surface changes (see `src/cli/index.ts` `USAGE`), keep the `--help` block in `docs/adopt-vibedocs.md` and the build command in `examples/release.yml.template` in sync.
+
 ## Deployment
 
 An optional systemd unit file is provided in `systemd/vibedocs.service`. Edit the placeholder paths, then run `scripts/setup-service.sh` to install it. Use `scripts/promote.sh` to build, validate, and restart the service after code changes.

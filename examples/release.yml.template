@@ -1,0 +1,98 @@
+# VibeDocs static-site release workflow — TEMPLATE
+#
+# Copy this file into a CONSUMER repository as `.github/workflows/release.yml`,
+# then replace every {{REPLACE_ME}} marker below. See docs/adopt-vibedocs.md
+# for the full walkthrough (prerequisites, GitHub secrets, AWS setup).
+#
+# What it does, in order:
+#   1. Checkout your repo
+#   2. Install Node + your deps (including the `vibedocs` git dependency)
+#   3. Build the static site with `npx vibedocs build`
+#   4. Sync the output to your S3 bucket
+#   5. Invalidate the CloudFront cache so readers see the new build immediately
+#
+# This deploys on every push to your default branch. Adjust `on:` if you want
+# tag-driven or manual releases instead.
+
+name: Release docs site
+
+on:
+  push:
+    branches:
+      - main # {{REPLACE_ME}} — your default branch, if not `main`
+  workflow_dispatch: {} # allow manual runs from the Actions tab
+
+# Least-privilege: the workflow only needs to read your code. AWS creds come
+# from repository secrets (see permissions/secrets in docs/adopt-vibedocs.md).
+permissions:
+  contents: read
+
+# Avoid overlapping deploys racing each other to S3.
+concurrency:
+  group: release-docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    env:
+      # The directory `vibedocs build --project` looks for. When the build runs
+      # at the repo root, this is your repository's name (the checkout's
+      # basename). Keep it in sync with your repo / project folder name.
+      VIBEDOCS_PROJECT: "{{REPLACE_ME}}" # e.g. "my-docs"
+      # Full origin the site will be served from. Drives sitemap.xml / robots.txt
+      # and absolute URLs. Must match your CloudFront/Route53 domain.
+      VIBEDOCS_BASE_URL: "https://{{REPLACE_ME}}" # e.g. "https://docs.example.com"
+      AWS_REGION: "{{REPLACE_ME}}" # e.g. "us-east-1"
+      S3_BUCKET: "{{REPLACE_ME}}" # e.g. "docs-example-com"
+      CLOUDFRONT_DISTRIBUTION_ID: "{{REPLACE_ME}}" # e.g. "E1ABCDEF234567"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # Installs your project's deps. Your package.json must declare vibedocs as
+      # a git dependency, e.g.:
+      #   "devDependencies": { "vibedocs": "github:danielcbright/vibedocs" }
+      # `npm ci` requires a committed package-lock.json. Use `npm install` if you
+      # don't commit a lockfile.
+      - name: Install dependencies
+        run: npm ci
+
+      # Build the static site. `--project` selects the docs folder; `--out`
+      # is where the HTML lands; `--base-url` sets the deployed origin.
+      # Add `--hydration minimal` to ship ~500 KB less JS per page (no search
+      # dialog, system-preference theme only) — good for public docs sites.
+      - name: Build static site
+        run: >-
+          npx vibedocs build
+          --project "$VIBEDOCS_PROJECT"
+          --out ./site
+          --base-url "$VIBEDOCS_BASE_URL"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # `--delete` removes objects that no longer exist in the build, so stale
+      # pages don't linger. The aws CLI is preinstalled on ubuntu-latest runners.
+      - name: Sync to S3
+        run: aws s3 sync ./site "s3://$S3_BUCKET" --delete
+
+      # Invalidate everything so readers get the fresh build without waiting for
+      # CloudFront's default TTL. `/*` is the simplest correct choice; narrow it
+      # if invalidation cost matters at your scale.
+      - name: Invalidate CloudFront cache
+        run: >-
+          aws cloudfront create-invalidation
+          --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID"
+          --paths "/*"
