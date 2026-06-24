@@ -248,6 +248,78 @@ describe('runBuild — per-page SEO meta (#50)', () => {
   })
 })
 
+describe('runBuild — edit-on-GitHub footer (#55)', () => {
+  async function writeConfig(editOnGitHub: string) {
+    await writeFile(
+      path.join(projectPath, '.vibedocs.config.ts'),
+      `export default {
+        name: 'My Docs',
+        domain: 'docs.example.com',
+        description: 'Site-level description.',
+        theme: { tokens: {} },
+        llms: { summary: 's', keyDocs: [] },
+        ${editOnGitHub}
+      }`,
+      'utf8',
+    )
+  }
+
+  it('renders a per-page Edit-on-GitHub footer link from siteConfig.editOnGitHub', async () => {
+    await writeConfig(
+      `editOnGitHub: { repo: 'your-org/your-project', branch: 'main', rootPath: 'docs' },`,
+    )
+
+    await runBuild({ projectName: 'myproject', projectsRoot, outDir, frontendDist })
+
+    // docs/install.md → its source path within the configured docs rootPath.
+    const installHtml = await readFile(
+      path.join(outDir, 'docs', 'install', 'index.html'),
+      'utf-8',
+    )
+    expect(installHtml).toContain(
+      'href="https://github.com/your-org/your-project/edit/main/docs/docs/install.md"',
+    )
+    expect(installHtml).toContain('Edit on GitHub')
+
+    // README.md → repo-root README under the docs prefix.
+    const rootHtml = await readFile(path.join(outDir, 'index.html'), 'utf-8')
+    expect(rootHtml).toContain(
+      'href="https://github.com/your-org/your-project/edit/main/docs/README.md"',
+    )
+  })
+
+  it('renders the footer link in minimal hydration mode too', async () => {
+    await writeConfig(
+      `editOnGitHub: { repo: 'acme/site', branch: 'main', rootPath: '' },\n        hydration: 'minimal',`,
+    )
+
+    await runBuild({ projectName: 'myproject', projectsRoot, outDir, frontendDist })
+
+    const html = await readFile(path.join(outDir, 'index.html'), 'utf-8')
+    expect(html).toContain('href="https://github.com/acme/site/edit/main/README.md"')
+    expect(html).toContain('Edit on GitHub')
+    // Minimal mode still ships no SPA module script.
+    expect(html).not.toContain('<script type="module"')
+  })
+
+  it('renders no footer link when siteConfig has no editOnGitHub', async () => {
+    await writeConfig('')
+
+    await runBuild({ projectName: 'myproject', projectsRoot, outDir, frontendDist })
+
+    const html = await readFile(path.join(outDir, 'index.html'), 'utf-8')
+    expect(html).not.toContain('Edit on GitHub')
+    expect(html).not.toContain('data-vd-edit-link')
+  })
+
+  it('renders no footer link when the project ships no siteConfig at all', async () => {
+    await runBuild({ projectName: 'myproject', projectsRoot, outDir, frontendDist })
+
+    const html = await readFile(path.join(outDir, 'index.html'), 'utf-8')
+    expect(html).not.toContain('Edit on GitHub')
+  })
+})
+
 describe('runBuild — base URL', () => {
   it('threads --base-url through (presence check; full canonical lands in slice #5)', async () => {
     // For slice #49 we only need to prove the option doesn't crash and the

@@ -79,6 +79,14 @@ export interface ComposePageOptions {
    * markup (back-compat default).
    */
   search?: boolean
+  /**
+   * Edit-on-GitHub footer link (#55). When set, `composePageHtml` renders a
+   * footer "Edit on GitHub" link pointing at this URL — in BOTH hydration
+   * modes (it's plain HTML, no SPA dependency). `runBuild` composes the URL
+   * per page via `resolveEditUrl` (`./edit-on-github.ts`) from
+   * `siteConfig.editOnGitHub` + the page's source path. Omit → no footer link.
+   */
+  editUrl?: string
 }
 
 const HTML_ESCAPES: Record<string, string> = {
@@ -168,6 +176,15 @@ export function composePageHtml(page: HtmlPage, opts: ComposePageOptions): strin
   // the optional robots noindex. Emitted only when an `seo` struct is supplied.
   const seoTags = opts.seo ? '\n    ' + renderSeoTags(opts.seo) : ''
 
+  // Edit-on-GitHub footer (#55): a "Edit on GitHub" link to the page's source
+  // markdown. Plain HTML — renders in both hydration modes. Emitted only when
+  // `runBuild` resolves an editUrl from `siteConfig.editOnGitHub`.
+  const editFooter = opts.editUrl
+    ? `\n      <footer data-vd-edit-link>
+        <a href="${escapeAttr(opts.editUrl)}" target="_blank" rel="noopener noreferrer">Edit on GitHub</a>
+      </footer>`
+    : ''
+
   // Note: page.html is rehype-sanitize'd output from render.ts — safe to
   // embed verbatim. Nothing else here interpolates user-controlled HTML.
   return `<!doctype html>
@@ -182,7 +199,7 @@ export function composePageHtml(page: HtmlPage, opts: ComposePageOptions): strin
     <div id="root">
 ${navHtml}<main data-vd-page-path="${escapeAttr(page.path)}">
 ${page.html}
-</main>
+</main>${editFooter}
     </div>${pagefindUiTags}
     ${scriptTag}${swRegisterTag}
   </body>
