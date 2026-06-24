@@ -9,6 +9,7 @@ import { VibedocsLogo } from "@/components/vibedocs-logo"
 import { ThemeProvider } from "@/components/theme-provider"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { AppSidebar } from "@/components/app-sidebar"
+import { ProjectSwitcher } from "@/components/project-switcher"
 import { DocContent } from "@/components/doc-content"
 import { TocPanel } from "@/components/toc-panel"
 import { MobileToc } from "@/components/mobile-toc"
@@ -245,6 +246,11 @@ function DocsApp() {
             window.location.hash = `${project}/${path}`
           }}
         />
+        <ProjectSwitcher
+          projects={projects}
+          activeProject={activeProject}
+          onNavigate={navigateSmart}
+        />
       </>
     )
   }
@@ -311,6 +317,11 @@ function DocsApp() {
         onNavigate={(project, path) => {
           window.location.hash = `${project}/${path}`
         }}
+      />
+      <ProjectSwitcher
+        projects={projects}
+        activeProject={activeProject}
+        onNavigate={navigateSmart}
       />
     </>
   )
