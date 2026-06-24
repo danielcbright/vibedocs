@@ -689,6 +689,80 @@ describe('runBuild — sitemap + robots emission (#54)', () => {
   })
 })
 
+describe('runBuild — llms.txt + .md.txt emission (#53)', () => {
+  async function writeConfig(extra = '') {
+    await writeFile(
+      path.join(projectPath, '.vibedocs.config.ts'),
+      `export default {
+        name: 'My Project',
+        domain: 'docs.example.com',
+        description: 'Docs.',
+        theme: { tokens: {} },
+        llms: { summary: 'A delightful docs site.', keyDocs: ['README.md'] },
+        ${extra}
+      }`,
+      'utf8',
+    )
+  }
+
+  it('emits dist/llms.txt with H1, blockquote summary, and two H2 sections', async () => {
+    await writeConfig()
+    await runBuild({ projectName: 'myproject', projectsRoot, outDir, frontendDist })
+
+    const txt = await readFile(path.join(outDir, 'llms.txt'), 'utf-8')
+    expect(txt.startsWith('# My Project\n')).toBe(true)
+    expect(txt).toContain('> A delightful docs site.')
+    expect(txt).toContain('## Key documentation')
+    expect(txt).toContain('## Full docs')
+    // README.md is a keyDoc → site root URL, listed under Key documentation.
+    expect(txt).toContain('[My Project](https://docs.example.com/)')
+    // docs/install.md is NOT a keyDoc → Full docs section.
+    expect(txt).toContain('[Install](https://docs.example.com/docs/install/)')
+  })
+
+  it('lists each keyDoc once — excluded from Full docs (no duplication)', async () => {
+    await writeConfig()
+    await runBuild({ projectName: 'myproject', projectsRoot, outDir, frontendDist })
+
+    const txt = await readFile(path.join(outDir, 'llms.txt'), 'utf-8')
+    const rootCount = (txt.match(/\(https:\/\/docs\.example\.com\/\)/g) ?? []).length
+    expect(rootCount).toBe(1)
+  })
+
+  it('mirror-emits every source .md as dist/<path>.md.txt with raw content', async () => {
+    await writeConfig()
+    await runBuild({ projectName: 'myproject', projectsRoot, outDir, frontendDist })
+
+    // docs/install.md → dist/docs/install.md.txt (raw markdown, not HTML)
+    const rawInstall = path.join(outDir, 'docs', 'install.md.txt')
+    expect(await pathExists(rawInstall)).toBe(true)
+    const installSrc = await readFile(path.join(projectPath, 'docs', 'install.md'), 'utf-8')
+    const installMirror = await readFile(rawInstall, 'utf-8')
+    expect(installMirror).toBe(installSrc)
+    // README.md → dist/README.md.txt
+    const rawReadme = path.join(outDir, 'README.md.txt')
+    expect(await pathExists(rawReadme)).toBe(true)
+    const readmeMirror = await readFile(rawReadme, 'utf-8')
+    expect(readmeMirror).toBe(await readFile(path.join(projectPath, 'README.md'), 'utf-8'))
+    // The mirror is raw — no HTML wrapping.
+    expect(installMirror).not.toContain('<html')
+    expect(installMirror).not.toContain('<h1')
+  })
+
+  it('skips llms.txt when no siteConfig is present (no site identity)', async () => {
+    await runBuild({
+      projectName: 'myproject',
+      projectsRoot,
+      outDir,
+      frontendDist,
+      baseUrl: 'https://nodomain.example',
+    })
+    expect(await pathExists(path.join(outDir, 'llms.txt'))).toBe(false)
+    // .md.txt mirroring is independent of siteConfig — it still happens.
+    expect(await pathExists(path.join(outDir, 'README.md.txt'))).toBe(true)
+  })
+})
+
 describe('resolveProjectPath', () => {
   it('returns <root>/<name> when that directory exists', async () => {
     const resolved = await resolveProjectPath('myproject', projectsRoot, projectsRoot)
