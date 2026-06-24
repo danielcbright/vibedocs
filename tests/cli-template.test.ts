@@ -432,3 +432,49 @@ describe('composePageHtml — hydration policy (#76)', () => {
     expect(out).toContain('>Install<')
   })
 })
+
+describe('composePageHtml — static search (#56)', () => {
+  it('emits the Pagefind stylesheet + UI widget when search is enabled (full mode)', () => {
+    const out = composePageHtml(page(), {
+      bundleEntry: '/assets/index.js',
+      title: 'T',
+      hydration: 'full',
+      search: true,
+    })
+
+    expect(out).toContain('/pagefind/pagefind-ui.css')
+    expect(out).toContain('/pagefind/pagefind-ui.js')
+    expect(out).toContain('id="vd-search"')
+  })
+
+  it('emits the Pagefind widget in minimal mode too (search must not need the SPA)', () => {
+    const out = composePageHtml(page(), {
+      bundleEntry: '/assets/index.js',
+      title: 'T',
+      hydration: 'minimal',
+      search: true,
+    })
+
+    expect(out).toContain('/pagefind/pagefind-ui.js')
+    expect(out).toContain('id="vd-search"')
+    // Minimal mode still ships no module script for the SPA.
+    expect(out).not.toContain('type="module"')
+  })
+
+  it('omits all Pagefind markup when search is disabled', () => {
+    const out = composePageHtml(page(), {
+      bundleEntry: '/assets/index.js',
+      title: 'T',
+      hydration: 'full',
+      search: false,
+    })
+
+    expect(out).not.toContain('pagefind')
+    expect(out).not.toContain('id="vd-search"')
+  })
+
+  it('omits Pagefind markup by default (back-compat: search opt-in via the flag)', () => {
+    const out = composePageHtml(page(), { bundleEntry: '/assets/index.js', title: 'T' })
+    expect(out).not.toContain('pagefind')
+  })
+})

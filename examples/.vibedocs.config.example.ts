@@ -70,6 +70,12 @@ export default defineSite({
   // A `--hydration` CLI flag overrides this field.
   // hydration: 'full',
 
+  // Static full-text search (Pagefind). On by default — `vibedocs build`
+  // indexes the rendered HTML and injects a self-hosted search box on every
+  // page, in BOTH hydration modes (the widget doesn't depend on the SPA). Set
+  // false to skip Pagefind indexing and omit the search UI entirely.
+  // search: true,
+
   // Explicit navigation. When set, the sidebar (and minimal-mode server nav)
   // renders these sections in order instead of auto-deriving the tree. `items`
   // are repo-relative markdown paths.

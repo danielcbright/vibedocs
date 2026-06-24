@@ -29,6 +29,7 @@ import {
 import { formatSitemap, formatRobots, normalizeBaseUrl } from './sitemap.js'
 import { resolvePageSeo } from './seo.js'
 import { formatLlmsTxt, type LlmsDoc } from './llms.js'
+import { resolveSearchEnabled } from './pagefind.js'
 
 export interface BuildOptions {
   /** Project name as supplied on the CLI (`--project <name>`). */
@@ -51,6 +52,18 @@ export interface BuildOptions {
    * bundle copy is skipped and the bootstrap `<script>` tag is omitted.
    */
   hydration?: HydrationPolicy
+  /**
+   * Pagefind indexer seam (#56). The CLI dispatcher (`src/cli/index.ts`) passes
+   * the live {@link indexWithPagefind}; `runBuild`'s own unit tests leave it
+   * undefined so they never spawn the real Pagefind binary. When omitted, the
+   * indexing step is skipped (the per-page search UI is still emitted — that's
+   * pure markup). When static search resolves to disabled
+   * (`siteConfig.search === false`), it isn't called at all regardless.
+   */
+  pagefindIndexer?: (
+    outDir: string,
+    opts: { verbose?: boolean },
+  ) => Promise<{ pageCount: number }>
 }
 
 /**
@@ -188,6 +201,13 @@ export async function runBuild(opts: BuildOptions): Promise<void> {
   // below both read from this one value.
   const hydration = resolveHydration(opts.hydration, siteConfig?.hydration)
 
+  // Static full-text search (#56): on by default, opt out via
+  // `siteConfig.search: false`. When on, every page gets the Pagefind UI markup
+  // and we index the output dir after all writes. Independent of hydration —
+  // search works in both modes because the widget loads the self-hosted
+  // /pagefind/ bundle, not the SPA.
+  const searchEnabled = resolveSearchEnabled(siteConfig?.search)
+
   // Detect bundle paths up front so we fail fast if the frontend hasn't
   // been built yet.
   const bundleEntry = await detectBundleEntry(opts.frontendDist)
@@ -260,6 +280,7 @@ export async function runBuild(opts: BuildOptions): Promise<void> {
       stylesheet,
       navLinks,
       hydration,
+      search: searchEnabled,
       pwa,
       seo,
       ...(themeTokens ? { themeTokens } : {}),
@@ -424,6 +445,16 @@ export async function runBuild(opts: BuildOptions): Promise<void> {
     if (opts.verbose) {
       process.stdout.write(`  raw: ${page.path}.txt\n`)
     }
+  }
+
+  // Pagefind static search (#56): index the HTML we just wrote, emitting the
+  // /pagefind/ bundle the per-page search widget loads. Runs last so every page
+  // (and its raw mirror) is on disk first. Skipped when search is disabled.
+  if (searchEnabled && opts.pagefindIndexer) {
+    const { pageCount } = await opts.pagefindIndexer(opts.outDir, {
+      verbose: opts.verbose ?? false,
+    })
+    process.stdout.write(`Pagefind: indexed ${pageCount} page${pageCount === 1 ? '' : 's'}\n`)
   }
 }
 
