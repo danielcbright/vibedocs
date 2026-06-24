@@ -25,8 +25,9 @@ export async function renderMermaidIn(
   root: HTMLElement,
   options: RenderOptions,
 ): Promise<void> {
-  const nodes = Array.from(root.querySelectorAll<HTMLElement>('.mermaid'))
-  if (nodes.length === 0) return
+  // Cheap pre-check before paying for the chunk: nothing to do on a
+  // diagram-free page, so we never import mermaid there.
+  if (root.querySelectorAll('.mermaid').length === 0) return
 
   // Two-step lazy-load: first the (tiny) shim, then the mermaid package
   // via the shim's `getMermaid()` async accessor. The double indirection
@@ -37,6 +38,19 @@ export async function renderMermaidIn(
   // and statically import mermaid from there. See issue #23.
   const { getMermaid } = await import('./mermaid-shim')
   const mermaid = await getMermaid()
+
+  // Re-query the `.mermaid` nodes *after* the async import resolves — NOT
+  // before — and bail if the root was detached meanwhile. Part of the issue
+  // #152 fix. The mermaid chunk is ~600 KB; on first load the `await import`
+  // above takes long enough that the caller can replace the root's contents
+  // (a navigation settling, a live-reload) before we render. Nodes captured
+  // *before* the await would be detached by now, so mermaid would write the
+  // SVG into orphaned nodes no longer in the document and the visible diagrams
+  // would keep their raw source. Querying here binds us to the live nodes.
+  if (!root.isConnected) return
+  const nodes = Array.from(root.querySelectorAll<HTMLElement>('.mermaid'))
+  if (nodes.length === 0) return
+
   // `getMermaid()` returns `MermaidApi` (the same contract `mermaid-render`
   // owns), so no cast is needed — the types line up directly.
   await renderMermaidElements(nodes, mermaid, options)

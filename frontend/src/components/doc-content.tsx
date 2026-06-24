@@ -44,28 +44,61 @@ interface DocContentProps {
 }
 
 export function DocContent({ html, loading, error, project, docPath, connected, projectTree, projects, reloadNonce, onNavigate }: DocContentProps) {
-  const contentRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement | null>(null)
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle")
   const { resolvedTheme } = useTheme()
 
   const { contentRef: rawContentRef } = useRawDocument(project, docPath, reloadNonce)
 
-  // Render mermaid diagrams after HTML is inserted. The mermaid package is
-  // self-hosted (bundled as an npm dep, pinned to its own chunk via
-  // `manualChunks` in vite.config.ts) and lazy-imported only when the
-  // current document actually contains diagrams, so docs without diagrams
-  // pay no bundle cost. Per-diagram failures degrade to a `<pre>` block —
-  // see `renderMermaidIn` for the fallback behaviour.
-  useEffect(() => {
-    if (!html || !contentRef.current) return
-    const root = contentRef.current
-    let cancelled = false
-    renderMermaidIn(root, { theme: resolvedTheme === "dark" ? "dark" : "default" })
-      .catch((err) => {
-        if (!cancelled) console.error("Mermaid render failed:", err)
-      })
-    return () => { cancelled = true }
+  // Insert the rendered markdown imperatively and render mermaid into it. This
+  // is the issue #152 fix, and it needs BOTH of the triggers below.
+  //
+  // Why NOT `dangerouslySetInnerHTML`: mermaid renders SVG by imperatively
+  // mutating the `.mermaid` DOM nodes (`el.innerHTML = svg`). Under
+  // `dangerouslySetInnerHTML` those nodes live in a React-controlled subtree,
+  // and on rapid navigation a trailing React commit re-applies the SAME html
+  // string to the already-mounted div, wiping the freshly-rendered SVG back to
+  // raw source. Because the html string is unchanged, nothing re-triggers a
+  // render and the diagrams stay raw forever. (Observable as a single
+  // `add:9, rm:9` childList mutation on `.prose-content` ~100 ms after the SVG
+  // lands.) Owning `innerHTML` ourselves means React only ever sees an empty
+  // `<div ref>` and never clobbers our DOM.
+  //
+  // mermaid is self-hosted (bundled as an npm dep, pinned to its own chunk via
+  // `manualChunks` in vite.config.ts) and lazy-imported only when the current
+  // document actually contains diagrams (see `renderMermaidIn`), so diagram-free
+  // docs pay no bundle cost. Per-diagram failures degrade to a `<pre>` block.
+  // Each pass gets a unique `idPrefix` so overlapping renders (rapid nav,
+  // StrictMode double-invoke) don't collide on mermaid's scratch-node ids.
+  const renderSeq = useRef(0)
+  const applyAndRender = useCallback((node: HTMLElement) => {
+    node.innerHTML = html
+    if (!html) return
+    renderMermaidIn(node, {
+      theme: resolvedTheme === "dark" ? "dark" : "default",
+      idPrefix: `mermaid-render-${renderSeq.current++}`,
+    }).catch((err) => {
+      console.error("Mermaid render failed:", err)
+    })
   }, [html, resolvedTheme])
+
+  // Trigger 1 — *callback ref*: fires whenever React attaches the content div.
+  // Handles the rapid same-doc remount where the div unmounts (loading=true)
+  // and remounts with an *identical* `html` string. An effect keyed on `[html]`
+  // would see `Object.is(html, html) === true` and skip, leaving the new node
+  // empty; the callback ref fires on every attach regardless.
+  const contentCallbackRef = useCallback((node: HTMLDivElement | null) => {
+    contentRef.current = node
+    if (node) applyAndRender(node)
+  }, [applyAndRender])
+
+  // Trigger 2 — effect: handles in-place changes to an already-mounted node
+  // (the callback ref does NOT fire then): new `html` for the open doc
+  // (WebSocket live-reload, or React reusing the div across two docs) and theme
+  // flips.
+  useEffect(() => {
+    if (contentRef.current) applyAndRender(contentRef.current)
+  }, [applyAndRender])
 
   // Copy uses pre-fetched content - no async fetch in the click handler
   const handleCopy = useCallback(() => {
@@ -163,11 +196,10 @@ export function DocContent({ html, loading, error, project, docPath, connected, 
               <p>{error}</p>
             </div>
           ) : (
-            <div
-              ref={contentRef}
-              className="prose-content"
-              dangerouslySetInnerHTML={{ __html: html }}
-            />
+            /* Content is set imperatively via `contentCallbackRef` /
+               `applyAndRender` (NOT `dangerouslySetInnerHTML`) so a trailing
+               React commit can't clobber mermaid's rendered SVG — issue #152. */
+            <div ref={contentCallbackRef} className="prose-content" />
           )}
         </div>
       </ScrollArea>
