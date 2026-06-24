@@ -57,6 +57,7 @@
     "@shikijs/rehype": "^1",
     "chokidar": "^3",
     "esbuild": "^0.27.0",
+    "gray-matter": "^4.0.3",
     "hono": "^4",
     "rehype-autolink-headings": "^7",
     "rehype-sanitize": "^6.0.0",

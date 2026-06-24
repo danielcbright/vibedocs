@@ -186,6 +186,51 @@ describe('renderSinglePage — live-route regression', () => {
   })
 })
 
+describe('renderProject — frontmatter parsing (#50)', () => {
+  it('parses YAML frontmatter into page.frontmatter', async () => {
+    await writeFile(
+      path.join(projectPath, 'README.md'),
+      '---\ntitle: Custom Title\ndescription: A short blurb\nnoindex: true\n---\n# Body Heading\n\nText.',
+    )
+
+    const result = await renderProject(projectPath, null, 'live')
+
+    const page = result.pages.find((p) => p.path === 'README.md')!
+    expect(page.frontmatter).toEqual({
+      title: 'Custom Title',
+      description: 'A short blurb',
+      noindex: true,
+    })
+  })
+
+  it('strips the frontmatter block from the rendered HTML but keeps the author H1', async () => {
+    // Grill decision #18: frontmatter.title sets <title> only; the body H1
+    // stays whatever the author wrote and is NOT auto-generated or replaced.
+    await writeFile(
+      path.join(projectPath, 'README.md'),
+      '---\ntitle: Custom Title\n---\n# Body Heading\n\nText.',
+    )
+
+    const result = await renderProject(projectPath, null, 'live')
+
+    const page = result.pages.find((p) => p.path === 'README.md')!
+    // The raw `--- title: ... ---` YAML must not leak into the rendered HTML.
+    expect(page.html).not.toContain('Custom Title')
+    expect(page.html).not.toMatch(/<hr/)
+    // The author's H1 survives verbatim.
+    expect(page.html).toMatch(/<h1[^>]*>[\s\S]*Body Heading[\s\S]*<\/h1>/)
+  })
+
+  it('returns an empty frontmatter object for a page with no frontmatter', async () => {
+    await writeFile(path.join(projectPath, 'README.md'), '# Just A Heading\n\nNo frontmatter.')
+
+    const result = await renderProject(projectPath, null, 'live')
+
+    const page = result.pages.find((p) => p.path === 'README.md')!
+    expect(page.frontmatter).toEqual({})
+  })
+})
+
 describe('renderProject — site-config-derived outputs (placeholders for later slices)', () => {
   it('returns null for llmsTxt, sitemap, robots when siteConfig is null', async () => {
     await writeFile(path.join(projectPath, 'README.md'), '# Hello')

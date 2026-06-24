@@ -27,6 +27,7 @@ import {
   PWA_ICON_FILES,
 } from './pwa.js'
 import { formatSitemap, formatRobots, normalizeBaseUrl } from './sitemap.js'
+import { resolvePageSeo } from './seo.js'
 
 export interface BuildOptions {
   /** Project name as supplied on the CLI (`--project <name>`). */
@@ -214,17 +215,25 @@ export async function runBuild(opts: BuildOptions): Promise<void> {
   const themeColor = resolveThemeColor(siteConfig)
   const pwa = { themeColor, appTitle: manifest.short_name }
 
+  // Resolve the site base URL once — used for both per-page canonical/og:url
+  // (#50) and sitemap/robots (#54). Precedence: explicit `--base-url` >
+  // `siteConfig.domain` > a localhost fallback so the build never fails on a
+  // missing domain. `normalizeBaseUrl` makes all three forms a clean origin.
+  const siteBaseUrl = normalizeBaseUrl(opts.baseUrl ?? siteConfig?.domain ?? 'localhost')
+
   // Emit each page as <outDir>/<clean-url>/index.html.
   for (const page of result.pages) {
     const outPath = outputPathForUrl(opts.outDir, page.url)
     await mkdir(path.dirname(outPath), { recursive: true })
+    const seo = resolvePageSeo({ page, siteConfig, baseUrl: siteBaseUrl })
     const html = composePageHtml(page, {
       bundleEntry,
-      title: titleFromPage(page, opts.projectName),
+      title: seo.title,
       stylesheet,
       navLinks,
       hydration,
       pwa,
+      seo,
       ...(siteConfig?.nav ? { siteConfigNav: siteConfig.nav } : {}),
     })
     await writeFile(outPath, html, 'utf-8')
@@ -333,11 +342,9 @@ export async function runBuild(opts: BuildOptions): Promise<void> {
     )
   }
 
-  // SEO: sitemap.xml + robots.txt (#54). Base URL precedence: explicit
-  // `--base-url` (already a full URL) > `siteConfig.domain` (a bare hostname)
-  // > a localhost fallback so the build never fails purely on a missing
-  // domain. `normalizeBaseUrl` makes all three forms a clean origin.
-  const siteBaseUrl = normalizeBaseUrl(opts.baseUrl ?? siteConfig?.domain ?? 'localhost')
+  // SEO: sitemap.xml + robots.txt (#54). Reuses the `siteBaseUrl` resolved
+  // above for per-page canonical URLs, so the sitemap and canonical tags can
+  // never disagree on the origin.
   await writeFile(
     path.join(opts.outDir, 'sitemap.xml'),
     formatSitemap({ pages: result.pages, baseUrl: siteBaseUrl }),
