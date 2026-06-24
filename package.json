@@ -47,7 +47,8 @@
     "build:cli": "tsc -p tsconfig.cli.json",
     "prepare": "npm run build && npm run build:cli && husky",
     "start": "tsx src/server.ts",
-    "test": "vitest run && cd frontend && npx vitest run",
+    "test": "npm run test:backend; backend=$?; npm run test:frontend; frontend=$?; exit $((backend || frontend))",
+    "test:backend": "vitest run",
     "test:watch": "vitest",
     "test:frontend": "cd frontend && npx vitest run"
   },
