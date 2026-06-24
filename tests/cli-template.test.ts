@@ -433,6 +433,77 @@ describe('composePageHtml — hydration policy (#76)', () => {
   })
 })
 
+describe('composePageHtml — edit-on-GitHub footer (#55)', () => {
+  const editUrl = 'https://github.com/your-org/your-project/edit/main/docs/install.md'
+
+  it('renders a footer "Edit on GitHub" link when editUrl is supplied (full mode)', () => {
+    const out = composePageHtml(page(), {
+      bundleEntry: '/assets/index.js',
+      title: 'T',
+      hydration: 'full',
+      editUrl,
+    })
+
+    expect(out).toContain(`href="${editUrl}"`)
+    expect(out).toContain('Edit on GitHub')
+  })
+
+  it('renders the footer link in minimal mode too (no SPA dependency)', () => {
+    const out = composePageHtml(page(), {
+      bundleEntry: '/assets/index.js',
+      title: 'T',
+      hydration: 'minimal',
+      editUrl,
+    })
+
+    expect(out).toContain(`href="${editUrl}"`)
+    expect(out).toContain('Edit on GitHub')
+    // Minimal mode still ships no SPA module script.
+    expect(out).not.toContain('<script type="module"')
+  })
+
+  it('opens the link in a new tab with safe rel', () => {
+    const out = composePageHtml(page(), {
+      bundleEntry: '/assets/index.js',
+      title: 'T',
+      editUrl,
+    })
+
+    expect(out).toContain('target="_blank"')
+    expect(out).toContain('rel="noopener noreferrer"')
+  })
+
+  it('places the footer inside the page chrome, after the main content', () => {
+    const out = composePageHtml(page({ html: '<h1>UNIQUE_BODY_77</h1>' }), {
+      bundleEntry: '/assets/index.js',
+      title: 'T',
+      editUrl,
+    })
+
+    const contentIdx = out.indexOf('UNIQUE_BODY_77')
+    const footerIdx = out.indexOf('Edit on GitHub')
+    expect(contentIdx).toBeGreaterThan(-1)
+    expect(footerIdx).toBeGreaterThan(contentIdx)
+  })
+
+  it('escapes the editUrl to avoid attribute injection', () => {
+    const out = composePageHtml(page(), {
+      bundleEntry: '/assets/index.js',
+      title: 'T',
+      editUrl: 'https://github.com/x/y/edit/main/"><script>alert(1)</script>',
+    })
+
+    expect(out).not.toContain('<script>alert(1)</script>')
+    expect(out).toContain('&quot;&gt;&lt;script&gt;')
+  })
+
+  it('renders no footer link when editUrl is absent (back-compat)', () => {
+    const out = composePageHtml(page(), { bundleEntry: '/assets/index.js', title: 'T' })
+    expect(out).not.toContain('Edit on GitHub')
+    expect(out).not.toContain('data-vd-edit-link')
+  })
+})
+
 describe('composePageHtml — static search (#56)', () => {
   it('emits the Pagefind stylesheet + UI widget when search is enabled (full mode)', () => {
     const out = composePageHtml(page(), {

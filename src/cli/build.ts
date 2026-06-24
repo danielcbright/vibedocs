@@ -30,6 +30,7 @@ import { formatSitemap, formatRobots, normalizeBaseUrl } from './sitemap.js'
 import { resolvePageSeo } from './seo.js'
 import { formatLlmsTxt, type LlmsDoc } from './llms.js'
 import { resolveSearchEnabled } from './pagefind.js'
+import { resolveEditUrl } from './edit-on-github.js'
 
 export interface BuildOptions {
   /** Project name as supplied on the CLI (`--project <name>`). */
@@ -274,6 +275,12 @@ export async function runBuild(opts: BuildOptions): Promise<void> {
       url: page.url,
       ...(seo.description ? { description: seo.description } : {}),
     })
+    // Edit-on-GitHub footer (#55): compose the per-page edit URL from the
+    // configured repo/branch/rootPath + this page's source path. Config-driven
+    // only — absent config means no link.
+    const editUrl = siteConfig?.editOnGitHub
+      ? resolveEditUrl(siteConfig.editOnGitHub, page.path)
+      : undefined
     const html = composePageHtml(page, {
       bundleEntry,
       title: seo.title,
@@ -286,6 +293,7 @@ export async function runBuild(opts: BuildOptions): Promise<void> {
       ...(themeTokens ? { themeTokens } : {}),
       ...(themeCssHref ? { themeCssHref } : {}),
       ...(siteConfig?.nav ? { siteConfigNav: siteConfig.nav } : {}),
+      ...(editUrl ? { editUrl } : {}),
     })
     await writeFile(outPath, html, 'utf-8')
   }
