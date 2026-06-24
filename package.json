@@ -45,7 +45,7 @@
     "dev:frontend": "cd frontend && npx vite",
     "build": "cd frontend && npm install && npx vite build",
     "build:cli": "tsc -p tsconfig.cli.json",
-    "prepare": "npm run build && npm run build:cli && husky",
+    "prepare": "node scripts/prepare.mjs",
     "start": "tsx src/server.ts",
     "test": "npm run test:backend; backend=$?; npm run test:frontend; frontend=$?; exit $((backend || frontend))",
     "test:backend": "vitest run",
