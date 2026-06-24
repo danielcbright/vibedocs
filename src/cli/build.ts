@@ -176,16 +176,10 @@ export async function runBuild(opts: BuildOptions): Promise<void> {
   const projectPath = await resolveProjectPath(opts.projectName, opts.projectsRoot, cwd)
 
   // Load optional site config — null when the project hasn't shipped one
-  // (perfectly fine for this scaffolding slice).
-  let siteConfig: SiteConfig | null = null
-  try {
-    siteConfig = await loadSiteConfig(projectPath)
-  } catch (err) {
-    // Surface config errors prominently; missing config is `null`, not a
-    // thrown error, so reaching here means the file existed but didn't
-    // validate.
-    throw err
-  }
+  // (perfectly fine for this scaffolding slice). A present-but-invalid config
+  // throws a VibedocsError naming the file and the offending field; we let it
+  // propagate unmodified — the loader's message is already actionable.
+  const siteConfig: SiteConfig | null = await loadSiteConfig(projectPath)
 
   const result = await renderProject(projectPath, siteConfig, 'build')
 
