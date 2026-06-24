@@ -98,6 +98,20 @@ describe('registerStaticRoutes — CONTENT_TYPES coverage', () => {
     expect(res.headers.get('Content-Type')).toBe('text/html; charset=utf-8')
   })
 
+  it('serves the PWA manifest as application/manifest+json', async () => {
+    await writeFile(path.join(tmpDist, 'manifest.webmanifest'), '{"name":"x"}')
+    const res = await app.request('/manifest.webmanifest')
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Content-Type')).toBe('application/manifest+json; charset=utf-8')
+  })
+
+  it('serves the service worker (/sw.js) as javascript so the browser will register it', async () => {
+    await writeFile(path.join(tmpDist, 'sw.js'), 'self.addEventListener("install",()=>{})')
+    const res = await app.request('/sw.js')
+    expect(res.status).toBe(200)
+    expect(res.headers.get('Content-Type')).toBe('application/javascript; charset=utf-8')
+  })
+
   it('falls back to application/octet-stream for unknown extensions', async () => {
     await writeFile(path.join(tmpDist, 'mystery.xyz'), 'opaque')
     const res = await app.request('/mystery.xyz')
