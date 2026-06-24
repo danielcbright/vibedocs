@@ -1,0 +1,37 @@
+<!--
+  ════════════════════════════════════════════════════════════════════════
+  VIBEDOCS PWA ICON — MASTER SOURCE  (issue #142)
+
+  >>> MAINTAINER SWAP POINT <<<
+  This is the ONE file the PWA icon set is generated from. To rebrand the
+  installed-app icon, favicon, and Apple touch icon, edit THIS svg (or
+  replace it wholesale) and re-run:
+
+      node frontend/scripts/generate-icons.mjs
+
+  Default brand: a static, full-bleed take on `.scratch/logo-variants/
+  03-monogram-draw.svg` (the "VD" monogram — monograms read best at small
+  icon sizes). The gallery's animated/`currentColor` original can't be
+  rasterised to a coloured icon, so this is a flattened derivative:
+    • Background  #8852e0  — the design palette accent  hsl(263 70% 60%)
+    • Monogram    #ffffff  — high contrast at 16–48px launcher sizes
+  The monogram sits inside the central ~66% so it survives the maskable
+  safe-zone crop on Android adaptive icons.
+
+  Full bleed (no transparent corners) on purpose: Android/iOS launchers
+  apply their own corner masking, so a square fill avoids double-rounding.
+  ════════════════════════════════════════════════════════════════════════
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" fill="#8852e0"/>
+  <!--
+    Monogram strokes. Coordinates scaled ~8x from the 64-unit original and
+    centred. stroke-width 28 keeps the marks legible when downscaled to 16px.
+  -->
+  <g fill="none" stroke="#ffffff" stroke-width="28" stroke-linecap="round" stroke-linejoin="round">
+    <!-- V -->
+    <path d="M 150 176 L 230 400 L 310 176"/>
+    <!-- D (stylised, matching the original's curved bowl) -->
+    <path d="M 342 176 L 342 400 L 392 400 Q 432 400 432 336 L 432 240 Q 432 176 392 176 Z"/>
+  </g>
+</svg>

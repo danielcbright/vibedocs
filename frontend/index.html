@@ -14,7 +14,29 @@
         - object-src 'none': no <object>/<embed> plugin content.
         - base-uri 'self': lock <base> so injected base tags can't redirect resource loads.
     -->
+    <!--
+      manifest-src and worker-src are intentionally omitted: both fall back to
+      default-src 'self', and the manifest + service worker (issue #142) are
+      served same-origin, so no CSP extension is required.
+    -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'self'" />
+
+    <!-- PWA: web app manifest (Android/Chrome install) -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+
+    <!-- Browser chrome / installed-app accent. Matches manifest theme_color. -->
+    <meta name="theme-color" content="#8852e0" />
+
+    <!-- Favicons: SVG for modern browsers, .ico fallback. -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" sizes="any" />
+
+    <!-- iOS Safari "Add to Home Screen" — iOS ignores the manifest for these. -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="VibeDocs" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
     <title>VibeDocs</title>
   </head>
   <body>
