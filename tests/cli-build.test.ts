@@ -289,6 +289,33 @@ describe('runBuild — error paths', () => {
       }),
     ).rejects.toThrow(/frontend.*build|bundle/i)
   })
+
+  it("surfaces the loader's actionable, field-path-aware error for an invalid site config", async () => {
+    // A config missing the required `name` field. loadSiteConfig validates it
+    // and throws VibedocsError('invalid', '.vibedocs.config.ts: missing
+    // required field: name'). runBuild must let that message reach the caller
+    // verbatim — naming the file AND the offending field — not bury it behind a
+    // generic prefix.
+    await writeFile(
+      path.join(projectPath, '.vibedocs.config.ts'),
+      `export default {
+        domain: 'docs.example.com',
+        description: 'no name field',
+        theme: { tokens: {} },
+        llms: { summary: 's', keyDocs: [] },
+      }`,
+      'utf8',
+    )
+
+    await expect(
+      runBuild({
+        projectName: 'myproject',
+        projectsRoot,
+        outDir,
+        frontendDist,
+      }),
+    ).rejects.toThrow(/\.vibedocs\.config\.ts: missing required field: name/)
+  })
 })
 
 describe('runBuild — referenced-asset filtering and summary (#74)', () => {
