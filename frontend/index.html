@@ -27,8 +27,10 @@
     <!-- Browser chrome / installed-app accent. Matches manifest theme_color. -->
     <meta name="theme-color" content="#8852e0" />
 
-    <!-- Favicons: SVG for modern browsers, .ico fallback. -->
+    <!-- Favicons: theme-adaptive SVG first; per-scheme PNG fallbacks; .ico legacy. -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" media="(prefers-color-scheme: dark)" href="/favicon-dark.png" />
+    <link rel="icon" type="image/png" sizes="32x32" media="(prefers-color-scheme: light)" href="/favicon-light.png" />
     <link rel="icon" type="image/x-icon" href="/favicon.ico" sizes="any" />
 
     <!-- iOS Safari "Add to Home Screen" — iOS ignores the manifest for these. -->

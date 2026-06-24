@@ -27,6 +27,11 @@ const PNG_TARGETS = [
 // sync with the <rect> fill in icon-source.svg (and the manifest background_color).
 const BRAND_BG = '#020817'
 
+// Light-theme counterpart for the theme-adaptive favicon. The installed-app
+// icons stay on BRAND_BG (a PWA manifest can't switch icons by colour scheme);
+// only the browser-tab favicon adapts to prefers-color-scheme.
+const LIGHT_BG = '#f8fafc'
+
 async function main() {
   await mkdir(OUT, { recursive: true })
   const svg = await readFile(SRC)
@@ -53,9 +58,28 @@ async function main() {
     .toFile(path.join(OUT, 'icon-maskable-512.png'))
   console.log('  wrote icon-maskable-512.png (512x512, padded safe zone)')
 
-  // favicon.svg is the master SVG itself (modern browsers prefer it).
-  await writeFile(path.join(OUT, 'favicon.svg'), svg)
-  console.log('  wrote favicon.svg')
+  // Theme-adaptive favicon.svg: swap the opaque <rect> for a prefers-color-scheme
+  // aware one so the browser-tab icon matches light/dark. Modern browsers render
+  // SVG favicons and honour the embedded media query.
+  const adaptiveFavicon = svg.toString().replace(
+    `<rect width="512" height="512" fill="${BRAND_BG}"/>`,
+    `<style>.vd-bg{fill:${LIGHT_BG}}@media(prefers-color-scheme:dark){.vd-bg{fill:${BRAND_BG}}}</style>\n  <rect class="vd-bg" width="512" height="512"/>`,
+  )
+  await writeFile(path.join(OUT, 'favicon.svg'), adaptiveFavicon)
+  console.log('  wrote favicon.svg (theme-adaptive)')
+
+  // PNG favicon fallbacks for browsers that don't theme SVG favicons — one per
+  // scheme, selected via <link media> in index.html.
+  // Target the full <rect> element, not the first "#020817" string — that also
+  // appears in the source's comment, which would leave the real fill untouched.
+  const lightSvg = Buffer.from(svg.toString().replace(
+    `<rect width="512" height="512" fill="${BRAND_BG}"/>`,
+    `<rect width="512" height="512" fill="${LIGHT_BG}"/>`,
+  ))
+  for (const [file, src] of [['favicon-dark.png', svg], ['favicon-light.png', lightSvg]]) {
+    await sharp(src, { density: 384 }).resize(32, 32, { fit: 'cover' }).png().toFile(path.join(OUT, file))
+    console.log(`  wrote ${file} (32x32)`)
+  }
 
   // favicon.ico: pack 16/32/48 PNG frames into a single .ico container.
   const ico = await buildIco([16, 32, 48], svg)
