@@ -4,8 +4,8 @@
 // mode, writes per-page HTML using the hardcoded template, mirrors asset
 // files to <out>/<source-path>, and copies the React bundle from
 // frontend/dist into <out>/assets/. Later slices layer SEO meta (slice #50),
-// theming (slice #51), llms.txt (slice #53), sitemap (slice #54), edit-on-
-// GitHub (slice #55), and Pagefind (slice #56) on top.
+// theming (slice #51), llms.txt + raw .md.txt mirror (slice #53), sitemap
+// (slice #54), edit-on-GitHub (slice #55), and Pagefind (slice #56) on top.
 //
 // Pure orchestration: this module owns the FS writes. The renderer
 // (src/render.ts) stays pure; the template (src/cli/template.ts) stays
@@ -28,6 +28,7 @@ import {
 } from './pwa.js'
 import { formatSitemap, formatRobots, normalizeBaseUrl } from './sitemap.js'
 import { resolvePageSeo } from './seo.js'
+import { formatLlmsTxt, type LlmsDoc } from './llms.js'
 
 export interface BuildOptions {
   /** Project name as supplied on the CLI (`--project <name>`). */
@@ -221,11 +222,22 @@ export async function runBuild(opts: BuildOptions): Promise<void> {
   // missing domain. `normalizeBaseUrl` makes all three forms a clean origin.
   const siteBaseUrl = normalizeBaseUrl(opts.baseUrl ?? siteConfig?.domain ?? 'localhost')
 
+  // Doc descriptors for llms.txt — keyed by source path so the keyDocs config
+  // (which lists source paths like `README.md`) can be matched. Title +
+  // description reuse the same resolver that drives the page's <head>, so the
+  // index can't disagree with the rendered page.
+  const docsByPath = new Map<string, LlmsDoc>()
+
   // Emit each page as <outDir>/<clean-url>/index.html.
   for (const page of result.pages) {
     const outPath = outputPathForUrl(opts.outDir, page.url)
     await mkdir(path.dirname(outPath), { recursive: true })
     const seo = resolvePageSeo({ page, siteConfig, baseUrl: siteBaseUrl })
+    docsByPath.set(page.path, {
+      title: seo.title,
+      url: page.url,
+      ...(seo.description ? { description: seo.description } : {}),
+    })
     const html = composePageHtml(page, {
       bundleEntry,
       title: seo.title,
@@ -355,6 +367,46 @@ export async function runBuild(opts: BuildOptions): Promise<void> {
     formatRobots({ baseUrl: siteBaseUrl }),
     'utf-8',
   )
+
+  // llms.txt (#53): an llmstxt.org-compliant index for LLM consumers. Only
+  // emitted when the project ships a siteConfig — without one there's no site
+  // name/summary/keyDocs to describe. keyDocs config entries are source paths;
+  // we resolve each to its rendered doc descriptor (skipping any that don't map
+  // to a real page) and pass the rest as the auto-listed `## Full docs`.
+  if (siteConfig !== null) {
+    const allDocs = result.pages
+      .map((p) => docsByPath.get(p.path))
+      .filter((d): d is LlmsDoc => d !== undefined)
+    const keyDocs = siteConfig.llms.keyDocs
+      .map((p) => docsByPath.get(p))
+      .filter((d): d is LlmsDoc => d !== undefined)
+    await writeFile(
+      path.join(opts.outDir, 'llms.txt'),
+      formatLlmsTxt({
+        name: siteConfig.name,
+        summary: siteConfig.llms.summary,
+        keyDocs,
+        allDocs,
+        baseUrl: siteBaseUrl,
+      }),
+      'utf-8',
+    )
+  }
+
+  // Raw markdown mirror (#53): every source `.md` is copied verbatim to
+  // <out>/<source-path>.md.txt so tools/LLMs can fetch the source alongside
+  // the rendered HTML (docs/install.md → docs/install.md.txt). No transforms —
+  // the frontmatter and body land exactly as authored. Independent of
+  // siteConfig (always emitted).
+  for (const page of result.pages) {
+    const src = path.join(projectPath, ...page.path.split('/'))
+    const dest = path.join(opts.outDir, ...page.path.split('/')) + '.txt'
+    await mkdir(path.dirname(dest), { recursive: true })
+    await copyFileSafe(src, dest)
+    if (opts.verbose) {
+      process.stdout.write(`  raw: ${page.path}.txt\n`)
+    }
+  }
 }
 
 async function copyFileSafe(src: string, dest: string): Promise<void> {
