@@ -1,0 +1,55 @@
+name: ci
+
+# Test + typecheck gate. The gitleaks workflow only proves "no secrets
+# leaked" — this proves the build compiles and the suites pass, so a green
+# overall CI status actually means the code is shippable.
+#
+# Build-before-test ordering matters: several backend tests inspect built
+# artifacts rather than source —
+#   - tests/package-shape.test.ts asserts `dist-cli/cli/index.js` AND
+#     `frontend/dist/index.html` appear in `npm pack --dry-run`
+#   - tests/cli-bin-smoke.test.ts runs `node dist-cli/cli/index.js --help`
+#   - tests/mermaid-bundle.test.ts self-builds the frontend but needs
+#     frontend/node_modules installed
+# So we build the CLI (`build:cli`) and the frontend dist (`npm run build`,
+# which runs `cd frontend && npm install && npx vite build`) BEFORE the
+# backend suite. This mirrors what a clean local run must do.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: build + typecheck + test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install backend deps
+        run: npm install
+
+      - name: Build CLI (produces dist-cli/)
+        run: npm run build:cli
+
+      - name: Typecheck CLI
+        run: npx tsc -p tsconfig.cli.json --noEmit
+
+      # `npm run build` = `cd frontend && npm install && npx vite build`.
+      # This installs frontend deps AND produces frontend/dist/, which the
+      # backend package-shape test requires. The frontend `vite build` is
+      # also the real frontend typecheck gate.
+      - name: Build frontend (installs frontend deps + produces frontend/dist/)
+        run: npm run build
+
+      - name: Backend tests
+        run: npx vitest run
+
+      - name: Frontend tests
+        run: cd frontend && npx vitest run
