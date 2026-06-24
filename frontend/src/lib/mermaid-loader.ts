@@ -37,5 +37,7 @@ export async function renderMermaidIn(
   // and statically import mermaid from there. See issue #23.
   const { getMermaid } = await import('./mermaid-shim')
   const mermaid = await getMermaid()
-  await renderMermaidElements(nodes, mermaid as never, options)
+  // `getMermaid()` returns `MermaidApi` (the same contract `mermaid-render`
+  // owns), so no cast is needed — the types line up directly.
+  await renderMermaidElements(nodes, mermaid, options)
 }

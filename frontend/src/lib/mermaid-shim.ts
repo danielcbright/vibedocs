@@ -40,13 +40,13 @@
  *    on.
  */
 
-/** The minimal mermaid surface the loader uses. */
-export interface MermaidApiLike {
-  initialize(config: { startOnLoad?: boolean; theme?: string }): void
-  render(id: string, source: string): Promise<{ svg: string }>
-}
+// The minimal mermaid surface the loader uses lives in `mermaid-render.ts`
+// (`MermaidApi`) — the renderer is the consumer, so it owns the contract.
+// Re-exported here so existing `mermaid-shim` importers keep working.
+import type { MermaidApi } from './mermaid-render'
+export type { MermaidApi } from './mermaid-render'
 
-export async function getMermaid(): Promise<MermaidApiLike> {
+export async function getMermaid(): Promise<MermaidApi> {
   // Dynamic import — Rollup treats this as a chunk boundary, so the
   // mermaid chunk is not in this module's static import graph. That
   // is what preserves lazy loading. See top-of-file comment.
@@ -55,11 +55,11 @@ export async function getMermaid(): Promise<MermaidApiLike> {
   // Rollup chunking, `mod.default` may be the mermaid API, undefined,
   // or the namespace itself depending on chunk graph. Fall back to
   // the namespace itself if `.default` is missing.
-  const candidate = (mod.default ?? mod) as MermaidApiLike | undefined
+  const candidate = (mod.default ?? mod) as MermaidApi | undefined
   if (
     !candidate ||
-    typeof (candidate as Partial<MermaidApiLike>).render !== 'function' ||
-    typeof (candidate as Partial<MermaidApiLike>).initialize !== 'function'
+    typeof (candidate as Partial<MermaidApi>).render !== 'function' ||
+    typeof (candidate as Partial<MermaidApi>).initialize !== 'function'
   ) {
     throw new Error(
       'mermaid module resolved but the binding is missing the expected ' +
