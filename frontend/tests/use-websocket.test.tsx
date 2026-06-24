@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, render, act, waitFor, screen } from '@testing-library/react'
-import { useWebSocket } from '@/hooks/use-websocket'
+import { useWebSocket, handleWsMessage } from '@/hooks/use-websocket'
 import { ConnectionStatus } from '@/components/connection-status'
 import { TooltipProvider } from '@/components/ui/tooltip'
 
@@ -87,6 +87,38 @@ afterEach(() => {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
+describe('handleWsMessage — pure dispatch', () => {
+  it('routes a reload message to onReload with the path', () => {
+    const onReload = vi.fn()
+    const onRefreshTree = vi.fn()
+
+    handleWsMessage(
+      { type: 'reload', path: 'docs/example.md' },
+      { onReload, onRefreshTree },
+    )
+
+    expect(onReload).toHaveBeenCalledTimes(1)
+    expect(onReload).toHaveBeenCalledWith('docs/example.md')
+    expect(onRefreshTree).not.toHaveBeenCalled()
+  })
+
+  it('routes a refresh-tree message to onRefreshTree with no args', () => {
+    const onReload = vi.fn()
+    const onRefreshTree = vi.fn()
+
+    handleWsMessage({ type: 'refresh-tree' }, { onReload, onRefreshTree })
+
+    expect(onRefreshTree).toHaveBeenCalledTimes(1)
+    expect(onRefreshTree).toHaveBeenCalledWith()
+    expect(onReload).not.toHaveBeenCalled()
+  })
+
+  it('is a no-op when the matching callback is absent', () => {
+    expect(() => handleWsMessage({ type: 'reload', path: 'x.md' }, {})).not.toThrow()
+    expect(() => handleWsMessage({ type: 'refresh-tree' }, {})).not.toThrow()
+  })
+})
+
 describe('useWebSocket — initial connection', () => {
   it('constructs a WebSocket on mount and reflects connected=true after onopen', async () => {
     const { result } = renderHook(() => useWebSocket({}))
@@ -153,6 +185,36 @@ describe('useWebSocket — message dispatch', () => {
 
     expect(onReload).not.toHaveBeenCalled()
     expect(onRefreshTree).not.toHaveBeenCalled()
+  })
+})
+
+describe('useWebSocket — callback stability', () => {
+  it('does NOT recreate the socket when the onReload callback is swapped', () => {
+    const first = vi.fn()
+    const second = vi.fn()
+
+    const { rerender } = renderHook(
+      ({ onReload }) => useWebSocket({ onReload }),
+      { initialProps: { onReload: first } },
+    )
+
+    expect(MockWebSocket.instances).toHaveLength(1)
+    act(() => {
+      MockWebSocket.instances[0].openConnection()
+    })
+
+    // Swap the callback identity — must not tear down / rebuild the socket.
+    rerender({ onReload: second })
+    expect(MockWebSocket.instances).toHaveLength(1)
+
+    // The live socket now dispatches to the NEW callback, not the old one.
+    act(() => {
+      MockWebSocket.instances[0].receive({ type: 'reload', path: 'after-swap.md' })
+    })
+
+    expect(first).not.toHaveBeenCalled()
+    expect(second).toHaveBeenCalledTimes(1)
+    expect(second).toHaveBeenCalledWith('after-swap.md')
   })
 })
 
