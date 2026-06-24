@@ -12,9 +12,9 @@
 // with a message that names the offending field.
 
 import path from 'path'
-import os from 'os'
-import { access, mkdtemp, writeFile, rm } from 'fs/promises'
-import { pathToFileURL } from 'url'
+import vm from 'vm'
+import { createRequire } from 'module'
+import { access } from 'fs/promises'
 import * as esbuild from 'esbuild'
 import { VibedocsError } from './errors.js'
 import type { SiteConfig } from './shared/site-config-types.js'
@@ -32,17 +32,23 @@ async function fileExists(p: string): Promise<boolean> {
   }
 }
 
-// esbuild plugin that resolves `vibedocs/config` (and bare `vibedocs`) to a
-// virtual module exporting an identity `defineSite`. This lets user configs
+// esbuild plugin that resolves `vibedocs/config` to a virtual module exporting
+// an identity `defineSite`. This lets user configs
 // `import { defineSite } from 'vibedocs/config'` without vibedocs being
 // installed as a runtime dep in their project.
+//
+// The filter is exactly `vibedocs/config` (not a bare `vibedocs`) so a future
+// legitimate `import { x } from 'vibedocs'` isn't silently routed here.
 const vibedocsConfigShimPlugin: esbuild.Plugin = {
   name: 'vibedocs-config-shim',
   setup(build) {
-    build.onResolve({ filter: /^vibedocs(\/config)?$/ }, (args) => ({
+    build.onResolve({ filter: /^vibedocs\/config$/ }, (args) => ({
       path: args.path,
       namespace: 'vibedocs-shim',
     }))
+    // Add new public helpers here when SiteConfig grows them (e.g. defineTheme).
+    // The shim only exports what's listed — a user importing an un-shimmed name
+    // would otherwise silently get `undefined`.
     build.onLoad({ filter: /.*/, namespace: 'vibedocs-shim' }, () => ({
       contents: 'export function defineSite(c) { return c }\n',
       loader: 'js',
@@ -57,7 +63,13 @@ async function transpileAndImport(configPath: string): Promise<unknown> {
       entryPoints: [configPath],
       bundle: true,
       write: false,
-      format: 'esm',
+      // Bundle to CJS, not ESM. We evaluate the result in a fresh vm context
+      // (see below) instead of dynamic-import. A dynamic `import()` of a temp
+      // file or data: URL registers a permanent entry in Node's ESM loader
+      // cache for the process lifetime — one entry leaked per config edit once
+      // the chokidar watcher re-loads on each save (#62). CJS-in-vm leaves no
+      // such entry: each evaluation is garbage-collected like any object.
+      format: 'cjs',
       platform: 'node',
       target: 'node20',
       logLevel: 'silent',
@@ -73,25 +85,34 @@ async function transpileAndImport(configPath: string): Promise<unknown> {
     )
   }
 
-  // Write the bundled ESM to a temp .mjs file and dynamic-import it. Using a
-  // file (not a data: URL) keeps source-map and stack traces sensible if the
-  // user config throws at evaluation time.
-  const tmp = await mkdtemp(path.join(os.tmpdir(), 'vibedocs-config-'))
-  const tmpFile = path.join(tmp, 'config.mjs')
   try {
-    await writeFile(tmpFile, bundled, 'utf8')
-    const mod = await import(pathToFileURL(tmpFile).href)
-    return mod.default
+    return evaluateBundledConfig(bundled, configPath)
   } catch (err) {
+    if (err instanceof VibedocsError) throw err
     const msg = err instanceof Error ? err.message : String(err)
     throw new VibedocsError(
       'invalid',
       `Failed to evaluate ${path.basename(configPath)}: ${msg}`,
       { cause: err },
     )
-  } finally {
-    await rm(tmp, { recursive: true, force: true })
   }
+}
+
+// Run the esbuild-bundled CommonJS module in a fresh vm context. The bundle is
+// self-contained (the shim resolves `vibedocs/config` at build time), so a
+// `require` is wired only for resilience — it points at the config file's own
+// directory. `filename`/`dirname` use the real config path so any error stack
+// is reported against a sensible location. Returns `module.exports.default`.
+function evaluateBundledConfig(bundled: string, configPath: string): unknown {
+  const module = { exports: {} as Record<string, unknown> }
+  const require = createRequire(configPath)
+  const wrapper = new vm.Script(
+    `(function (exports, require, module, __filename, __dirname) {\n${bundled}\n})`,
+    { filename: configPath },
+  )
+  const fn = wrapper.runInThisContext()
+  fn(module.exports, require, module, configPath, path.dirname(configPath))
+  return module.exports.default
 }
 
 /**
@@ -120,9 +141,24 @@ function fail(filename: string, msg: string): never {
   throw new VibedocsError('invalid', `${filename}: ${msg}`)
 }
 
+// A required field can fail two distinct ways, and the message must say which:
+//   - the field is absent (undefined)          → "missing required field: X"
+//   - the field is present but the wrong type   → "invalid field: X (expected …, got …)"
+// Conflating them ("missing required field: X (got number)") is internally
+// contradictory — the field clearly isn't missing if we can describe its type.
+function requiredFieldMessage(
+  fieldPath: string,
+  value: unknown,
+  expected: string,
+): string {
+  return value === undefined
+    ? `missing required field: ${fieldPath}`
+    : `invalid field: ${fieldPath} (expected ${expected}, got ${describe(value)})`
+}
+
 function requireString(filename: string, value: unknown, fieldPath: string): string {
   if (typeof value !== 'string') {
-    fail(filename, `missing required field: ${fieldPath} (expected string, got ${describe(value)})`)
+    fail(filename, requiredFieldMessage(fieldPath, value, 'string'))
   }
   return value as string
 }
@@ -133,7 +169,7 @@ function requireObject(
   fieldPath: string,
 ): Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    fail(filename, `missing required field: ${fieldPath} (expected object, got ${describe(value)})`)
+    fail(filename, requiredFieldMessage(fieldPath, value, 'object'))
   }
   return value as Record<string, unknown>
 }
