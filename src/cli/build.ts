@@ -210,6 +210,28 @@ export async function runBuild(opts: BuildOptions): Promise<void> {
   const themeColor = resolveThemeColor(siteConfig)
   const pwa = { themeColor, appTitle: manifest.short_name }
 
+  // Per-site theming (#51): the token record emitted as a scoped <style> in
+  // every page's <head>, plus the optional `theme.css` escape hatch. The CSS
+  // file (a project-relative path in `siteConfig.theme.css`) is copied to the
+  // output root once; pages link it via `themeCssHref` AFTER the generated
+  // stylesheet so author CSS wins. A configured-but-missing file is a warning,
+  // not a build failure — the rest of the site still renders.
+  const themeTokens = siteConfig?.theme?.tokens
+  let themeCssHref: string | undefined
+  const themeCssRel = siteConfig?.theme?.css?.trim()
+  if (themeCssRel) {
+    const themeCssSrc = path.join(projectPath, ...themeCssRel.split('/'))
+    if (await fileExists(themeCssSrc)) {
+      const themeCssName = path.basename(themeCssRel)
+      await copyFileSafe(themeCssSrc, path.join(opts.outDir, themeCssName))
+      themeCssHref = '/' + themeCssName
+    } else {
+      process.stderr.write(
+        `warning: siteConfig.theme.css references "${themeCssRel}" which does not exist on disk\n`,
+      )
+    }
+  }
+
   // Resolve the site base URL once — used for both per-page canonical/og:url
   // (#50) and sitemap/robots (#54). Precedence: explicit `--base-url` >
   // `siteConfig.domain` > a localhost fallback so the build never fails on a
@@ -240,6 +262,8 @@ export async function runBuild(opts: BuildOptions): Promise<void> {
       hydration,
       pwa,
       seo,
+      ...(themeTokens ? { themeTokens } : {}),
+      ...(themeCssHref ? { themeCssHref } : {}),
       ...(siteConfig?.nav ? { siteConfigNav: siteConfig.nav } : {}),
     })
     await writeFile(outPath, html, 'utf-8')

@@ -625,6 +625,88 @@ describe('runBuild — PWA emission (#143)', () => {
   })
 })
 
+describe('runBuild — per-site theming (#51)', () => {
+  it('emits the scoped theme <style> block from siteConfig.theme.tokens into every page', async () => {
+    const configSource = `
+      export default {
+        name: 'Neon Docs',
+        domain: 'example.com',
+        description: 'Retro docs.',
+        theme: { tokens: { '--primary': '#39ff14', '--background': '#0a0e0a' } },
+        llms: { summary: 's', keyDocs: [] },
+      }
+    `
+    await writeFile(path.join(projectPath, '.vibedocs.config.ts'), configSource, 'utf8')
+
+    await runBuild({ projectName: 'myproject', projectsRoot, outDir, frontendDist })
+
+    const html = await readFile(path.join(outDir, 'index.html'), 'utf-8')
+    expect(html).toContain('<style data-vd-theme>')
+    expect(html).toContain('.vd-site-preview {')
+    expect(html).toContain('--primary: #39ff14;')
+    expect(html).toContain('--color-primary: var(--primary);')
+
+    // Nested page gets the tokens too.
+    const nested = await readFile(path.join(outDir, 'docs', 'install', 'index.html'), 'utf-8')
+    expect(nested).toContain('--primary: #39ff14;')
+  })
+
+  it('emits no theme style block when the project has no siteConfig', async () => {
+    await runBuild({ projectName: 'myproject', projectsRoot, outDir, frontendDist })
+    const html = await readFile(path.join(outDir, 'index.html'), 'utf-8')
+    expect(html).not.toContain('data-vd-theme')
+    expect(html).not.toContain('.vd-site-preview')
+  })
+
+  it('copies the theme.css escape hatch to the output and links it after the generated stylesheet', async () => {
+    await writeFile(path.join(projectPath, 'theme.css'), '.vd-site-preview h1 { color: hotpink; }\n')
+    const configSource = `
+      export default {
+        name: 'Neon Docs',
+        domain: 'example.com',
+        description: 'Retro docs.',
+        theme: { tokens: { '--primary': '#39ff14' }, css: 'theme.css' },
+        llms: { summary: 's', keyDocs: [] },
+      }
+    `
+    await writeFile(path.join(projectPath, '.vibedocs.config.ts'), configSource, 'utf8')
+
+    await runBuild({ projectName: 'myproject', projectsRoot, outDir, frontendDist })
+
+    // The file is copied to the output root.
+    expect(await pathExists(path.join(outDir, 'theme.css'))).toBe(true)
+    const copied = await readFile(path.join(outDir, 'theme.css'), 'utf-8')
+    expect(copied).toContain('color: hotpink')
+
+    const html = await readFile(path.join(outDir, 'index.html'), 'utf-8')
+    expect(html).toContain('<link rel="stylesheet" href="/theme.css">')
+    // theme.css must come after the generated stylesheet so it can override.
+    const genIdx = html.indexOf('/assets/index-FAKEHASH.css')
+    const themeIdx = html.indexOf('/theme.css')
+    expect(genIdx).toBeGreaterThan(-1)
+    expect(themeIdx).toBeGreaterThan(genIdx)
+  })
+
+  it('does not link theme.css when siteConfig.theme.css is unset', async () => {
+    const configSource = `
+      export default {
+        name: 'Neon Docs',
+        domain: 'example.com',
+        description: 'Retro docs.',
+        theme: { tokens: { '--primary': '#39ff14' } },
+        llms: { summary: 's', keyDocs: [] },
+      }
+    `
+    await writeFile(path.join(projectPath, '.vibedocs.config.ts'), configSource, 'utf8')
+
+    await runBuild({ projectName: 'myproject', projectsRoot, outDir, frontendDist })
+
+    const html = await readFile(path.join(outDir, 'index.html'), 'utf-8')
+    expect(html).not.toContain('theme.css')
+    expect(await pathExists(path.join(outDir, 'theme.css'))).toBe(false)
+  })
+})
+
 describe('runBuild — sitemap + robots emission (#54)', () => {
   async function writeConfig(domain: string) {
     await writeFile(
