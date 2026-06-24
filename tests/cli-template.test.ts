@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { composePageHtml } from '../src/cli/template.js'
 import type { HtmlPage } from '../src/render.js'
 
@@ -307,6 +309,36 @@ describe('composePageHtml — hydration policy (#76)', () => {
     const out = composePageHtml(page(), { bundleEntry: '/assets/index.js', title: 'T' })
     expect(out).not.toContain('rel="manifest"')
     expect(out).not.toContain('/sw-register.js')
+  })
+
+  it('sets window.__VIBEDOCS_STATIC=true before the app bundle in full mode (#151)', () => {
+    const out = composePageHtml(page(), {
+      bundleEntry: '/assets/index-abc.js',
+      title: 'T',
+      hydration: 'full',
+    })
+
+    // The static flag must be present so live-only UI (the #58 project
+    // switcher, gated by is-static.ts) self-suppresses in static output.
+    expect(out).toContain('window.__VIBEDOCS_STATIC=true')
+    // ...and it must run BEFORE the app bundle, so isStaticBuild() reads true
+    // before any React component mounts.
+    const flagIdx = out.indexOf('window.__VIBEDOCS_STATIC=true')
+    const bundleIdx = out.indexOf('src="/assets/index-abc.js"')
+    expect(flagIdx).toBeGreaterThan(-1)
+    expect(bundleIdx).toBeGreaterThan(-1)
+    expect(flagIdx).toBeLessThan(bundleIdx)
+  })
+
+  it('does not set the static flag in the live frontend/index.html (#151)', () => {
+    // The live SPA is served from frontend/index.html (a separate Vite file we
+    // must never touch). Its CSP is `script-src 'self'` — no inline scripts —
+    // and it must NEVER claim to be a static build.
+    const indexHtmlPath = fileURLToPath(
+      new URL('../frontend/index.html', import.meta.url),
+    )
+    const liveHtml = readFileSync(indexHtmlPath, 'utf8')
+    expect(liveHtml).not.toContain('__VIBEDOCS_STATIC')
   })
 
   it('falls back to flat-link nav when hydration=minimal AND siteConfigNav is absent', () => {

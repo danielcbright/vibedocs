@@ -98,9 +98,18 @@ export function composePageHtml(page: HtmlPage, opts: ComposePageOptions): strin
   // Minimal mode strips the bootstrap script — the SPA bundle isn't shipped
   // and there's nothing to load. CSS stays put: Shiki tokens, prose typography,
   // and table styles all live in the Vite-emitted stylesheet.
+  //
+  // Full mode flags the page as a static build (#151) BEFORE the app bundle:
+  // `isStaticBuild()` (frontend/src/lib/is-static.ts) reads
+  // `window.__VIBEDOCS_STATIC === true`, so live-only UI (the #58 project
+  // switcher) self-suppresses in static output — a static site has no
+  // `/api/projects` to populate it. Minimal mode ships no SPA, so it skips the
+  // flag (harmless to emit, but nothing reads it without React). composePageHtml
+  // emits no CSP meta, so this inline <script> doesn't violate the static
+  // output's policy — unlike the live frontend/index.html (CSP script-src 'self').
   const scriptTag =
     hydration === 'full'
-      ? `<script type="module" src="${bundleEntry}"></script>`
+      ? `<script>window.__VIBEDOCS_STATIC=true</script>\n    <script type="module" src="${bundleEntry}"></script>`
       : ''
 
   // PWA: manifest + theme-color + iOS meta in <head>; SW registration script
