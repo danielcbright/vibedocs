@@ -81,7 +81,7 @@
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^22",
     "@types/ws": "^8",
-    "concurrently": "^9.2.1",
+    "concurrently": "^9.2.3",
     "husky": "^9.1.7",
     "pagefind": "^1.5.2",
     "typescript": "^5",
