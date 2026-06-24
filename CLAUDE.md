@@ -66,6 +66,17 @@ Saved/copied bytes come from a single `sumDirBytes(frontendDist/assets)` walk th
 
 Pick `minimal` for public docs sites where most readers land on one page and leave. Pick `full` for the live workspace where you want the interactive app.
 
+### Static-build PWA (issue #143)
+
+Every `vibedocs build` output is an installable, offline-capable PWA — in **both** hydration modes. The PWA logic is a separate seam from the live-app PWA (#142): `src/cli/pwa.ts` holds the pure, unit-tested pieces (`tests/cli-pwa.test.ts`), wired into the build by `runBuild` (`src/cli/build.ts`) and `composePageHtml` (`src/cli/template.ts`).
+
+- **Head tags:** `composePageHtml` injects the manifest link + `theme-color` + iOS "Add to Home Screen" meta + favicons in BOTH branches when an `opts.pwa` is supplied (it always is from `runBuild`). The SW registration is a plain `<script src="/sw-register.js">` (NOT `type="module"`) so the minimal-mode "no module script" contract holds — in minimal mode this is the only JS the page ships.
+- **Emitted files** (per build, into `<out>/`): `manifest.webmanifest`, `sw.js`, `sw-register.js`, and the shared #142 icon set (`PWA_ICON_FILES` — icons + favicons copied from `frontendDist`, where Vite mirrors `frontend/public/*`). Icons are NOT regenerated — they're the #142 assets.
+- **Static service worker** (`staticServiceWorkerSource(version)`): self-contained, no `/api/` routing (static sites have no API). Precaches the shell on install; on fetch, `/assets/*` is cache-first (immutable hashed bundles), everything else is network-first and cached so visited pages read offline; navigations fall back to the cached root shell. The cache name is `vibedocs-static-<version>` where `<version>` is a content hash (bundle entry + stylesheet + icon list) computed in `runBuild` — a rebuild rotates it and the `activate` handler purges stale caches.
+- **Config-derived manifest** (`buildManifest(siteConfig, projectName)`): `name`/`short_name`/`description` come from `siteConfig` (else the project name); `theme_color` from `siteConfig.theme.tokens['--primary']` when it's a hex color (else the #142 default `#8852e0`). `resolveThemeColor` only honours hex tokens — Tailwind `oklch(...)`/HSL-triple tokens aren't valid `theme_color`s.
+
+Verified in a real browser against local builds of both modes (offline reading confirmed by killing the static server and reloading): manifest loads, SW registers + controls the page, and previously-visited pages render with the server down.
+
 ## Tech Stack
 
 - **Backend:** Node.js + Hono 4 + TypeScript
