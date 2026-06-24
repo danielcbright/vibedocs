@@ -95,6 +95,78 @@ describe('composePageHtml — minimal template (slice #49)', () => {
   })
 })
 
+describe('composePageHtml — per-site theming (#51)', () => {
+  it('emits a scoped theme <style> block in <head> when themeTokens are supplied', () => {
+    const out = composePageHtml(page(), {
+      bundleEntry: '/assets/index.js',
+      title: 'T',
+      themeTokens: { '--primary': '#39ff14', '--background': '#0a0e0a' },
+    })
+
+    expect(out).toContain('<style data-vd-theme>')
+    expect(out).toContain('.vd-site-preview {')
+    expect(out).toContain('--primary: #39ff14;')
+    expect(out).toContain('--color-primary: var(--primary);')
+    // The style block belongs in <head>, before the body content.
+    const headEnd = out.indexOf('</head>')
+    expect(out.indexOf('<style data-vd-theme>')).toBeLessThan(headEnd)
+  })
+
+  it('emits the theme style block in minimal hydration mode too', () => {
+    const out = composePageHtml(page(), {
+      bundleEntry: '/assets/index.js',
+      title: 'T',
+      hydration: 'minimal',
+      themeTokens: { '--primary': '#39ff14' },
+    })
+
+    expect(out).toContain('<style data-vd-theme>')
+    expect(out).toContain('--primary: #39ff14;')
+  })
+
+  it('emits no theme style block when there are no tokens', () => {
+    const out = composePageHtml(page(), { bundleEntry: '/assets/index.js', title: 'T' })
+    expect(out).not.toContain('data-vd-theme')
+
+    const empty = composePageHtml(page(), {
+      bundleEntry: '/assets/index.js',
+      title: 'T',
+      themeTokens: {},
+    })
+    expect(empty).not.toContain('data-vd-theme')
+  })
+
+  it('links the theme.css escape hatch AFTER the generated stylesheet so it can override', () => {
+    const out = composePageHtml(page(), {
+      bundleEntry: '/assets/index.js',
+      title: 'T',
+      stylesheet: '/assets/index-FAKEHASH.css',
+      themeCssHref: '/theme.css',
+    })
+
+    expect(out).toContain('<link rel="stylesheet" href="/theme.css">')
+    const genIdx = out.indexOf('/assets/index-FAKEHASH.css')
+    const themeIdx = out.indexOf('/theme.css')
+    expect(genIdx).toBeGreaterThan(-1)
+    expect(themeIdx).toBeGreaterThan(genIdx)
+  })
+
+  it('escapes the theme.css href to avoid attribute injection', () => {
+    const out = composePageHtml(page(), {
+      bundleEntry: '/assets/index.js',
+      title: 'T',
+      themeCssHref: '/theme.css"><script>alert(1)</script>',
+    })
+
+    expect(out).not.toContain('<script>alert(1)</script>')
+  })
+
+  it('does not link theme.css when no href is supplied', () => {
+    const out = composePageHtml(page(), { bundleEntry: '/assets/index.js', title: 'T' })
+    expect(out).not.toContain('theme.css')
+  })
+})
+
 describe('composePageHtml — SEO meta (#50)', () => {
   const seo = {
     title: 'Install Guide',

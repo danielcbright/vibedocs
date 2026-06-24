@@ -14,6 +14,7 @@ import type { HtmlPage } from '../render.js'
 import type { HydrationPolicy, SiteConfig } from '../shared/site-config-types.js'
 import { renderPwaHeadTags, type PwaHeadOptions } from './pwa.js'
 import type { PageSeo } from './seo.js'
+import { renderThemeStyleTag } from './theme.js'
 
 export interface NavLink {
   url: string
@@ -55,6 +56,19 @@ export interface ComposePageOptions {
    * Omit it (or its optional fields) to emit a non-SEO page (back-compat).
    */
   seo?: PageSeo
+  /**
+   * Per-site theme tokens (`siteConfig.theme.tokens`). When non-empty, a
+   * scoped `<style>` block is emitted in `<head>` (both hydration modes) that
+   * defines the tokens AND aliases the shadcn consumer vars inside the
+   * `.vd-site-preview` scope. See `./theme.ts`. Omit / empty → no style block.
+   */
+  themeTokens?: Record<string, string>
+  /**
+   * URL of the `theme.css` escape-hatch stylesheet (`siteConfig.theme.css`,
+   * copied to the output by `runBuild`). Linked AFTER the generated stylesheet
+   * so author CSS can override vibedocs defaults. Omit → no link.
+   */
+  themeCssHref?: string
 }
 
 const HTML_ESCAPES: Record<string, string> = {
@@ -85,6 +99,18 @@ export function composePageHtml(page: HtmlPage, opts: ComposePageOptions): strin
   const stylesheetTag = opts.stylesheet
     ? `<link rel="stylesheet" href="${escapeAttr(opts.stylesheet)}">`
     : ''
+  // Per-site theming (#51): a scoped <style> block of CSS-var tokens, then the
+  // optional theme.css escape-hatch link. The escape hatch is emitted AFTER the
+  // generated stylesheet (and after the token block) so author CSS can override
+  // both vibedocs defaults and the token values. Both pieces emit nothing when
+  // their input is absent — a no-config page gets neither.
+  const themeStyleTag = renderThemeStyleTag(opts.themeTokens)
+  const themeCssLink = opts.themeCssHref
+    ? `<link rel="stylesheet" href="${escapeAttr(opts.themeCssHref)}">`
+    : ''
+  const headStyles = [stylesheetTag, themeStyleTag, themeCssLink]
+    .filter((s) => s !== '')
+    .join('\n    ')
   // Minimal mode prefers the curated nav (when supplied) — flat fallback only
   // when there's no `siteConfig.nav.sections`. Full mode keeps the flat nav as
   // a no-JS scaffold the React SPA replaces post-hydrate.
@@ -132,7 +158,7 @@ export function composePageHtml(page: HtmlPage, opts: ComposePageOptions): strin
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>${title}</title>${seoTags}
-    ${stylesheetTag}${pwaHeadTags}
+    ${headStyles}${pwaHeadTags}
   </head>
   <body>
     <div id="root">
