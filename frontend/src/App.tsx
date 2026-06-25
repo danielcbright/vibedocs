@@ -285,9 +285,12 @@ function DocsApp() {
           <ResizablePanel id="content" defaultSize="62%" minSize="30%">
             <div className="flex flex-col h-full min-w-0 overflow-hidden">
               <header className="flex h-12 items-center gap-2 border-b px-4 shrink-0">
-                <span className="text-sm text-muted-foreground">
-                  {activeProject ? `${activeProject}` : "Documentation"}
-                </span>
+                <ProjectSwitcher
+                  projects={projects}
+                  activeProject={activeProject}
+                  onNavigate={navigateSmart}
+                  inline
+                />
               </header>
               <DocContent
                 html={html}
@@ -317,11 +320,6 @@ function DocsApp() {
         onNavigate={(project, path) => {
           window.location.hash = `${project}/${path}`
         }}
-      />
-      <ProjectSwitcher
-        projects={projects}
-        activeProject={activeProject}
-        onNavigate={navigateSmart}
       />
     </>
   )
