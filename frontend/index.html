@@ -8,7 +8,11 @@
         - script-src 'self': no inline/eval scripts. Vite production build emits external scripts only.
         - style-src 'self' 'unsafe-inline': Shiki injects inline <style> for per-token color tokens;
           Tailwind v4 inlines reset styles. Both require 'unsafe-inline' to render.
-        - img-src 'self' data:: lucide-react and shadcn use data: URIs for inline SVG icons.
+        - img-src 'self' data: https:: 'self'+data: cover bundled UI icons (lucide/shadcn);
+          https: allows external images in rendered docs — README badges (shields.io etc.) and
+          remotely-hosted screenshots. Doc authors are trusted (filesystem write access) and this
+          is a local/tailnet tool, so the IP-leak risk of arbitrary https image loads is acceptable;
+          the tradeoff is worth it because external badges are ubiquitous in READMEs.
         - font-src 'self' data:: WOFF2 fonts are bundled, plus base64 fallbacks.
         - connect-src 'self' ws: wss:: live-reload WebSocket on same origin (both schemes for tailnet/TLS deploys).
         - object-src 'none': no <object>/<embed> plugin content.
@@ -19,7 +23,7 @@
       default-src 'self', and the manifest + service worker (issue #142) are
       served same-origin, so no CSP extension is required.
     -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'self'" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'self'" />
 
     <!-- PWA: web app manifest (Android/Chrome install) -->
     <link rel="manifest" href="/manifest.webmanifest" />
