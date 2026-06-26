@@ -133,7 +133,7 @@ export function DocContent({ html, loading, error, project, docPath, connected, 
 
   if (!project || !docPath) {
     return (
-      <div className="flex flex-1 flex-col overflow-auto">
+      <div className="flex h-full flex-col overflow-y-auto">
         <ProjectPicker
           projects={projects ?? []}
           onNavigate={onNavigate ?? (() => {})}

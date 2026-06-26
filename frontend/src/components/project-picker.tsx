@@ -30,8 +30,13 @@ export function countMarkdownDocs(nodes: FileNode[]): number {
 }
 
 export function ProjectPicker({ projects, onNavigate }: ProjectPickerProps) {
+  // Empty's base is flex-1 + justify-center, which pins it to the scroll
+  // container's height and vertically-centers — that makes the top of an
+  // overflowing tile grid unreachable on mobile. flex-none + min-h-full sizes
+  // it to content with a full-height floor, so it still centers when the tiles
+  // fit and scrolls from the top when they don't.
   return (
-    <Empty className="border-0 p-6 md:p-12">
+    <Empty className="border-0 p-6 md:p-12 flex-none min-h-full">
       <EmptyHeader className="max-w-none">
         <EmptyTitle>Browse a project</EmptyTitle>
         <EmptyDescription>
