@@ -181,13 +181,22 @@ function DocsApp() {
               type="button"
               onClick={goHomeAndSearch}
               aria-label="Go home and open search"
-              className="tap-row tap-active-feedback flex items-center gap-2 min-w-0 flex-1 rounded-md px-1 -mx-1 text-left transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className="tap-row tap-active-feedback flex items-center shrink-0 rounded-md p-1 transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
               <VibedocsLogo className="h-7 w-7 shrink-0" />
-              <span className="font-semibold text-sm truncate">
-                {activeProject ?? "VibeDocs"}
-              </span>
             </button>
+            {/* Project switcher carries the current-project label here (replacing
+                the old static name) and switches projects — in-flow so it never
+                overlaps the search/theme controls the way the old fixed-corner
+                switcher did. */}
+            <div className="flex-1 min-w-0">
+              <ProjectSwitcher
+                projects={projects}
+                activeProject={activeProject}
+                onNavigate={navigateSmart}
+                inline
+              />
+            </div>
             <Button
               variant="ghost"
               size="icon"
@@ -245,11 +254,6 @@ function DocsApp() {
           onNavigate={(project, path) => {
             window.location.hash = `${project}/${path}`
           }}
-        />
-        <ProjectSwitcher
-          projects={projects}
-          activeProject={activeProject}
-          onNavigate={navigateSmart}
         />
       </>
     )
