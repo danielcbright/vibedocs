@@ -68,6 +68,16 @@ Without gitleaks installed, the pre-commit hook prints a warning and lets the co
 
 If a scan flags a false positive, add an allowlist entry to `.gitleaks.toml` rather than `--no-verify`-ing.
 
+## Git history note
+
+In May 2026 this repo's history was rewritten to purge maintainer PII (local workspace paths, a tailnet hostname and IP, and unrelated private project names). The rewrite is complete and verified — gitleaks scans all refs with the PII rules in `.gitleaks.toml` and reports no findings.
+
+**One side effect is worth knowing about:** the rewrite changed every commit SHA, which orphaned the branch tips that existed beforehand. As a result `git branch --no-merged main` lists branches whose work *is* actually in `main` — git just can't see the ancestry any more, because the commit it was merged as no longer exists under that SHA. For example, the work on `arch-audit/86-upload-validation-pipeline` landed in `main` as `6b434dc`, but the old branch tip looks unmerged.
+
+If you're auditing branches, check whether the work is present in `main` by content or by its merge commit message, not by `--merged`/`--no-merged`.
+
+A full squash to a single orphan commit was planned as a follow-up but deliberately abandoned — the PII purge had already achieved the goal, and force-pushing a public repo would have broken existing clones and re-pointed published release tags for no benefit.
+
 ## Reporting Issues
 
 Open an issue at https://github.com/danielcbright/vibedocs/issues with:
