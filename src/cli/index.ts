@@ -16,13 +16,21 @@ import path from 'path'
 import { spawn } from 'child_process'
 import { fileURLToPath } from 'url'
 import { realpathSync } from 'fs'
-import { parseBuildArgs } from './args.js'
+import { parseBuildArgs, parseServeArgs } from './args.js'
 import { runBuild } from './build.js'
 import { indexWithPagefind, isPagefindAvailable } from './pagefind.js'
+import { runLiveServer } from './serve-live.js'
 
 const USAGE = `Usage:
+  vibedocs serve [--root <dir>] [--port <n>]
   vibedocs build --project <name> --out <dir> [--base-url <url>] [--frontend-dist <path>] [--hydration full|minimal]
   vibedocs build --project <name> --serve [--port <n>] [--frontend-dist <path>] [--hydration full|minimal]
+
+Commands:
+  serve   Browse a directory of markdown projects in the live app (search,
+          live reload, theme toggle, diagrams). Defaults to the current
+          directory on port 8080.
+  build   Render a project to a static site you can host anywhere.
 `
 
 export async function main(argv: string[]): Promise<number> {
@@ -31,6 +39,17 @@ export async function main(argv: string[]): Promise<number> {
   if (!subcommand || subcommand === '--help' || subcommand === '-h') {
     process.stdout.write(USAGE)
     return subcommand ? 0 : 1
+  }
+
+  if (subcommand === 'serve') {
+    let serveArgs: ReturnType<typeof parseServeArgs>
+    try {
+      serveArgs = parseServeArgs(rest)
+    } catch (err) {
+      process.stderr.write(`vibedocs serve: ${(err as Error).message}\n\n${USAGE}`)
+      return 1
+    }
+    return runLiveServer(serveArgs)
   }
 
   if (subcommand !== 'build') {

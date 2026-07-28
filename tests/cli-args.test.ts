@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseBuildArgs, resolveHydration } from '../src/cli/args.js'
+import { parseBuildArgs, parseServeArgs, resolveHydration } from '../src/cli/args.js'
 
 describe('parseBuildArgs', () => {
   it('parses --project and --out (required pair)', () => {
@@ -99,5 +99,29 @@ describe('resolveHydration — precedence (#76)', () => {
 
   it('defaults to "full" when neither is set (back-compat)', () => {
     expect(resolveHydration(undefined, undefined)).toBe('full')
+  })
+})
+
+describe('parseServeArgs — `vibedocs serve` (live browser from the npm package)', () => {
+  it('defaults to the current directory and port 8080 when given no flags', () => {
+    expect(parseServeArgs([])).toEqual({ root: process.cwd(), port: 8080 })
+  })
+})
+
+describe('parseServeArgs — flags', () => {
+  it('honours --root and --port, resolving root to an absolute path', () => {
+    expect(parseServeArgs(['--root', '/srv/docs', '--port', '9000'])).toEqual({
+      root: '/srv/docs',
+      port: 9000,
+    })
+  })
+
+  it('rejects a non-numeric or out-of-range port instead of silently serving on NaN', () => {
+    expect(() => parseServeArgs(['--port', 'eighty'])).toThrow(/--port must be an integer/)
+    expect(() => parseServeArgs(['--port', '70000'])).toThrow(/--port must be an integer/)
+  })
+
+  it('rejects unknown flags', () => {
+    expect(() => parseServeArgs(['--projekt', 'x'])).toThrow(/unknown flag/)
   })
 })

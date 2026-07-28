@@ -83,11 +83,19 @@ describe('CLI dispatcher — usage / --help', () => {
 
 describe('CLI dispatcher — unknown subcommand', () => {
   it('exits non-zero and writes an informative message + usage to stderr', async () => {
-    const code = await main(['serve'])
+    // NB: `serve` used to be the example here — it's a real subcommand now.
+    const code = await main(['publish'])
     expect(code).not.toBe(0)
     const err = stderrString()
-    expect(err).toMatch(/Unknown subcommand: serve/)
+    expect(err).toMatch(/Unknown subcommand: publish/)
     expect(err).toMatch(/Usage:/)
+  })
+
+  it('lists both real subcommands in the usage banner', async () => {
+    await main(['publish'])
+    const err = stderrString()
+    expect(err).toMatch(/vibedocs serve/)
+    expect(err).toMatch(/vibedocs build/)
   })
 })
 

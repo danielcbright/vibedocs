@@ -18,7 +18,11 @@
     "src/markdown-plugins.ts",
     "src/path-resolver.ts",
     "src/errors.ts",
-    "src/discovery.ts"
+    "src/discovery.ts",
+    // `vibedocs serve` boots the live app from the published package, so the
+    // server and everything it reaches has to compile into dist-cli/ too.
+    // tsc follows the import graph from here.
+    "src/server.ts"
   ],
   "exclude": [
     "node_modules",

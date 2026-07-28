@@ -19,19 +19,23 @@
 
 ## Quick start
 
-Build a static documentation site from a folder of markdown — no config file, no database:
+Point it at a folder of markdown projects and browse them:
 
 ```bash
-VIBEDOCS_ROOT=/path/to/your/projects npx vibedocs build --project my-project --out ./site
+npx vibedocs serve --root ./projects
 ```
 
-Or preview it locally instead of writing to disk:
+Open <http://localhost:8080>. No config file, no database, no build step — you get search, live reload as you edit, syntax highlighting, mermaid diagrams and a dark-mode toggle.
+
+When you want to publish instead of browse, render a project to a static site:
 
 ```bash
-VIBEDOCS_ROOT=/path/to/your/projects npx vibedocs build --project my-project --serve
+VIBEDOCS_ROOT=./projects npx vibedocs build --project my-project --out ./site
 ```
 
-The output is plain HTML with syntax highlighting, full-text search, and an installable PWA — deploy it to any static host.
+That output is plain HTML with self-hosted full-text search and an installable PWA — deploy it to any static host. Add `--serve` instead of `--out` to preview the built site locally.
+
+Prefer a permanent install? `npm install -g vibedocs`.
 
 The repo ships with a `demo/` workspace (three fictional Cirrus Weather projects) so you can try the app without your own markdown:
 

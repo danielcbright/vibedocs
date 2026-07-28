@@ -139,3 +139,13 @@ describe('buildVerifyClient', () => {
     expect(verifyAllow({ origin: '', secure: false, req: {} as any })).toBe(true)
   })
 })
+
+describe('parseAllowedOrigins — loopback by IP (#serve)', () => {
+  it('trusts http://127.0.0.1 on the serving port, not just the localhost alias', () => {
+    // `vibedocs serve --port N` invites arbitrary ports, and browsers commonly
+    // land on 127.0.0.1. Without this, live reload fails with an opaque
+    // "HTTP Authentication failed" console error and no other symptom.
+    const origins = parseAllowedOrigins({ envValue: undefined, port: 9000 })
+    expect(origins).toContain('http://127.0.0.1:9000')
+  })
+})
