@@ -12,7 +12,7 @@ VibeDocs — self-hosted markdown documentation browser. Hono backend + React fr
 |----------|---------|-------------|
 | `VIBEDOCS_ROOT` | `process.cwd()` | Root directory to scan for project folders |
 | `VIBEDOCS_PORT` or `PORT` | `8080` | Server port |
-| `VIBEDOCS_WS_ALLOWED_ORIGINS` | _(unset)_ | Comma-separated extra Origin allowlist for the WebSocket handshake. Defaults always include `http://localhost:8080`, `http://localhost:5173`, and `http://localhost:${PORT}`. Add tailnet/public hostnames here (e.g. `http://vibedocs.tailnet:8080`) when exposing vibedocs beyond localhost. |
+| `VIBEDOCS_WS_ALLOWED_ORIGINS` | _(unset)_ | Comma-separated extra Origin allowlist for the WebSocket handshake. Defaults always include `http://localhost:8080`, `http://localhost:5173`, `http://localhost:${PORT}` and the matching `http://127.0.0.1:` forms. Add tailnet/public hostnames here (e.g. `http://vibedocs.tailnet:8080`) when exposing vibedocs beyond localhost. |
 | `VIBEDOCS_WS_ALLOW_NO_ORIGIN` | `false` | When `true`, accept WS handshakes with no `Origin` header (non-browser clients like `wscat`). Default denies them so the threat model stays browser-driven CSWSH. |
 | `VIBEDOCS_UPLOAD_TOKEN` | _(unset)_ | Shared-secret bearer token gating `POST /api/upload/*`. When unset, the upload endpoint returns 404 (safe by default — uploads disabled). When set, requests must send `Authorization: Bearer <token>`. |
 | `VIBEDOCS_READ_ONLY` | `false` | When truthy (`true`/`1`/`yes`/`on`), `POST /api/upload/*` returns 404 unconditionally — even with a valid token. Frontend upload UI is hidden. Read-only takes precedence over the token gate. |
@@ -82,7 +82,8 @@ Verified in a real browser against local builds of both modes (offline reading c
 Every `vibedocs build` output gets self-hosted full-text search via [Pagefind](https://pagefind.app), on by default in **both** hydration modes. Separate seam from the live SPA's Ctrl+K search-dialog (which hits the Hono `/api/search` index) — the static search is a stand-alone Pagefind UI widget that does NOT depend on the React bundle, so it works in `minimal` mode where no SPA ships.
 
 - **Pure pieces** (`src/cli/pagefind.ts`, tested in `tests/cli-pagefind.test.ts`): `renderPagefindHeadTags()` (the `/pagefind/pagefind-ui.css` link), `renderPagefindUiTags()` (the `<div id="vd-search">` mount + `/pagefind/pagefind-ui.js` script + a plain — non-module — `new PagefindUI(...)` bootstrap), and `resolveSearchEnabled(siteConfig.search)` (defaults `true`).
-- **Indexer** (`indexWithPagefind(outDir)`): uses Pagefind's programmatic Node API (`createIndex` → `addDirectory` → `writeFiles`) to index the built HTML in place, emitting the `/pagefind/` bundle (WASM index + UI assets). Runs LAST in `runBuild`, after every page and raw-md mirror is on disk. `pagefind` is a **devDependency** that ships its own platform binary; a missing install surfaces an actionable error (set `search: false` to skip).
+- **Indexer** (`indexWithPagefind(outDir)`): uses Pagefind's programmatic Node API (`createIndex` → `addDirectory` → `writeFiles`) to index the built HTML in place, emitting the `/pagefind/` bundle (WASM index + UI assets). Runs LAST in `runBuild`, after every page and raw-md mirror is on disk.
+- **`pagefind` is an `optionalDependency`**, not a devDependency — it pulls a ~57 MB platform binary, and as a devDependency npm consumers never received it, so `npx vibedocs build` failed outright for them. Because optional installs can be skipped (and Pagefind doesn't publish a binary for every platform), presence is never assumed: `isPagefindAvailable()` probes by import and `resolveSearchEnabled(siteConfigSearch, pagefindAvailable)` folds that into one decision that drives BOTH the per-page markup and the indexing step. They must not diverge — emitting the widget without writing the bundle publishes pages that 404 on `/pagefind/pagefind-ui.{css,js}`. Absent Pagefind: warn on stderr, emit no search markup, exit 0.
 - **Wiring:** `composePageHtml` injects the head + body tags in both branches when `opts.search` is truthy (`runBuild` threads `resolveSearchEnabled(siteConfig?.search)`). The real indexer is passed from the CLI dispatcher (`src/cli/index.ts`) as `pagefindIndexer`; `runBuild`'s own unit tests omit it so they never spawn the binary (the search markup is pure and still asserted). Disable per-site with `search: false` in `.vibedocs.config.ts` — skips both the indexing step and the per-page UI.
 
 Verified in a real browser against a 3-page local build (served on a non-default port): the search box renders in full mode alongside the SPA, a query returns highlighted results, sub-page hits (`docs/install/`) route correctly, and clicking a result navigates. Screenshot captured during the slice.
@@ -151,6 +152,20 @@ npm test              # Run tests (vitest)
 npm run test:watch    # Run tests in watch mode
 ```
 
+## CLI surface (`src/cli/index.ts` USAGE)
+
+```bash
+vibedocs serve [--root <dir>] [--port <n>]     # live documentation browser
+vibedocs build --project <name> --out <dir>    # static site
+vibedocs build --project <name> --serve        # build, then preview via sirv
+```
+
+`vibedocs serve` (`src/cli/serve-live.ts` `runLiveServer`) exists so the published npm package can run the live app, not just generate static sites. It **re-execs `dist-cli/server.js` as a child process** rather than setting env vars and `await import`-ing it. That is deliberate and load-bearing: `discovery.ts` snapshots `PROJECTS_DIR` from the environment at module-load time, and the dispatcher statically imports `build.js` → `discovery.js`, so by the time `runLiveServer` runs the snapshot has already been taken against an unset `VIBEDOCS_ROOT`. An in-process import boots a server that silently ignores `--root` and serves the current directory. The child process gets a fresh module graph with the env already correct, and stays correct regardless of what the dispatcher imports later. `resolveServerEntry()` picks `dist-cli/server.js` (published) or `src/server.ts` + `--import tsx` (dev via `bin/vibedocs`).
+
+Note `runLiveServer` (live app) is distinct from the pre-existing local `runServe` in `src/cli/index.ts`, which shells out to `sirv-cli` to preview an already-built static site.
+
+Adding `src/server.ts` to `tsconfig.cli.json` pulled the whole server into a typechecked project for the first time and surfaced a latent bug in `src/adapters/ws-client-channel.ts`: the `server` cast targeted `net.Server`, i.e. the parameter's own type, so it never bridged to the `http.Server` that `ws` expects. CI had never caught it because CI only typechecks `tsconfig.cli.json`.
+
 ## API Routes
 
 - `GET /api/projects` - Project list with file trees (includes `isAsset` flag for non-markdown files)
@@ -195,7 +210,7 @@ An optional systemd unit file is provided in `systemd/vibedocs.service`. Edit th
 
 ### Exposing beyond localhost (tailnet, LAN, public)
 
-The WebSocket handshake enforces an Origin allowlist (see `src/ws-auth.ts`). The defaults (`http://localhost:8080`, `http://localhost:5173`, `http://localhost:${PORT}`) cover local dev. **When exposing vibedocs on any other origin, set `VIBEDOCS_WS_ALLOWED_ORIGINS` to a comma-separated list of every URL the browser will load the app from**, otherwise live reload will silently fail (the page loads, the WS upgrade returns 401).
+The WebSocket handshake enforces an Origin allowlist (see `src/ws-auth.ts`). The defaults (`http://localhost:8080`, `http://localhost:5173`, `http://localhost:${PORT}`, plus the same three on `127.0.0.1`) cover local dev. Both spellings are listed because browsers treat `localhost` and `127.0.0.1` as distinct origins while they address the same loopback interface — trusting only one bought no security (a remote page can forge neither) and cost live reload for anyone who typed the IP, which `vibedocs serve --port N` makes common. **When exposing vibedocs on any other origin, set `VIBEDOCS_WS_ALLOWED_ORIGINS` to a comma-separated list of every URL the browser will load the app from**, otherwise live reload will silently fail (the page loads, the WS upgrade returns 401).
 
 Example for a tailnet hostname:
 

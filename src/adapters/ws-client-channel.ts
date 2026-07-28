@@ -1,5 +1,6 @@
 import { WebSocketServer, WebSocket } from 'ws'
 import type { Server } from 'net'
+import type { Server as HttpServer } from 'http'
 import type { ClientChannel } from '../ports/client-channel.js'
 import type { WsMessage } from '../shared/ws-messages.js'
 import type { VerifyClientCallbackSync } from 'ws'
@@ -27,8 +28,13 @@ export function createWsClientChannel(opts: WsClientChannelOptions): ClientChann
   // want an `http.Server`. The runtime contract is fine — they're the same
   // object — but TS can't see through the structural mismatch. The same
   // cast lived in server.ts before this adapter existed (issue #92 ADR).
+  //
+  // Cast to http.Server specifically: casting to `Server` here just restated
+  // the parameter's own type, so it never bridged anything. Nothing caught it
+  // because this file only entered a typechecked project when `vibedocs serve`
+  // pulled the server into tsconfig.cli.json.
   const wss = new WebSocketServer({
-    server: opts.server as unknown as Server,
+    server: opts.server as unknown as HttpServer,
     verifyClient: opts.verifyClient,
   })
 

@@ -3,6 +3,7 @@
 // more than it saves. Throws on malformed input; the dispatcher catches
 // and converts the error into an actionable stderr message + exit code.
 
+import path from 'path'
 import type { HydrationPolicy } from '../shared/site-config-types.js'
 
 export interface ParsedBuildArgs {
@@ -96,6 +97,47 @@ function assignFlagValue(out: Partial<ParsedBuildArgs>, flag: string, value: str
  *
  *   CLI --hydration → siteConfig.hydration → 'full'
  */
+export interface ParsedServeArgs {
+  /** Directory containing the project folders to browse. */
+  root: string
+  /** Port for the HTTP + WebSocket server. */
+  port: number
+}
+
+/**
+ * Parse `vibedocs serve` flags. Both are optional — the zero-flag invocation
+ * (`npx vibedocs serve`) browses the current directory on the default port,
+ * which is the whole point of having the subcommand.
+ */
+export function parseServeArgs(argv: string[]): ParsedServeArgs {
+  let root = process.cwd()
+  let port = 8080
+
+  for (let i = 0; i < argv.length; i++) {
+    const token = argv[i]!
+    const value = argv[i + 1]
+    if (token === '--root' || token === '--port') {
+      if (value === undefined || value.startsWith('--')) {
+        throw new Error(`${token} requires a value`)
+      }
+      if (token === '--root') {
+        root = path.resolve(value)
+      } else {
+        const parsed = Number(value)
+        if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
+          throw new Error(`--port must be an integer between 1 and 65535, got "${value}"`)
+        }
+        port = parsed
+      }
+      i++ // consume value
+    } else {
+      throw new Error(`unknown flag: ${token}`)
+    }
+  }
+
+  return { root, port }
+}
+
 export function resolveHydration(
   cliFlag: HydrationPolicy | undefined,
   siteConfigHydration: HydrationPolicy | undefined,

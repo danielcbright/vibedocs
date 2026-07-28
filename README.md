@@ -19,12 +19,23 @@
 
 ## Quick start
 
+Point it at a folder of markdown projects and browse them:
+
 ```bash
-npm install -g github:danielcbright/vibedocs
-vibedocs --root ./demo
+npx vibedocs serve --root ./projects
 ```
 
-Open <http://localhost:8080>. That's it.
+Open <http://localhost:8080>. No config file, no database, no build step — you get search, live reload as you edit, syntax highlighting, mermaid diagrams and a dark-mode toggle.
+
+When you want to publish instead of browse, render a project to a static site:
+
+```bash
+VIBEDOCS_ROOT=./projects npx vibedocs build --project my-project --out ./site
+```
+
+That output is plain HTML with self-hosted full-text search and an installable PWA — deploy it to any static host. Add `--serve` instead of `--out` to preview the built site locally.
+
+Prefer a permanent install? `npm install -g vibedocs`.
 
 The repo ships with a `demo/` workspace (three fictional Cirrus Weather projects) so you can try the app without your own markdown:
 

@@ -26,10 +26,18 @@ export interface ParseAllowedOriginsArgs {
 }
 
 export function parseAllowedOrigins({ envValue, port }: ParseAllowedOriginsArgs): string[] {
+  // `127.0.0.1` is included alongside `localhost` because browsers treat them
+  // as distinct origins while they address the same loopback interface. Trusting
+  // one but not the other bought no security — a remote attacker page can no
+  // more forge a 127.0.0.1 Origin than a localhost one — and cost live reload
+  // for anyone who typed the IP, which `vibedocs serve --port N` makes common.
   const defaults = [
     'http://localhost:8080',
     'http://localhost:5173',
     `http://localhost:${port}`,
+    'http://127.0.0.1:8080',
+    'http://127.0.0.1:5173',
+    `http://127.0.0.1:${port}`,
   ]
 
   const fromEnv = (envValue ?? '')

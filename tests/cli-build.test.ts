@@ -1072,4 +1072,27 @@ describe('runBuild — static search / Pagefind (#56)', () => {
     expect(html).not.toContain('id="vd-search"')
     expect(indexerRan).toBe(false)
   })
+
+  it('builds successfully without search markup when pagefind is not installed', async () => {
+    // `pagefind` is an optional dependency. When it's absent the build must
+    // still succeed — and must NOT emit /pagefind/ tags, or every published
+    // page would 404 on a stylesheet and script that were never written.
+    let indexerRan = false
+    await runBuild({
+      projectName: 'myproject',
+      projectsRoot,
+      outDir,
+      frontendDist,
+      pagefindAvailable: async () => false,
+      pagefindIndexer: async () => {
+        indexerRan = true
+        return { pageCount: 0 }
+      },
+    })
+
+    const html = await readFile(path.join(outDir, 'index.html'), 'utf-8')
+    expect(html).not.toContain('pagefind')
+    expect(html).not.toContain('id="vd-search"')
+    expect(indexerRan).toBe(false)
+  })
 })
