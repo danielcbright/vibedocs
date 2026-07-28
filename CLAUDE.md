@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-VibeDocs — self-hosted markdown documentation browser. Hono backend + React frontend that auto-discovers markdown files across project directories and renders them with rich formatting.
+VibeDocs — self-hosted markdown documentation browser **and** static-site generator. `vibedocs serve` runs the live app; `vibedocs build` renders a publishable static site. Hono backend + React frontend that auto-discovers markdown files across project directories and renders them with rich formatting.
 
 **Port:** 8080 (configurable via `VIBEDOCS_PORT` or `PORT`)
 
@@ -150,7 +150,15 @@ npm run build         # Build frontend to frontend/dist/
 npm start             # Production: serve everything from Hono
 npm test              # Run tests (vitest)
 npm run test:watch    # Run tests in watch mode
+npx tsc -p tsconfig.cli.json --noEmit   # Typecheck — the one CI runs
 ```
+
+## Gotchas
+
+- **`promote.sh` prunes devDeps.** It runs `npm install --omit=dev`, so after any deploy `vitest` and `tsc` are gone from the main tree. The failure is worse than "command not found": `npx tsc` falls through to an unrelated registry package and prints **"This is not the tsc command you are looking for"** (exit 1), which reads like a broken tsconfig rather than a missing dependency. Either `npm install` first, or do the work in a separate worktree — preferable anyway, because the live systemd service runs out of this directory's `node_modules` and reinstalling under it can disturb a service you're using.
+- **Typecheck through the CLI project, not the root.** CI runs `npx tsc -p tsconfig.cli.json --noEmit`. A bare `npx tsc --noEmit` at the root surfaces a *different*, pre-existing error and will send you chasing the wrong thing.
+- **Sweep `.claude/worktrees/`.** Agent worktrees are created locked, so `git worktree prune` skips them and they never get reaped. They reached 43 worktrees / 18 GB once. A locked worktree also pins its branch, so `git branch -D` fails until the worktree is removed.
+- **The live service serves from this checkout.** `frontend/dist/` changes appear on reload, but backend changes need `systemctl --user restart vibedocs`. `promote.sh` handles both, and its restart step is the part that fails when run without access to the user systemd bus.
 
 ## CLI surface (`src/cli/index.ts` USAGE)
 
