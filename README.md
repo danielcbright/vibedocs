@@ -19,12 +19,19 @@
 
 ## Quick start
 
+Build a static documentation site from a folder of markdown — no config file, no database:
+
 ```bash
-npm install -g github:danielcbright/vibedocs
-vibedocs --root ./demo
+VIBEDOCS_ROOT=/path/to/your/projects npx vibedocs build --project my-project --out ./site
 ```
 
-Open <http://localhost:8080>. That's it.
+Or preview it locally instead of writing to disk:
+
+```bash
+VIBEDOCS_ROOT=/path/to/your/projects npx vibedocs build --project my-project --serve
+```
+
+The output is plain HTML with syntax highlighting, full-text search, and an installable PWA — deploy it to any static host.
 
 The repo ships with a `demo/` workspace (three fictional Cirrus Weather projects) so you can try the app without your own markdown:
 

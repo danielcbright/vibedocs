@@ -65,6 +65,16 @@ export interface BuildOptions {
     outDir: string,
     opts: { verbose?: boolean },
   ) => Promise<{ pageCount: number }>
+  /**
+   * Availability probe for the optional `pagefind` package (#56). The CLI
+   * dispatcher passes the live {@link isPagefindAvailable}; unit tests inject a
+   * stub. Omitted → assumed available, which keeps the pure markup assertions
+   * in `runBuild`'s own tests independent of what's installed.
+   *
+   * Resolving to `false` degrades search off for the whole build: no per-page
+   * widget, no indexing step, exit 0.
+   */
+  pagefindAvailable?: () => Promise<boolean>
 }
 
 /**
@@ -207,7 +217,20 @@ export async function runBuild(opts: BuildOptions): Promise<void> {
   // and we index the output dir after all writes. Independent of hydration —
   // search works in both modes because the widget loads the self-hosted
   // /pagefind/ bundle, not the SPA.
-  const searchEnabled = resolveSearchEnabled(siteConfig?.search)
+  //
+  // `pagefind` is optional, so wanting search isn't enough — probe for it and
+  // let one resolved value drive both the markup and the indexing step. If they
+  // could disagree we'd publish pages linking a /pagefind/ bundle that was
+  // never written.
+  const pagefindInstalled = opts.pagefindAvailable ? await opts.pagefindAvailable() : true
+  const searchEnabled = resolveSearchEnabled(siteConfig?.search, pagefindInstalled)
+  if (!pagefindInstalled && (siteConfig?.search ?? true)) {
+    process.stderr.write(
+      'vibedocs build: pagefind is not installed — building without static search. ' +
+        'Install it (`npm install pagefind`) to enable search, or set `search: false` ' +
+        'in .vibedocs.config.ts to silence this.\n',
+    )
+  }
 
   // Detect bundle paths up front so we fail fast if the frontend hasn't
   // been built yet.

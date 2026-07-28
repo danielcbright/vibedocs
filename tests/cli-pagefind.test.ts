@@ -43,4 +43,11 @@ describe('resolveSearchEnabled', () => {
   it('honours an explicit siteConfig.search === true', () => {
     expect(resolveSearchEnabled(true)).toBe(true)
   })
+
+  it('degrades to disabled when pagefind is not installed, even though search is wanted', () => {
+    // A consumer who installed vibedocs from npm without the optional pagefind
+    // binary still gets a successful build — just without the search widget.
+    expect(resolveSearchEnabled(undefined, false)).toBe(false)
+    expect(resolveSearchEnabled(true, false)).toBe(false)
+  })
 })

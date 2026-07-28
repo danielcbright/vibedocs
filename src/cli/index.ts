@@ -18,7 +18,7 @@ import { fileURLToPath } from 'url'
 import { realpathSync } from 'fs'
 import { parseBuildArgs } from './args.js'
 import { runBuild } from './build.js'
-import { indexWithPagefind } from './pagefind.js'
+import { indexWithPagefind, isPagefindAvailable } from './pagefind.js'
 
 const USAGE = `Usage:
   vibedocs build --project <name> --out <dir> [--base-url <url>] [--frontend-dist <path>] [--hydration full|minimal]
@@ -71,6 +71,9 @@ export async function main(argv: string[]): Promise<number> {
       // unit tests omit this so they never spawn the binary; here we always
       // supply it and let `siteConfig.search` decide whether it actually runs.
       pagefindIndexer: indexWithPagefind,
+      // ...and the real availability probe, so an install without the optional
+      // pagefind binary degrades to a search-free build instead of failing.
+      pagefindAvailable: isPagefindAvailable,
       verbose: parsed.verbose,
       ...(parsed.baseUrl !== undefined ? { baseUrl: parsed.baseUrl } : {}),
       ...(parsed.hydration !== undefined ? { hydration: parsed.hydration } : {}),

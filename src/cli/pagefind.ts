@@ -19,9 +19,20 @@ import path from 'path'
  * Resolve whether static-search is on. Defaults to `true` — a built docs site
  * wants search out of the box. A project opts out with `search: false` in its
  * `.vibedocs.config.ts`.
+ *
+ * `pagefindAvailable` is the second half of the decision: `pagefind` is an
+ * optional dependency (it pulls a ~57 MB platform binary), so a consumer who
+ * installed vibedocs with `--no-optional`, or on a platform Pagefind doesn't
+ * publish a binary for, simply won't have it. Wanting search isn't enough —
+ * we degrade to off rather than failing the build, and because this single
+ * function decides it, the per-page markup and the indexing step can't
+ * disagree about whether search exists.
  */
-export function resolveSearchEnabled(siteConfigSearch: boolean | undefined): boolean {
-  return siteConfigSearch ?? true
+export function resolveSearchEnabled(
+  siteConfigSearch: boolean | undefined,
+  pagefindAvailable = true,
+): boolean {
+  return (siteConfigSearch ?? true) && pagefindAvailable
 }
 
 /**
@@ -60,6 +71,24 @@ export function renderPagefindUiTags(): string {
  */
 export const PAGEFIND_BUNDLE_DIR = 'pagefind'
 
+/**
+ * Can we resolve the optional `pagefind` package? Probing by import is the only
+ * honest answer — the binary is platform-specific and installs can skip
+ * optional deps entirely, so neither the lockfile nor `package.json` proves it
+ * landed on disk.
+ *
+ * Called once per build, before any page is written, so the search decision is
+ * made before the markup that depends on it.
+ */
+export async function isPagefindAvailable(): Promise<boolean> {
+  try {
+    await import('pagefind')
+    return true
+  } catch {
+    return false
+  }
+}
+
 export interface IndexWithPagefindOptions {
   /** When true, let Pagefind log its own progress to stderr. */
   verbose?: boolean
@@ -72,8 +101,10 @@ export interface IndexWithPagefindOptions {
  * there's no `npx`/network dependency and the binary resolves from the
  * installed `pagefind` package.
  *
- * The `pagefind` package is a devDependency and ships its own platform binary;
- * the dynamic import keeps it off the hot path for builds that disable search.
+ * The `pagefind` package is an optional dependency and ships its own platform
+ * binary; the dynamic import keeps it off the hot path for builds that disable
+ * search. Callers gate on {@link isPagefindAvailable} first, so reaching the
+ * throw below means it vanished mid-build.
  */
 export async function indexWithPagefind(
   outDir: string,
@@ -87,8 +118,8 @@ export async function indexWithPagefind(
     // `npm ci`) won't have it. Surface an actionable hint instead of a raw
     // ERR_MODULE_NOT_FOUND so the operator knows search needs the dev install.
     throw new Error(
-      `pagefind is not installed — static search needs it. Run \`npm install\` (it's a ` +
-        `devDependency), or set \`search: false\` in .vibedocs.config.ts to skip indexing. ` +
+      `pagefind is not installed — static search needs it. Run \`npm install pagefind\`, ` +
+        `or set \`search: false\` in .vibedocs.config.ts to skip indexing. ` +
         `(${(err as Error).message})`,
     )
   }

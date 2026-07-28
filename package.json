@@ -1,6 +1,6 @@
 {
   "name": "vibedocs",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "description": "Self-hosted markdown documentation browser with live reload, syntax highlighting, and full-text search",
   "keywords": [
@@ -83,8 +83,10 @@
     "@types/ws": "^8",
     "concurrently": "^9.2.1",
     "husky": "^9.1.7",
-    "pagefind": "^1.5.2",
     "typescript": "^5",
     "vitest": "^4.0.18"
+  },
+  "optionalDependencies": {
+    "pagefind": "^1.5.2"
   }
 }
