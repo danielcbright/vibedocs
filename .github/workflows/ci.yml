@@ -97,8 +97,11 @@ jobs:
 
       # No `npm run build` here — on purpose. If `prepare` doesn't build the
       # frontend during pack, the assertion below is what fails.
+      # `--pack-destination` does not create the directory.
       - name: Pack as `npm publish` would
-        run: npm pack --pack-destination /tmp/rehearsal
+        run: |
+          mkdir -p /tmp/rehearsal
+          npm pack --pack-destination /tmp/rehearsal
 
       - name: Assert the tarball ships the runtime surface
         run: |
