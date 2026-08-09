@@ -136,6 +136,12 @@ systemd/
 scripts/
   setup-service.sh      # One-time service installation
   promote.sh            # Build → validate → restart promotion script
+  prepare.mjs           # `prepare` lifecycle shell (side effects only)
+  prepare-plan.mjs      # Pure: planPrepare (build-or-skip) + envForChildNpm (dry-run scrub)
+  tarball-contract.mjs  # Pure: what a published tarball must contain (SSOT for pack:inspect + CI)
+  pack-inspect.mjs      # Real pack + assert the contract
+  release-check.mjs     # Pure checkReleaseReadiness + git/registry state gathering
+Makefile                # Thin front door; every target delegates to an npm script
 docs/
   architecture.md       # Full architecture documentation
 ```
@@ -150,8 +156,23 @@ npm run build         # Build frontend to frontend/dist/
 npm start             # Production: serve everything from Hono
 npm test              # Run tests (vitest)
 npm run test:watch    # Run tests in watch mode
-npx tsc -p tsconfig.cli.json --noEmit   # Typecheck — the one CI runs
+npm run typecheck     # tsc -p tsconfig.cli.json --noEmit — the one CI runs
+npm run verify        # Full gate, in CI's order: build:cli + typecheck + build + both suites
+npm run pack:inspect  # Real pack; asserts the tarball ships the runtime surface
+npm run release:check # Pre-tag guard (clean tree, pushed, version free, tag free)
 ```
+
+**`npm run verify` is the "am I done?" command.** It runs the same steps in the
+same order as the `test` CI job, so a green `verify` means CI will be green for
+the same reasons.
+
+There is also a `Makefile` — a **thin front door, not a build system**. Every
+target is one line delegating to an npm script (`make help` lists them). npm
+scripts stay canonical because npm's own lifecycle invokes them: `npm publish`
+runs `prepare`, and that is what builds `frontend/dist/` into the tarball. Make
+is never in that path and cannot be. If a Make target ever grows real logic,
+that logic belongs in package.json or `scripts/` instead — otherwise the two
+surfaces drift and the npm one is the one that governs publishing.
 
 ## Gotchas
 
@@ -203,6 +224,41 @@ Adding `src/server.ts` to `tsconfig.cli.json` pulled the whole server into a typ
 - **Discovery:** `buildTree()` includes all file types; non-markdown files get `isAsset: true` flag. Root-level discovery stays markdown-only.
 - **File watcher:** Watches all files (`**/*`), but only rebuilds search index for markdown changes
 - **Frontmatter + per-page SEO:** `src/render.ts` runs `gray-matter` per page — the parsed YAML lands in `HtmlPage.frontmatter` and the stripped body is what gets rendered (the author's H1 stays untouched; frontmatter `title:` drives `<title>` only — grill decision #18). gray-matter is run with a **custom YAML engine** backed by `js-yaml@4`'s `load` (`parseFrontmatter` passes `{ engines: { yaml: ... } }`); gray-matter's bundled default engine pins the vulnerable `js-yaml@3` (GHSA-h67p-54hq-rp68, quadratic-blowup DoS via merge-key aliases — issue #150). The `overrides` block in `package.json` dedupes gray-matter's transitive `js-yaml` up to `^4.2.0` (the patched line), and the custom engine ensures gray-matter never calls js-yaml@4's removed `safeLoad` stub. Do NOT remove the custom engine without also dropping the override, or the parse will throw at runtime. The DoS is only author-triggerable (doc authors have FS write access already), but the swap keeps `npm audit` clean for release hygiene. `src/cli/seo.ts` `resolvePageSeo({ page, siteConfig, baseUrl })` is the pure resolver: title (frontmatter → first H1 → filename), description (frontmatter → `siteConfig.description`), `og_image` (frontmatter → `siteConfig.seo.ogImage`), canonical (`baseUrl` + clean URL), `twitter:card` (`summary_large_image` when an og:image exists), `twitter:site` (`siteConfig.seo.twitterHandle`), and `noindex` (frontmatter `noindex` OR `draft`). `composePageHtml` emits the tags from the resolved struct (all attribute-escaped — frontmatter is author-controlled). `runBuild` resolves `siteBaseUrl` once and shares it between per-page canonical URLs and the sitemap (#54), so they can't disagree; `noindex` pages get a `<meta name="robots" content="noindex">` AND are dropped from `sitemap.xml`.
+
+## Cutting a release
+
+Releasing is **pushing a `v*` tag**. `.github/workflows/release.yml` does the
+rest: it re-runs the gates against the tag, asserts the tag matches
+`package.json`'s version, inspects the tarball, publishes, and opens a GitHub
+release with generated notes.
+
+```bash
+npm version <patch|minor|major>   # bumps package.json, commits, tags
+npm run release:check             # clean tree? pushed? version + tag free?
+npm run verify                    # typecheck + both suites
+npm run pack:inspect              # tarball actually ships the runtime surface
+git push origin main --follow-tags
+```
+
+**Publishing uses npm OIDC trusted publishing — there is no token anywhere.**
+npm mints a short-lived credential from the workflow's OIDC identity and accepts
+a publish only from this repo + workflow filename. Provenance attestations are
+generated automatically (no `--provenance` flag), which is what puts the
+"Published via GitHub Actions" badge on the npm page.
+
+This is not merely nicer than a token, it is the surviving option: npm granular
+access tokens configured to bypass 2FA lost account-management powers on
+2026-07-31 and lose **direct publish around January 2027**, after which they can
+only stage a publish for interactive 2FA approval. Any local publish token is
+therefore a dead end — don't reintroduce one.
+
+Two things must stay in sync or publishing breaks in a confusing way:
+
+- The trusted-publisher registration on npmjs.com names the workflow **file**
+  (`release.yml`). Renaming the workflow file silently revokes publish rights.
+- `npm run pack:inspect` and the `publish-rehearsal` CI job assert the same
+  contract from `scripts/tarball-contract.mjs`. Add a required file there, not
+  in either caller.
 
 ## Publishing a site
 

@@ -55,7 +55,7 @@ jobs:
         run: npm run build:cli
 
       - name: Typecheck CLI
-        run: npx tsc -p tsconfig.cli.json --noEmit
+        run: npm run typecheck
 
       # `npm run build` = `cd frontend && npm install && npx vite build`.
       # This installs frontend deps AND produces frontend/dist/, which the
@@ -96,48 +96,20 @@ jobs:
         run: npm install
 
       # No `npm run build` here — on purpose. If `prepare` doesn't build the
-      # frontend during pack, the assertion below is what fails.
-      # `--pack-destination` does not create the directory.
-      - name: Pack as `npm publish` would
-        run: |
-          mkdir -p /tmp/rehearsal
-          npm pack --pack-destination /tmp/rehearsal
-
-      - name: Assert the tarball ships the runtime surface
-        run: |
-          set -euo pipefail
-          tarball=$(ls /tmp/rehearsal/vibedocs-*.tgz)
-          echo "Inspecting $tarball"
-          contents=$(tar -tzf "$tarball")
-
-          fail=0
-          for required in \
-            package/dist-cli/cli/index.js \
-            package/dist-cli/server.js \
-            package/frontend/dist/index.html \
-            package/README.md \
-            package/LICENSE
-          do
-            if ! grep -qx "$required" <<<"$contents"; then
-              echo "::error::missing from tarball: $required"
-              fail=1
-            fi
-          done
-
-          # The frontend is a whole bundle, not just its entry HTML — a build
-          # that half-ran would still satisfy the index.html check above.
-          asset_count=$(grep -c '^package/frontend/dist/assets/' <<<"$contents" || true)
-          echo "frontend asset files in tarball: $asset_count"
-          if [ "$asset_count" -lt 5 ]; then
-            echo "::error::frontend/dist/assets/ looks empty ($asset_count files) — the Vite build did not run during pack"
-            fail=1
-          fi
-
-          exit "$fail"
+      # frontend during pack, this is what fails.
+      #
+      # The assertions live in scripts/tarball-contract.mjs (pure, unit-tested
+      # in tests/tarball-contract.test.ts) and are driven by pack:inspect, so
+      # this job and the local `npm run pack:inspect` pre-flight enforce one
+      # contract rather than two copies of a list that drift.
+      - name: Pack as `npm publish` would, and assert the runtime surface
+        run: npm run pack:inspect
 
       - name: Smoke-test the packed tarball as a consumer would
         run: |
           set -euo pipefail
+          mkdir -p /tmp/rehearsal
+          npm pack --pack-destination /tmp/rehearsal
           tarball=$(ls /tmp/rehearsal/vibedocs-*.tgz)
           mkdir -p /tmp/consumer && cd /tmp/consumer
           npm init -y >/dev/null

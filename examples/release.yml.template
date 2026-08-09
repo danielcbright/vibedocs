@@ -57,9 +57,12 @@ jobs:
           node-version: 20
           cache: npm
 
-      # Installs your project's deps. Your package.json must declare vibedocs as
-      # a git dependency, e.g.:
-      #   "devDependencies": { "vibedocs": "github:danielcbright/vibedocs" }
+      # Installs your project's deps. Your package.json must declare vibedocs
+      # from npm, e.g.:
+      #   "devDependencies": { "vibedocs": "^0.4.0" }
+      # Do NOT use the old "github:danielcbright/vibedocs" git-dependency form:
+      # npm 12 blocks the `prepare` script that a git dep needs to build its
+      # frontend bundle, so it installs with a warning and no app to serve.
       # `npm ci` requires a committed package-lock.json. Use `npm install` if you
       # don't commit a lockfile.
       - name: Install dependencies

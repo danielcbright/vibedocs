@@ -1,0 +1,115 @@
+name: release
+
+# Publishes to npm when a v* tag is pushed. Cutting a release is:
+#
+#   npm run release:check    # clean tree, pushed, version unpublished, tag free
+#   npm run verify           # typecheck + both suites
+#   npm run pack:inspect     # prove the tarball ships the runtime surface
+#   git tag -a vX.Y.Z -m "release: vX.Y.Z" && git push origin vX.Y.Z
+#
+# Everything after the tag push happens here.
+#
+# Why OIDC trusted publishing rather than an NPM_TOKEN secret:
+#
+#   * There is no long-lived credential to leak. npm mints a short-lived token
+#     from the workflow's OIDC identity, and will only accept a publish from
+#     this exact repo + workflow filename.
+#   * Provenance attestations are generated automatically — no `--provenance`
+#     flag needed — which is what puts the "Published via GitHub Actions" badge
+#     on the npm page and ties each release to the commit that produced it.
+#   * npm is retiring the alternative. Granular access tokens configured to
+#     bypass 2FA lost account-management powers on 2026-07-31 and are slated to
+#     lose direct publish around January 2027, after which they can only stage a
+#     publish for a maintainer to approve interactively.
+#
+# One-time setup on npmjs.com (Package settings -> Trusted Publisher), which
+# must match this file exactly:
+#     Repository:  danielcbright/vibedocs
+#     Workflow:    release.yml
+# Trusted publishing requires npm >= 11.5.1 and Node >= 22.14.0; Node 24 below
+# ships a satisfying npm, but it is upgraded explicitly so a future runner image
+# change cannot silently drop under the floor.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish:
+    name: publish to npm
+    runs-on: ubuntu-latest
+
+    permissions:
+      # Mint the OIDC token npm exchanges for publish rights. Without this the
+      # publish falls back to looking for a token and fails.
+      id-token: write
+      # Needed by the final `gh release create` step. Read would be enough for
+      # everything up to the publish.
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Ensure npm supports trusted publishing
+        run: |
+          npm install -g npm@latest
+          npm --version
+
+      - name: Install deps
+        run: npm install
+
+      # The tag is the release artifact, so the gates run against the tag rather
+      # than trusting that the same commit was green on main.
+      - name: Build CLI
+        run: npm run build:cli
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Backend tests
+        run: npm run test:backend
+
+      - name: Frontend tests
+        run: npm run test:frontend
+
+      # Refuse to publish a tag whose version does not match package.json —
+      # otherwise `git tag v0.5.0` on a 0.4.0 package.json silently republishes
+      # the old version, or fails deep inside npm with a confusing message.
+      - name: Assert tag matches package.json version
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF_NAME#v}"
+          pkg_version="$(node -p "require('./package.json').version")"
+          echo "tag=$tag_version package.json=$pkg_version"
+          if [ "$tag_version" != "$pkg_version" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match package.json version ${pkg_version}"
+            exit 1
+          fi
+
+      # Same contract the publish-rehearsal job asserts on every push, re-run
+      # here because this is the tarball that actually ships.
+      - name: Inspect the tarball that will be published
+        run: npm run pack:inspect
+
+      - name: Publish
+        # No NODE_AUTH_TOKEN / NPM_TOKEN. Publish rights come from the OIDC
+        # identity granted by `id-token: write` above.
+        run: npm publish
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            --verify-tag
