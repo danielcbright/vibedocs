@@ -37,6 +37,16 @@ That output is plain HTML with self-hosted full-text search and an installable P
 
 Prefer a permanent install? `npm install -g vibedocs`.
 
+### Supported platforms
+
+| Platform | Status |
+|---|---|
+| Linux | ✅ Tested in CI on every push |
+| macOS | ✅ Tested in CI on every push |
+| Windows | ⚠️ Not yet supported — untested |
+
+Node.js 20 or newer. Windows isn't blocked — the CLI prints a notice and runs anyway — but nothing verifies it, so treat it as unsupported until it's in the CI matrix. [Reports of what breaks](https://github.com/danielcbright/vibedocs/issues) are what will move it.
+
 The repo ships with a `demo/` workspace (three fictional Cirrus Weather projects) so you can try the app without your own markdown:
 
 ```bash

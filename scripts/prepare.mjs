@@ -7,24 +7,19 @@
 // `prepare` ALSO fires on every self-install in the source repo (e.g. a dev running
 // `npm install some-new-dep`), and the ~12s Vite build there is pure waste.
 //
-// The discriminator: npm sets INIT_CWD to the directory where the user invoked
-// `npm install`. On a self-install that's the package dir (this repo's root). On a
-// git-dep install it's the *consumer's* repo root, while this code runs from the
-// package dir inside the consumer's node_modules — so the two paths differ.
-//
-//   INIT_CWD === packageDir  -> local self-install   -> skip the heavy frontend build
-//   INIT_CWD !== packageDir  -> consumer git-dep install -> build frontend/dist/
-//
-// In both cases we still run `build:cli` (cheap tsc) and `husky` (so dev hooks and
-// the consumer CLI both work).
+// The decision of whether to run that build lives in `planPrepare`
+// (scripts/prepare-plan.mjs) so it can be unit-tested — this file is just the
+// side-effecting shell around it. In every case we still run `build:cli`
+// (cheap tsc) and `husky` (so dev hooks and the consumer CLI both work).
 
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
+import { planPrepare } from './prepare-plan.mjs';
 
 const packageDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const initCwd = process.env.INIT_CWD ? resolve(process.env.INIT_CWD) : null;
-const isLocalDevInstall = initCwd !== null && initCwd === packageDir;
+const plan = planPrepare({ initCwd, packageDir, npmCommand: process.env.npm_command });
 
 function run(label, command, args, { optional = false } = {}) {
   console.log(`[prepare] ${label}: ${command} ${args.join(' ')}`);
@@ -45,14 +40,8 @@ function run(label, command, args, { optional = false } = {}) {
   }
 }
 
-if (isLocalDevInstall) {
-  console.log(
-    `[prepare] local dev self-install detected (INIT_CWD === package dir) — skipping frontend build`,
-  );
-} else {
-  console.log(
-    `[prepare] consumer/git-dep install (INIT_CWD=${initCwd ?? 'unset'}) — building frontend/dist/`,
-  );
+console.log(`[prepare] ${plan.reason}`);
+if (plan.buildFrontend) {
   run('build frontend', 'npm', ['run', 'build']);
 }
 

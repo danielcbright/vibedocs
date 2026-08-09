@@ -14,6 +14,16 @@ name: ci
 # So we build the CLI (`build:cli`) and the frontend dist (`npm run build`,
 # which runs `cd frontend && npm install && npx vite build`) BEFORE the
 # backend suite. This mirrors what a clean local run must do.
+#
+# The OS matrix is the support policy, executable. vibedocs claims Linux and
+# macOS support (see README "Supported platforms"); both are exercised here so
+# the claim is tested rather than asserted. macOS matters specifically because
+# it differs from Linux in ways this codebase touches: a case-insensitive
+# filesystem (path-resolver's allowlists and traversal checks), APFS readdir
+# ordering (discovery sorts, but the guarantee should be proven), symlinked
+# `os.tmpdir()` under /var -> /private/var (most fixtures build there), and
+# fsevents-backed chokidar instead of inotify. Windows is deliberately absent
+# until it is actually supported.
 
 on:
   push:
@@ -23,8 +33,14 @@ on:
 
 jobs:
   test:
-    name: build + typecheck + test
-    runs-on: ubuntu-latest
+    name: build + typecheck + test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Don't let one platform's failure cancel the other — when something is
+      # platform-specific, seeing which side went red is the whole diagnosis.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -53,3 +69,77 @@ jobs:
 
       - name: Frontend tests
         run: cd frontend && npx vitest run
+
+  # What a real `npm publish` would actually put on the registry, proven from a
+  # clean checkout. This is deliberately NOT a unit test: the bug it guards
+  # against lives in npm's lifecycle, not in our code. `prepare` used to
+  # discriminate on INIT_CWD alone, which made `npm publish` (run from the
+  # package root) look identical to a local dev self-install — so it skipped the
+  # Vite build and published a tarball with zero frontend assets. Nothing caught
+  # it: the `test` job builds frontend/dist explicitly beforehand, and
+  # tests/package-shape.test.ts packs with --ignore-scripts, so both saw a
+  # locally-built artifact that a publish would never have produced.
+  #
+  # The essential ingredients are (a) no prior build step and (b) no
+  # --ignore-scripts, so the lifecycle runs exactly as it would on publish.
+  publish-rehearsal:
+    name: publish rehearsal (tarball contents)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Install backend deps
+        run: npm install
+
+      # No `npm run build` here — on purpose. If `prepare` doesn't build the
+      # frontend during pack, the assertion below is what fails.
+      # `--pack-destination` does not create the directory.
+      - name: Pack as `npm publish` would
+        run: |
+          mkdir -p /tmp/rehearsal
+          npm pack --pack-destination /tmp/rehearsal
+
+      - name: Assert the tarball ships the runtime surface
+        run: |
+          set -euo pipefail
+          tarball=$(ls /tmp/rehearsal/vibedocs-*.tgz)
+          echo "Inspecting $tarball"
+          contents=$(tar -tzf "$tarball")
+
+          fail=0
+          for required in \
+            package/dist-cli/cli/index.js \
+            package/dist-cli/server.js \
+            package/frontend/dist/index.html \
+            package/README.md \
+            package/LICENSE
+          do
+            if ! grep -qx "$required" <<<"$contents"; then
+              echo "::error::missing from tarball: $required"
+              fail=1
+            fi
+          done
+
+          # The frontend is a whole bundle, not just its entry HTML — a build
+          # that half-ran would still satisfy the index.html check above.
+          asset_count=$(grep -c '^package/frontend/dist/assets/' <<<"$contents" || true)
+          echo "frontend asset files in tarball: $asset_count"
+          if [ "$asset_count" -lt 5 ]; then
+            echo "::error::frontend/dist/assets/ looks empty ($asset_count files) — the Vite build did not run during pack"
+            fail=1
+          fi
+
+          exit "$fail"
+
+      - name: Smoke-test the packed tarball as a consumer would
+        run: |
+          set -euo pipefail
+          tarball=$(ls /tmp/rehearsal/vibedocs-*.tgz)
+          mkdir -p /tmp/consumer && cd /tmp/consumer
+          npm init -y >/dev/null
+          npm install "$tarball"
+          npx vibedocs --help
