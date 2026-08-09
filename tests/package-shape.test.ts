@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { execSync } from 'child_process'
+import { readFileSync } from 'fs'
 import path from 'path'
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..')
@@ -46,8 +47,21 @@ describe('npm pack --dry-run package shape (#75)', () => {
     expect(output).toMatch(/README\.md/)
   })
 
-  it('contains bin/ entry', () => {
+  // `bin/vibedocs` is the DEV entrypoint: it re-execs node with tsx to load
+  // `src/cli/index.ts`. `src/` is deliberately not packed, so shipping this
+  // file put a guaranteed ERR_MODULE_NOT_FOUND in the tarball — dead weight
+  // that only ever misleads. Consumers reach the CLI through the `bin` field,
+  // which points at the compiled `dist-cli/cli/index.js` (asserted above).
+  it('does not ship the dev bin/ shim, which references unpacked src/', () => {
     const output = packDryRun()
-    expect(output).toMatch(/bin\//)
+    expect(output).not.toMatch(/\bbin\/vibedocs\b/)
+  })
+
+  it('declares the CLI through the compiled bin entry', () => {
+    const pkg = JSON.parse(
+      readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf-8'),
+    ) as { bin: Record<string, string> }
+    expect(pkg.bin.vibedocs).toBe('./dist-cli/cli/index.js')
+    expect(packDryRun()).toMatch(/dist-cli\/cli\/index\.js/)
   })
 })

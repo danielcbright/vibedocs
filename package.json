@@ -1,6 +1,6 @@
 {
   "name": "vibedocs",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "description": "Self-hosted markdown documentation browser with live reload, syntax highlighting, and full-text search",
   "keywords": [
@@ -30,12 +30,14 @@
     "vibedocs": "./dist-cli/cli/index.js"
   },
   "files": [
-    "bin/",
     "dist-cli/",
     "frontend/dist/**",
     "LICENSE",
     "README.md"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     "./package.json": "./package.json"
   },
@@ -63,8 +65,8 @@
     "chokidar": "^3",
     "esbuild": "^0.28.1",
     "gray-matter": "^4.0.3",
-    "hono": "^4",
-    "js-yaml": "^4.2.0",
+    "hono": "^4.13.1",
+    "js-yaml": "^4.3.1",
     "rehype-autolink-headings": "^7",
     "rehype-sanitize": "^6.0.0",
     "rehype-slug": "^6",

@@ -33,7 +33,38 @@ Commands:
   build   Render a project to a static site you can host anywhere.
 `
 
+/**
+ * Platforms vibedocs is tested on. Both run in CI (`.github/workflows/ci.yml`
+ * matrix), which is what makes this list a claim rather than a hope.
+ */
+const SUPPORTED_PLATFORMS: readonly NodeJS.Platform[] = ['linux', 'darwin']
+
+/**
+ * A one-line notice for platforms outside the tested set, or `null` when the
+ * platform is supported.
+ *
+ * Windows is deferred, not refused. We warn instead of hard-gating via
+ * package.json `os` because a gate (EBADPLATFORM) refuses installation
+ * outright, and there is no evidence vibedocs is *broken* on Windows — only
+ * that it is untested. A warning keeps the door open for anyone willing to
+ * try, and turns them into the bug reports that would make support real.
+ */
+export function unsupportedPlatformNotice(
+  platform: NodeJS.Platform = process.platform,
+): string | null {
+  if (SUPPORTED_PLATFORMS.includes(platform)) return null
+  return (
+    `vibedocs: ${platform} is not a supported platform yet (Linux and macOS are tested in CI).\n` +
+    `  It may still work — please report what breaks: ${ISSUES_URL}\n`
+  )
+}
+
+const ISSUES_URL = 'https://github.com/danielcbright/vibedocs/issues'
+
 export async function main(argv: string[]): Promise<number> {
+  const notice = unsupportedPlatformNotice()
+  if (notice) process.stderr.write(notice)
+
   const [subcommand, ...rest] = argv
 
   if (!subcommand || subcommand === '--help' || subcommand === '-h') {
