@@ -56,22 +56,35 @@ it on the distribution (a CloudFront Function rewriting `/foo/` →
 
 ---
 
-## Step 1 — Add VibeDocs as a git dependency
+## Step 1 — Add VibeDocs as a dependency
 
-VibeDocs is distributed as a GitHub dependency (not published to npm). Add it to
-your repo's `package.json`:
+VibeDocs is published to npm. Install it as a devDependency:
+
+```bash
+npm install --save-dev vibedocs
+```
 
 ```jsonc
 {
   "devDependencies": {
-    "vibedocs": "github:danielcbright/vibedocs"
+    "vibedocs": "^0.4.0"
   }
 }
 ```
 
-Then commit the updated `package-lock.json` (run `npm install` once locally) so
-the workflow's `npm ci` is reproducible. If you don't keep a lockfile, change
-the workflow's install step from `npm ci` to `npm install`.
+Then commit the updated `package-lock.json` so the workflow's `npm ci` is
+reproducible. If you don't keep a lockfile, change the workflow's install step
+from `npm ci` to `npm install`.
+
+> **Do not use the old `github:danielcbright/vibedocs` git-dependency form.**
+> It predates the npm release and is now actively broken on current npm. A git
+> dependency has to build its frontend bundle during install, via the `prepare`
+> lifecycle script — and **npm 12 blocks `prepare` for git, file and link
+> dependencies by default**. The install "succeeds" with a warning, but you get
+> a VibeDocs with no `frontend/dist/`, so `vibedocs serve` has no app to serve
+> and `vibedocs build` has no assets to copy. The registry tarball ships
+> `frontend/dist/` prebuilt, so the npm install above has no such step and
+> nothing to skip.
 
 The `vibedocs` bin becomes available as `npx vibedocs`. Verify locally:
 
