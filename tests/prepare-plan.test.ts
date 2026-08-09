@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 // @ts-expect-error — plain .mjs build script, no type declarations by design.
-import { planPrepare } from '../scripts/prepare-plan.mjs'
+import { planPrepare, envForChildNpm } from '../scripts/prepare-plan.mjs'
 
 const PKG = '/repo/vibedocs'
 
@@ -38,4 +38,39 @@ describe('planPrepare — prepare lifecycle decision', () => {
       expect(plan.reason).toContain(npmCommand)
     },
   )
+})
+
+// npm re-exports every resolved config value as an `npm_config_*` env var, and
+// a child `npm` reads those back in as config. For most settings that is the
+// point (registry, proxy, loglevel should all propagate). For `--dry-run` it is
+// a bug: it turns the nested `cd frontend && npm install` inside `npm run build`
+// into a no-op that still PRINTS "added N packages", after which `vite build`
+// dies on `Cannot find package '@vitejs/plugin-react'` — a failure that reads
+// exactly like a broken frontend/vite.config.ts. It made `npm publish --dry-run`
+// unusable as a release pre-flight on this package.
+describe('envForChildNpm — what a child npm may inherit', () => {
+  it('strips npm_config_dry_run so nested installs are real', () => {
+    const env = envForChildNpm({ npm_config_dry_run: 'true', PATH: '/usr/bin' })
+    expect(env.npm_config_dry_run).toBeUndefined()
+  })
+
+  it('leaves every other npm_config_* setting inherited', () => {
+    const env = envForChildNpm({
+      npm_config_dry_run: 'true',
+      npm_config_registry: 'https://registry.npmjs.org/',
+      npm_config_loglevel: 'warn',
+    })
+    expect(env.npm_config_registry).toBe('https://registry.npmjs.org/')
+    expect(env.npm_config_loglevel).toBe('warn')
+  })
+
+  it('is a no-op when npm_config_dry_run is absent', () => {
+    expect(envForChildNpm({ PATH: '/usr/bin' })).toEqual({ PATH: '/usr/bin' })
+  })
+
+  it('does not mutate the env it was given', () => {
+    const original = { npm_config_dry_run: 'true' }
+    envForChildNpm(original)
+    expect(original.npm_config_dry_run).toBe('true')
+  })
 })
