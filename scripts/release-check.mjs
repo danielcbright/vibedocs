@@ -19,10 +19,17 @@ import { fileURLToPath } from 'node:url';
 const packageDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
- * Decide whether the repo is in a state where tagging a release is safe.
+ * Decide whether the repo is in a state where pushing the release tag is safe.
  *
- * Pure. Collects every problem rather than stopping at the first, so one run
- * tells you the whole list.
+ * The precise question: **if I push HEAD and the v<version> tag right now, will
+ * the release job succeed?** Anything that would not break that push is a
+ * warning, never a blocker. That distinction matters more than it looks — the
+ * natural place to run this is straight after `npm version`, which by design
+ * leaves an unpushed commit and a freshly created tag. Treating either as a
+ * failure would make the check cry wolf at the exact moment it is meant to be
+ * useful, and a guard that blocks correct work gets removed rather than fixed.
+ *
+ * Pure. Collects every problem rather than stopping at the first.
  *
  * @param {object} state
  * @param {string} state.version               package.json version.
@@ -30,8 +37,10 @@ const packageDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
  * @param {string} state.branch                Current branch name.
  * @param {number} state.ahead                 Commits ahead of upstream.
  * @param {number} state.behind                Commits behind upstream.
- * @param {string[]} state.existingTags        Tags that already exist.
  * @param {string[]} state.publishedVersions   Versions already on the registry.
+ * @param {string} state.headSha               SHA of HEAD.
+ * @param {string|null} state.tagSha           SHA the release tag points at, or
+ *                                             null when the tag does not exist.
  * @returns {{ ok: boolean, tag: string, problems: string[], warnings: string[] }}
  */
 export function checkReleaseReadiness({
@@ -40,8 +49,9 @@ export function checkReleaseReadiness({
   branch,
   ahead,
   behind,
-  existingTags,
   publishedVersions,
+  headSha,
+  tagSha,
 }) {
   const tag = `v${version}`;
   const problems = [];
@@ -61,19 +71,32 @@ export function checkReleaseReadiness({
     );
   }
 
-  if (existingTags.includes(tag)) {
-    problems.push(`tag ${tag} already exists — bump the version or delete the tag`);
-  }
-
-  if (ahead > 0) {
+  // A tag left over from an abandoned attempt is the dangerous case: CI checks
+  // out the tag, so it would build and publish a commit you are not looking at.
+  if (tagSha !== null && tagSha !== headSha) {
     problems.push(
-      `${ahead} local commit(s) not pushed to origin — push first, otherwise the ` +
-        'tag drags commits into CI that never landed on the branch',
+      `tag ${tag} exists but does not point at HEAD (${tagSha.slice(0, 8)} vs ` +
+        `${headSha.slice(0, 8)}) — CI builds the tag, so it would publish a ` +
+        `different commit. Delete it (git tag -d ${tag}) and re-tag, or bump the version`,
     );
   }
 
   if (behind > 0) {
     problems.push(`branch is ${behind} commit(s) behind origin — pull first`);
+  }
+
+  if (tagSha === null) {
+    warnings.push(
+      `no ${tag} tag yet — create it with \`npm version\` (or \`git tag -a ${tag}\`) ` +
+        'before pushing',
+    );
+  }
+
+  if (ahead > 0) {
+    warnings.push(
+      `${ahead} commit(s) not yet pushed — expected right after \`npm version\`. ` +
+        'Push with --follow-tags so the tagged commit goes up with the tag',
+    );
   }
 
   if (branch !== 'main') {
@@ -118,17 +141,23 @@ function main() {
     '0\t0',
   ).split(/\s+/);
 
+  const tag = `v${pkg.version}`;
+  // `git rev-list -n1 <tag>` resolves an annotated tag through to the commit it
+  // points at, which is what CI will actually check out. Empty means no tag.
+  const tagSha = git(['rev-list', '-n', '1', tag], '') || null;
+
   const state = {
     version: pkg.version,
     gitStatusPorcelain: git(['status', '--porcelain']),
     branch: git(['rev-parse', '--abbrev-ref', 'HEAD'], 'unknown'),
     ahead: Number(aheadRaw) || 0,
     behind: Number(behindRaw) || 0,
-    existingTags: git(['tag', '--list']).split('\n').filter(Boolean),
     publishedVersions: publishedVersionsFromRegistry(pkg.name),
+    headSha: git(['rev-parse', 'HEAD'], ''),
+    tagSha,
   };
 
-  const { ok, tag, problems, warnings } = checkReleaseReadiness(state);
+  const { ok, problems, warnings } = checkReleaseReadiness(state);
 
   console.log(`[release-check] ${pkg.name}@${state.version} on '${state.branch}'`);
   console.log(`[release-check] proposed tag: ${tag}`);
@@ -147,7 +176,12 @@ function main() {
   console.log('Next, in order:');
   console.log('  npm run verify        # typecheck + both suites');
   console.log('  npm run pack:inspect  # prove the tarball ships the runtime surface');
-  console.log(`  git tag -a ${tag} -m "release: ${tag}" && git push origin ${tag}`);
+  if (state.tagSha === null) {
+    console.log(`  npm version <patch|minor|major>   # creates the commit and ${tag}`);
+    console.log('  git push origin HEAD --follow-tags');
+  } else {
+    console.log(`  git push origin ${state.branch} --follow-tags   # sends HEAD and ${tag}`);
+  }
   console.log('');
   console.log('The release workflow publishes from the tag via OIDC — no local token.');
 }
