@@ -65,7 +65,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.0.12",
-    "@shikijs/rehype": "^1",
+    "@shikijs/rehype": "^4",
     "chokidar": "^3",
     "esbuild": "^0.28.1",
     "gray-matter": "^4.0.3",
