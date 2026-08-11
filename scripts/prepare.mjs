@@ -15,15 +15,25 @@
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { planPrepare } from './prepare-plan.mjs';
+import { envForChildNpm, planPrepare } from './prepare-plan.mjs';
 
 const packageDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const initCwd = process.env.INIT_CWD ? resolve(process.env.INIT_CWD) : null;
 const plan = planPrepare({ initCwd, packageDir, npmCommand: process.env.npm_command });
 
+// Every child here is (or shells out to) npm, so all of them get the scrubbed
+// env — see envForChildNpm for why inheriting `npm_config_dry_run` silently
+// produces a frontend-less build.
+const childEnv = envForChildNpm(process.env);
+
 function run(label, command, args, { optional = false } = {}) {
   console.log(`[prepare] ${label}: ${command} ${args.join(' ')}`);
-  const result = spawnSync(command, args, { stdio: 'inherit', cwd: packageDir, shell: false });
+  const result = spawnSync(command, args, {
+    stdio: 'inherit',
+    cwd: packageDir,
+    shell: false,
+    env: childEnv,
+  });
   if (result.error) {
     if (optional) {
       console.log(`[prepare] ${label} unavailable (${result.error.message}) — skipping`);

@@ -37,6 +37,50 @@ const PACKING_COMMANDS = new Set(['publish', 'pack']);
  * @param {string|undefined} env.npmCommand  npm's `npm_command` env var.
  * @returns {{ buildFrontend: boolean, reason: string }}
  */
+/**
+ * `npm_config_*` env vars npm exports that must NOT be inherited by a child
+ * `npm` process.
+ *
+ * npm re-exports every config value it resolved into the environment, and a
+ * child npm reads them straight back in. That is deliberate and mostly correct
+ * — registry, proxy, loglevel and friends should propagate down a build. But
+ * `--dry-run` is a statement about the *one command the user typed*, not a mode
+ * the whole process tree should adopt.
+ */
+const NON_INHERITABLE_NPM_CONFIG = ['npm_config_dry_run'];
+
+/**
+ * Copy of `env` safe to hand to a child `npm` invocation.
+ *
+ * Concretely, this is what makes `npm publish --dry-run` usable as a release
+ * pre-flight here. Without it, `npm_config_dry_run=true` reaches the nested
+ * `cd frontend && npm install` inside `npm run build`; that install writes
+ * nothing while still reporting `added N packages`, and the `vite build`
+ * immediately after it fails with `Cannot find package '@vitejs/plugin-react'`.
+ * The error names Vite, so it reads as a broken `frontend/vite.config.ts` and
+ * sends you debugging a file that is fine — the actual tell is that
+ * `frontend/node_modules` is absent afterwards.
+ *
+ * Scrubbing at this boundary is enough for the whole subtree: npm only
+ * re-exports what it resolved, so once `prepare` drops the variable, neither
+ * `npm run build` nor the `npm install` beneath it sees it again.
+ *
+ * Note this does not weaken `--dry-run`. npm runs lifecycle scripts for real
+ * during a dry-run publish by design — it is the upload that is skipped — so
+ * building the frontend for real is exactly what makes the reported file list
+ * trustworthy.
+ *
+ * @param {Record<string, string|undefined>} env  Environment to derive from.
+ * @returns {Record<string, string|undefined>}    New env; `env` is not mutated.
+ */
+export function envForChildNpm(env) {
+  const childEnv = { ...env };
+  for (const key of NON_INHERITABLE_NPM_CONFIG) {
+    delete childEnv[key];
+  }
+  return childEnv;
+}
+
 export function planPrepare({ initCwd, packageDir, npmCommand }) {
   if (npmCommand && PACKING_COMMANDS.has(npmCommand)) {
     return {
