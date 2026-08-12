@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react"
+import { useState, useCallback, useEffect, useRef } from "react"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
 import { usePanelRef } from "react-resizable-panels"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -20,6 +20,10 @@ import { useWebSocket } from "@/hooks/use-websocket"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useConfig } from "@/hooks/use-config"
 import { findFirstMarkdown } from "@/lib/find-first-markdown"
+import type { AppView } from "@/lib/app-view"
+import { RunsView } from "@/agent-runs/RunsView"
+import { useRuns } from "@/agent-runs/hooks/use-runs"
+import { activeRunCount } from "@/agent-runs/lib/run-status"
 
 function parseHash(): { project: string | null; path: string | null } {
   const hash = window.location.hash.slice(1)
@@ -63,7 +67,30 @@ function DocsApp() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const { projects, refresh: refreshProjects } = useProjects(VIEW_MODE_TO_FILE_TYPE[viewMode])
-  const { uploadEnabled } = useConfig()
+  const { uploadEnabled, runsEnabled } = useConfig()
+
+  // `#/runs` parses to project "" (parseHash splits on the first slash), and no
+  // project directory can be named "", so the namespace cannot collide.
+  const isRunsRoute = activeProject === "" && (activePath ?? "").startsWith("runs")
+  const activeRunId = isRunsRoute ? ((activePath ?? "").split("/")[1] || null) : null
+  const appView: AppView = isRunsRoute ? "runs" : "docs"
+
+  const { runs, loading: runsLoading, refresh: refreshRuns } = useRuns(runsEnabled)
+
+  // Remember where the user was in Docs so the switch returns them there
+  // instead of dumping them at the root.
+  const lastDocsHash = useRef<string>("")
+  useEffect(() => {
+    if (!isRunsRoute) lastDocsHash.current = window.location.hash
+  }, [isRunsRoute, activeProject, activePath])
+
+  const handleAppViewChange = useCallback((next: AppView) => {
+    if (next === "runs") {
+      window.location.hash = "/runs"
+      return
+    }
+    window.location.hash = lastDocsHash.current.replace(/^#/, "")
+  }, [])
   const { html, toc, loading, error, refresh: refreshDoc } = useDocument(activeProject, activePath)
   const sidebarPanelRef = usePanelRef()
   const isMobile = useIsMobile()
@@ -158,6 +185,12 @@ function DocsApp() {
     onRefreshTree: useCallback(() => {
       refreshProjects()
     }, [refreshProjects]),
+    onRunUpdated: useCallback(() => {
+      refreshRuns()
+    }, [refreshRuns]),
+    onRunRecords: useCallback(() => {
+      refreshRuns()
+    }, [refreshRuns]),
   })
 
   const hasToc = toc.length >= 2
@@ -210,6 +243,9 @@ function DocsApp() {
             <ThemeToggle />
           </header>
           <div className="flex-1 min-h-0 overflow-hidden">
+            {isRunsRoute ? (
+              <RunsView runs={runs} loading={runsLoading} activeRunId={activeRunId} />
+            ) : (
             <DocContent
               html={html}
               loading={loading}
@@ -223,6 +259,7 @@ function DocsApp() {
               onNavigate={navigateSmart}
               mobileSearchTrigger={() => setSearchOpen(true)}
             />
+            )}
           </div>
         </div>
         {hasToc ? <MobileToc toc={toc} /> : null}
@@ -245,6 +282,10 @@ function DocsApp() {
               onViewModeChange={setViewMode}
               onLogoClick={goHomeAndSearch}
               uploadEnabled={uploadEnabled}
+              appView={appView}
+              onAppViewChange={handleAppViewChange}
+              runsEnabled={runsEnabled}
+              activeRuns={activeRunCount(runs)}
             />
           </SheetContent>
         </Sheet>
@@ -281,6 +322,10 @@ function DocsApp() {
               onViewModeChange={setViewMode}
               onLogoClick={goHomeAndSearch}
               uploadEnabled={uploadEnabled}
+              appView={appView}
+              onAppViewChange={handleAppViewChange}
+              runsEnabled={runsEnabled}
+              activeRuns={activeRunCount(runs)}
             />
           </ResizablePanel>
           <ResizableHandle withHandle />
@@ -296,6 +341,9 @@ function DocsApp() {
                   inline
                 />
               </header>
+              {isRunsRoute ? (
+                <RunsView runs={runs} loading={runsLoading} activeRunId={activeRunId} />
+              ) : (
               <DocContent
                 html={html}
                 loading={loading}
@@ -308,6 +356,7 @@ function DocsApp() {
                 reloadNonce={reloadNonce}
                 onNavigate={navigateSmart}
               />
+              )}
             </div>
           </ResizablePanel>
           <ResizableHandle />

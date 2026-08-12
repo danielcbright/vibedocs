@@ -3,7 +3,7 @@ import { apiClient, type ApiClient, type ServerConfig } from "@/lib/api-client"
 
 export type { ServerConfig }
 
-const DEFAULT_CONFIG: ServerConfig = { uploadEnabled: false }
+const DEFAULT_CONFIG: ServerConfig = { uploadEnabled: false, runsEnabled: false }
 
 /**
  * Fetches /api/config once on mount. Safe defaults (uploadEnabled=false)

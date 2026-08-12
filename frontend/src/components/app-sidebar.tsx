@@ -9,7 +9,8 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { Search, Upload } from "lucide-react"
+import { Activity, Search, Upload } from "lucide-react"
+import type { AppView } from "@/lib/app-view"
 import { VibedocsLogo } from "@/components/vibedocs-logo"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { type UploadStatus } from "@/components/file-tree-item"
@@ -28,6 +29,14 @@ interface AppSidebarProps {
   onNavigate: (project: string, path: string) => void
   viewMode: ViewMode
   onViewModeChange: (mode: ViewMode) => void
+  /**
+   * Which top-level view the app is in. NOT ViewMode — that is the file-type
+   * filter below, a different axis that happens to share the value "docs".
+   */
+  appView?: AppView
+  onAppViewChange?: (view: AppView) => void
+  runsEnabled?: boolean
+  activeRuns?: number
   /** Click handler for the brand logo in the sidebar header — typically
    *  "go home and open search palette". When omitted, the logo is non-interactive. */
   onLogoClick?: () => void
@@ -44,6 +53,10 @@ export function AppSidebar({
   onNavigate,
   viewMode,
   onViewModeChange,
+  appView = "docs",
+  onAppViewChange,
+  runsEnabled = false,
+  activeRuns = 0,
   onLogoClick,
   uploadEnabled = false,
 }: AppSidebarProps) {
@@ -139,6 +152,40 @@ export function AppSidebar({
           )}
           <ThemeToggle />
         </div>
+        {runsEnabled && onAppViewChange && (
+          <div className="mt-2 flex items-center rounded-md border border-sidebar-border text-[11px] overflow-hidden">
+            <button
+              type="button"
+              aria-pressed={appView === "docs"}
+              className={`tap-target tap-active-feedback flex-1 px-2.5 py-1 transition-colors ${
+                appView === "docs"
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                  : "text-muted-foreground hover:text-sidebar-foreground"
+              }`}
+              onClick={() => onAppViewChange("docs")}
+            >
+              Docs
+            </button>
+            <button
+              type="button"
+              aria-pressed={appView === "runs"}
+              className={`tap-target tap-active-feedback flex flex-1 items-center justify-center gap-1.5 px-2.5 py-1 transition-colors ${
+                appView === "runs"
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                  : "text-muted-foreground hover:text-sidebar-foreground"
+              }`}
+              onClick={() => onAppViewChange("runs")}
+            >
+              <Activity className="h-3 w-3" />
+              Runs
+              {activeRuns > 0 && (
+                <span className="rounded-full bg-primary/15 px-1.5 text-[10px] font-medium text-primary">
+                  {activeRuns}
+                </span>
+              )}
+            </button>
+          </div>
+        )}
         {uploadStatus && (
           <div
             className={`mt-2 text-xs px-2 py-1 rounded ${
