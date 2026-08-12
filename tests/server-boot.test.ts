@@ -47,6 +47,16 @@ const hoisted = vi.hoisted(() => {
     shutdown: async () => {},
     siteConfigCacheHas: () => false,
     projectsDir: '/fake/projects',
+    // Agent Runs runtime. The feature is disabled here so the boot path is
+    // exercised without a runs directory; server.ts reads cfg at registration
+    // time, so this must be present even when disabled.
+    agentRuns: {
+      cfg: { enabled: false, runsDir: '/fake/runs', token: null },
+      clientConfig: { linkify: [], editorScheme: null },
+      store: {},
+      ingest: {},
+      renderer: {},
+    },
     setClientChannel: (channel: unknown) => {
       callLog.push('setClientChannel')
       setClientChannelLog.push(channel)

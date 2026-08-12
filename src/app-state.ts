@@ -206,13 +206,33 @@ export function createAppState(opts: CreateAppStateOptions): AppState {
 // ── Live boot one-liner ──────────────────────────────────────────────────────
 
 import { parseUploadAuthConfig } from './upload-auth.js'
+import { homedir } from 'os'
+import { parseAgentRunsEnv, loadAgentRunsClientConfig, type AgentRunsEnvConfig } from './agent-runs/config.js'
+import { createRunStore, type RunStore } from './agent-runs/store.js'
+import { createIngest, type Ingest } from './agent-runs/ingest.js'
+import { createTextRenderer, type TextRenderer } from './agent-runs/text-render.js'
+import type { AgentRunsClientConfig } from './shared/agent-runs-config-types.js'
 import { createChokidarFsEventSource } from './adapters/chokidar-fs-event-source.js'
 import { createInMemoryClientChannel } from './adapters/in-memory-client-channel.js'
 import { PROJECTS_DIR } from './discovery.js'
 
+/**
+ * Agent Runs runtime state. Lives inside AppState per ADR-0001: the store's
+ * callId index and ingest's adapter states are live runtime state, which is
+ * exactly what AppState owns.
+ */
+export interface AgentRunsRuntime {
+  readonly cfg: AgentRunsEnvConfig
+  readonly clientConfig: AgentRunsClientConfig
+  readonly store: RunStore
+  readonly ingest: Ingest
+  readonly renderer: TextRenderer
+}
+
 export interface LiveAppState extends AppState {
   /** Projects-directory absolute path (snapshot of env at boot). */
   readonly projectsDir: string
+  readonly agentRuns: AgentRunsRuntime
   /**
    * Swap the broadcast sink — used by server.ts after the HTTP server boots
    * to wire the real ws ClientChannel in. Pre-swap broadcasts go to the
@@ -252,6 +272,20 @@ export async function runLive(env: NodeJS.ProcessEnv = process.env): Promise<Liv
 
   await inner.start()
 
+  const agentRunsCfg = parseAgentRunsEnv(env as Record<string, string | undefined>, homedir())
+  // ONE store instance, shared by reads and by ingest. Two instances would each
+  // hold their own in-memory callId index and their own per-run write chain, so
+  // tool patches would fail to correlate and concurrent batches could interleave
+  // seq assignment.
+  const runStore = createRunStore({ runsDir: agentRunsCfg.runsDir })
+  const agentRuns: AgentRunsRuntime = {
+    cfg: agentRunsCfg,
+    clientConfig: await loadAgentRunsClientConfig(agentRunsCfg.runsDir),
+    store: runStore,
+    ingest: createIngest({ store: runStore, broadcast: (msg) => clientChannel.broadcast(msg) }),
+    renderer: createTextRenderer(),
+  }
+
   return {
     listProjects: inner.listProjects.bind(inner),
     renderPage: inner.renderPage.bind(inner),
@@ -263,6 +297,7 @@ export async function runLive(env: NodeJS.ProcessEnv = process.env): Promise<Liv
     shutdown: inner.shutdown.bind(inner),
     siteConfigCacheHas: inner.siteConfigCacheHas.bind(inner),
     projectsDir,
+    agentRuns,
     setClientChannel(channel) {
       clientChannel = channel
     },

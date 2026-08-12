@@ -15,6 +15,7 @@ import { resolveProjectPath } from './route-path.js'
 import { runLive, readRawFile } from './app-state.js'
 import { createWsClientChannel } from './adapters/ws-client-channel.js'
 import { registerStaticRoutes } from './static-files.js'
+import { registerAgentRunsRoutes } from './agent-runs/routes.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const FRONTEND_DIST = path.join(__dirname, '..', 'frontend', 'dist')
@@ -51,9 +52,27 @@ app.get('/api/raw/:project/*', async (c) => {
 })
 
 registerSearchRoute(app, { search: (q, n) => state.search(q, n), get version() { return state.searchVersion } })
-registerConfigRoute(app, state.uploadAuth)
+registerConfigRoute(app, state.uploadAuth, state.agentRuns.cfg.enabled)
 registerUploadRoute(app, assetResolver, state.uploadAuth, () => state.broadcast(refreshTreeMessage()))
 registerFileRoute(app, assetResolver)
+
+// Origin allowlist is needed BEFORE route registration (the control-write gate
+// uses it) and again after boot for the WS handshake. It only reads env + PORT,
+// so computing it here is safe.
+const allowedOrigins = parseAllowedOrigins({ envValue: process.env.VIBEDOCS_WS_ALLOWED_ORIGINS, port: PORT })
+const allowNoOrigin = process.env.VIBEDOCS_WS_ALLOW_NO_ORIGIN === 'true'
+
+// MUST precede registerStaticRoutes: the SPA fallback answers ANY unmatched
+// path with 200 text/html, so routes registered after it are never reached —
+// and the failure looks like success to a client checking res.ok.
+registerAgentRunsRoutes(app, {
+  cfg: state.agentRuns.cfg,
+  clientConfig: state.agentRuns.clientConfig,
+  store: state.agentRuns.store,
+  ingest: state.agentRuns.ingest,
+  renderer: state.agentRuns.renderer,
+  allowedOrigins,
+})
 
 registerStaticRoutes(app, FRONTEND_DIST)
 
@@ -65,12 +84,16 @@ const server = serve({ fetch: app.fetch, port: PORT }, () => {
 // Wire the real ws fan-out (CSWSH defense at the HTTP-upgrade step via the
 // Origin allowlist — see src/ws-auth.ts). Pre-swap broadcasts route through
 // runLive's placeholder in-memory channel.
-const allowedOrigins = parseAllowedOrigins({ envValue: process.env.VIBEDOCS_WS_ALLOWED_ORIGINS, port: PORT })
-const allowNoOrigin = process.env.VIBEDOCS_WS_ALLOW_NO_ORIGIN === 'true'
 console.log(`  🔒 WS origin allowlist: ${allowedOrigins.join(', ')}`)
 if (allowNoOrigin) console.log('  🔒 WS allows handshakes with no Origin header')
 const upMode = state.uploadAuth.readOnly ? 'READ-ONLY' : state.uploadAuth.token === null ? 'DISABLED' : 'TOKEN'
 console.log(`  🔒 Upload mode: ${upMode}`)
+const runsMode = !state.agentRuns.cfg.enabled
+  ? 'DISABLED'
+  : state.agentRuns.cfg.token === null
+    ? 'READ-ONLY (no ingest token)'
+    : 'ENABLED'
+console.log(`  🔒 Agent runs: ${runsMode}  (${state.agentRuns.cfg.runsDir})`)
 state.setClientChannel(createWsClientChannel({
   server: server as unknown as Server,
   verifyClient: buildVerifyClient({ allowedOrigins, allowNoOrigin }),
