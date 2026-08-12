@@ -27,6 +27,7 @@ import {
   remarkMermaid,
   rehypeWrapTables,
   sanitizeSchema,
+  agentTextSanitizeSchema,
 } from './markdown-plugins.js'
 import { rehypeRewriteUrls, type RewriteOptions } from './url-rewriter.js'
 
@@ -68,5 +69,38 @@ export function createMarkdownProcessor(
     })
     .use(rehypeRewriteUrls, options)
     .use(rehypeSanitize, sanitizeSchema)
+    .use(rehypeStringify)
+}
+
+/**
+ * Processor for agent-run transcript text (assistant messages, results, user
+ * briefs).
+ *
+ * Shares the remark/rehype/shiki/sanitize spine with `createMarkdownProcessor`
+ * but deliberately omits three plugins:
+ *
+ *  - `rehypeRewriteUrls` — its options (projectName, currentDocPath) are
+ *    project-doc concepts a transcript event does not have. Passing empties
+ *    would emit `/api/file//…` URLs.
+ *  - `rehypeSlug` + `rehypeAutolinkHeadings` — a timeline renders many events
+ *    into one document, so two events both containing `## Summary` would mint
+ *    duplicate DOM ids.
+ *  - `remarkMermaid` — mermaid needs a client-side render pass the transcript
+ *    view does not wire up; a `<div class="mermaid">` would render as nothing.
+ *
+ * Sanitization keeps id-clobbering on. Agent text is untrusted.
+ */
+export function createAgentTextProcessor() {
+  return unified()
+    .use(remarkParse)
+    .use(remarkGfm)
+    .use(remarkRehype)
+    .use(rehypeShiki, {
+      themes: { light: 'github-light', dark: 'github-dark' },
+      defaultColor: false,
+      fallbackLanguage: 'text',
+    })
+    .use(rehypeWrapTables)
+    .use(rehypeSanitize, agentTextSanitizeSchema)
     .use(rehypeStringify)
 }
