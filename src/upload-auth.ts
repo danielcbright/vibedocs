@@ -1,5 +1,5 @@
-import { timingSafeEqual } from 'crypto'
 import path from 'path'
+import { checkBearerToken } from './bearer-auth.js'
 
 // ── Upload-route authorization & validation ──────────────────────────────────
 //
@@ -85,18 +85,7 @@ export function checkUploadAuth(
   if (cfg.readOnly) return 'read-only'
   if (cfg.token === null) return 'no-token-configured'
 
-  if (!authorizationHeader) return 'unauthorized'
-  // Accept `Bearer <token>` (preferred). Whitespace tolerated.
-  const match = /^Bearer\s+(.+)$/i.exec(authorizationHeader.trim())
-  if (!match) return 'unauthorized'
-  const provided = match[1].trim()
-
-  // Constant-time comparison to defeat timing oracles. Different-length
-  // strings fail fast (timingSafeEqual requires equal length).
-  const expected = cfg.token
-  if (provided.length !== expected.length) return 'unauthorized'
-  const ok = timingSafeEqual(Buffer.from(provided), Buffer.from(expected))
-  return ok ? 'ok' : 'unauthorized'
+  return checkBearerToken(cfg.token, authorizationHeader) ? 'ok' : 'unauthorized'
 }
 
 // ── Extension allowlist ──────────────────────────────────────────────────────
