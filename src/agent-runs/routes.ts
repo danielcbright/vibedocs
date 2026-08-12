@@ -15,8 +15,9 @@ import { checkRunsControlAuth, checkRunsIngestAuth } from './auth.js'
 import type { AgentRunsEnvConfig } from './config.js'
 import type { Ingest } from './ingest.js'
 import type { RunStore } from './store.js'
+import { createCommandQueue, type CommandQueue } from './commands.js'
 import { enrichRecords, type TextRenderer } from './text-render.js'
-import { RUN_STATUSES, type RunLink, type RunStatus } from '../shared/agent-run-types.js'
+import { RUN_STATUSES, type RunCommandKind, type RunLink, type RunStatus } from '../shared/agent-run-types.js'
 import { isSafeUrlTemplate, type AgentRunsClientConfig } from '../shared/agent-runs-config-types.js'
 import { VibedocsError } from '../errors.js'
 
@@ -27,6 +28,24 @@ export interface AgentRunsRouteDeps {
   ingest: Ingest
   renderer: TextRenderer
   allowedOrigins: readonly string[]
+  /** Injectable for tests; defaults to a file-backed queue under cfg.runsDir. */
+  commands?: CommandQueue
+}
+
+const VALID_COMMAND_KINDS = new Set<RunCommandKind>(['stop'])
+
+function parseCommandKind(value: unknown): RunCommandKind {
+  if (typeof value !== 'string' || !VALID_COMMAND_KINDS.has(value as RunCommandKind)) {
+    throw new VibedocsError('invalid', 'kind must be: stop')
+  }
+  return value as RunCommandKind
+}
+
+function parseWaitMs(raw: string | undefined): number {
+  if (raw === undefined || raw === '') return 25000
+  const n = parseInt(raw, 10)
+  if (!Number.isFinite(n) || n < 0) return 25000
+  return Math.min(n, 60000)
 }
 
 const VALID_LINK_KINDS = new Set(['issue', 'pr', 'ci', 'other'])
@@ -69,6 +88,7 @@ async function readJson(c: Context): Promise<Record<string, unknown>> {
 
 export function registerAgentRunsRoutes(app: Hono, deps: AgentRunsRouteDeps): void {
   const { cfg, clientConfig, store, ingest, renderer, allowedOrigins } = deps
+  const commands = deps.commands ?? createCommandQueue({ runsDir: cfg.runsDir })
 
   /** Returns a Response to short-circuit with, or null to proceed. */
   function ingestGate(c: Context): Response | null {
@@ -149,6 +169,49 @@ export function registerAgentRunsRoutes(app: Hono, deps: AgentRunsRouteDeps): vo
       ...(body.links !== undefined ? { links: parseLinks(body.links) } : {}),
     })
     return c.json({ data: meta })
+  })
+
+  app.post('/api/runs/:id/commands', async (c) => {
+    const denied = controlGate(c)
+    if (denied) return denied
+
+    const id = c.req.param('id')
+    if (!(await store.getRun(id))) throw new VibedocsError('not-found', 'Run not found')
+
+    const body = await readJson(c)
+    const kind = parseCommandKind(body.kind)
+    const cmd = await commands.enqueueCommand(id, kind)
+    await store.patchRun(id, { stopRequested: true })
+    return c.json({ data: cmd })
+  })
+
+  app.get('/api/runs/:id/commands', async (c) => {
+    const denied = ingestGate(c)
+    if (denied) return denied
+
+    const id = c.req.param('id')
+    if (!(await store.getRun(id))) throw new VibedocsError('not-found', 'Run not found')
+
+    const pending = await commands.listPendingCommands(id, { waitMs: parseWaitMs(c.req.query('waitMs')) })
+    return c.json({ data: pending })
+  })
+
+  app.post('/api/runs/:id/commands/:cmdId/ack', async (c) => {
+    const denied = ingestGate(c)
+    if (denied) return denied
+
+    const id = c.req.param('id')
+    if (!(await store.getRun(id))) throw new VibedocsError('not-found', 'Run not found')
+
+    const body = await readJson(c)
+    const note = typeof body.note === 'string' ? body.note : undefined
+    const cmd = await commands.ackCommand(id, c.req.param('cmdId'), note)
+
+    const stillPending = await commands.listPendingCommands(id, { waitMs: 0 })
+    if (stillPending.length === 0) {
+      await store.patchRun(id, { stopRequested: false })
+    }
+    return c.json({ data: cmd })
   })
 
   // ── Reads ─────────────────────────────────────────────────────────────────
