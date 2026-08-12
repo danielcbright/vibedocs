@@ -94,6 +94,13 @@ export interface RunMeta {
   format: string
   /** Free-text agent identity. Display only. */
   agent?: string
+  /**
+   * Optional project this run belongs to. Free-text and client-supplied —
+   * VibeDocs does not validate it against discovered projects, because a run
+   * may well come from a checkout this server has never seen. Used only to
+   * group the rail.
+   */
+  project?: string
   /** Absolute path the agent ran in. Used to shorten displayed paths. */
   workdir?: string
   createdAt: number

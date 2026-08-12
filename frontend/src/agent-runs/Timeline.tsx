@@ -17,7 +17,7 @@ import type { CompiledRule } from "./lib/linkify"
  * drives the pin. Running a custom scroll handler alongside it would make two
  * things fight over the same anchor.
  */
-export function Timeline({ events, workdir, rules }: { events: AgentEvent[]; workdir?: string; rules?: readonly CompiledRule[] }) {
+export function Timeline({ events, workdir, rules, runId }: { events: AgentEvent[]; workdir?: string; rules?: readonly CompiledRule[]; runId?: string }) {
   const [query, setQuery] = useState("")
   const [quick, setQuick] = useState<QuickFilter>("all")
   const [follow, setFollow] = useState<FollowState>(INITIAL_FOLLOW_STATE)
@@ -58,7 +58,7 @@ export function Timeline({ events, workdir, rules }: { events: AgentEvent[]; wor
               computeItemKey={(_, event) => event.seq}
               ref={virtuoso}
               className="h-full px-4"
-              itemContent={(_, event) => <TimelineRow event={event} workdir={workdir} rules={rules} />}
+              itemContent={(_, event) => <TimelineRow event={event} workdir={workdir} rules={rules} runId={runId} />}
             />
             {follow.showJumpButton && !isFiltered && (
               <button

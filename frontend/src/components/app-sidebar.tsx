@@ -37,6 +37,8 @@ interface AppSidebarProps {
   onAppViewChange?: (view: AppView) => void
   runsEnabled?: boolean
   activeRuns?: number
+  /** Rendered in place of the file tree when appView is "runs". */
+  runsRail?: React.ReactNode
   /** Click handler for the brand logo in the sidebar header — typically
    *  "go home and open search palette". When omitted, the logo is non-interactive. */
   onLogoClick?: () => void
@@ -57,6 +59,7 @@ export function AppSidebar({
   onAppViewChange,
   runsEnabled = false,
   activeRuns = 0,
+  runsRail = null,
   onLogoClick,
   uploadEnabled = false,
 }: AppSidebarProps) {
@@ -197,7 +200,7 @@ export function AppSidebar({
             {uploadStatus.message}
           </div>
         )}
-        {!activeProjectHasSiteNav && (
+        {appView === "docs" && !activeProjectHasSiteNav && (
           <div className="relative mt-2">
             <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
             <Input
@@ -211,7 +214,9 @@ export function AppSidebar({
             />
           </div>
         )}
-        {/* Toolbar: view toggle + upload */}
+        {/* Toolbar: file-type filter + upload. Docs-only — the Runs rail has
+            its own controls. */}
+        {appView === "docs" && (
         <div className="flex items-center justify-between mt-2 gap-2">
           <div className="flex items-center rounded-md border border-sidebar-border text-[11px] overflow-hidden">
             <button
@@ -266,9 +271,12 @@ export function AppSidebar({
             </>
           )}
         </div>
+        )}
       </SidebarHeader>
       <SidebarContent>
-        {filteredProjects.map((project) => {
+        {/* In Runs the sidebar BECOMES the run rail — same shell, same header,
+            no second menu bar. */}
+        {appView === "runs" ? runsRail : filteredProjects.map((project) => {
           // Site-nav mode: when a project ships `.vibedocs.config.ts` with a
           // `nav` field, render the curated sections instead of the discovered
           // file tree. The filter input above still renders (so it's available

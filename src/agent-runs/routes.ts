@@ -16,7 +16,7 @@ import type { AgentRunsEnvConfig } from './config.js'
 import type { Ingest } from './ingest.js'
 import type { RunStore } from './store.js'
 import { createCommandQueue, type CommandQueue } from './commands.js'
-import { enrichRecords, type TextRenderer } from './text-render.js'
+import { createCodeHighlighter, enrichRecords, type TextRenderer } from './text-render.js'
 import { RUN_STATUSES, type RunCommandKind, type RunLink, type RunStatus } from '../shared/agent-run-types.js'
 import { isSafeUrlTemplate, type AgentRunsClientConfig } from '../shared/agent-runs-config-types.js'
 import { VibedocsError } from '../errors.js'
@@ -66,6 +66,24 @@ function parseLinks(value: unknown): RunLink[] {
   })
 }
 
+/**
+ * Language guess for a tool's output, from the path it touched or the tool kind.
+ * Mirrors the client's guess so the fallback render looks the same.
+ */
+function toolOutputLang(tool: { name: string; args: Record<string, unknown> }): string {
+  const p = String(tool.args?.path ?? tool.args?.file_path ?? '')
+  if (/\.tsx?$/.test(p)) return 'typescript'
+  if (/\.jsx?$/.test(p)) return 'javascript'
+  if (/\.go$/.test(p)) return 'go'
+  if (/\.py$/.test(p)) return 'python'
+  if (/\.sh$/.test(p)) return 'bash'
+  if (/\.ya?ml$/.test(p)) return 'yaml'
+  if (/\.json$/.test(p)) return 'json'
+  if (/\.md$/.test(p)) return 'markdown'
+  if (tool.name === 'shell') return 'bash'
+  return 'text'
+}
+
 function parseStatus(value: unknown): RunStatus {
   if (typeof value !== 'string' || !RUN_STATUSES.includes(value as RunStatus)) {
     throw new VibedocsError('invalid', `status must be one of: ${RUN_STATUSES.join(', ')}`)
@@ -89,6 +107,7 @@ async function readJson(c: Context): Promise<Record<string, unknown>> {
 export function registerAgentRunsRoutes(app: Hono, deps: AgentRunsRouteDeps): void {
   const { cfg, clientConfig, store, ingest, renderer, allowedOrigins } = deps
   const commands = deps.commands ?? createCommandQueue({ runsDir: cfg.runsDir })
+  const highlighter = createCodeHighlighter()
 
   /** Returns a Response to short-circuit with, or null to proceed. */
   function ingestGate(c: Context): Response | null {
@@ -138,6 +157,7 @@ export function registerAgentRunsRoutes(app: Hono, deps: AgentRunsRouteDeps): vo
       links: body.links !== undefined ? parseLinks(body.links) : undefined,
       format: body.format,
       agent: typeof body.agent === 'string' ? body.agent : undefined,
+      project: typeof body.project === 'string' ? body.project : undefined,
       workdir: typeof body.workdir === 'string' ? body.workdir : undefined,
     })
     return c.json({ data: { id: meta.id, url: `/#/runs/${encodeURIComponent(meta.id)}` } })
@@ -238,6 +258,29 @@ export function registerAgentRunsRoutes(app: Hono, deps: AgentRunsRouteDeps): vo
     const meta = await store.getRun(c.req.param('id'))
     if (!meta) throw new VibedocsError('not-found', 'Run not found')
     return c.json({ data: meta })
+  })
+
+  /**
+   * Highlighted HTML for ONE tool event's output.
+   *
+   * Separate from the events page on purpose: output can be 256 KB and most
+   * rows are never expanded, so the timeline fetches this only on expand.
+   */
+  app.get('/api/runs/:id/events/:seq/output', async (c) => {
+    const denied = readGate(c)
+    if (denied) return denied
+    const id = c.req.param('id')
+    if (!(await store.getRun(id))) throw new VibedocsError('not-found', 'Run not found')
+
+    const seq = parseInt(c.req.param('seq'), 10)
+    if (!Number.isFinite(seq)) throw new VibedocsError('invalid', 'seq must be a number')
+
+    const event = (await store.readEvents(id)).find((e) => e.seq === seq)
+    if (!event) throw new VibedocsError('not-found', 'Event not found')
+    const output = event.tool?.output ?? ''
+    if (!output) return c.json({ data: { html: '' } })
+
+    return c.json({ data: { html: await highlighter.highlight(output, toolOutputLang(event.tool!)) } })
   })
 
   app.get('/api/runs/:id/events', async (c) => {

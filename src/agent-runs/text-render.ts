@@ -68,3 +68,61 @@ export async function enrichRecords(
     }),
   )
 }
+
+
+// ── Tool-output highlighting ─────────────────────────────────────────────────
+//
+// Lazy by design: tool output can be 256 KB and most rows are never expanded,
+// so highlighting at read time would pay for output nobody looks at. The route
+// highlights one event's output on demand and caches by content.
+
+import { codeToHtml } from 'shiki'
+
+/** Languages we will ask shiki for. Anything else falls back to plain text. */
+const SAFE_LANGS = new Set([
+  'bash', 'typescript', 'javascript', 'go', 'python', 'yaml', 'json', 'markdown', 'text',
+])
+
+export interface CodeHighlighter {
+  highlight(code: string, lang: string): Promise<string>
+  readonly size: number
+}
+
+export function createCodeHighlighter(opts: { maxEntries?: number } = {}): CodeHighlighter {
+  const maxEntries = opts.maxEntries ?? 128
+  const cache = new Map<string, string>()
+
+  return {
+    async highlight(code, lang) {
+      if (!code) return ''
+      const language = SAFE_LANGS.has(lang) ? lang : 'text'
+      const key = createHash('sha256').update(language + '\u0000' + code).digest('hex')
+      const hit = cache.get(key)
+      if (hit !== undefined) {
+        cache.delete(key)
+        cache.set(key, hit)
+        return hit
+      }
+      let html: string
+      try {
+        html = await codeToHtml(code, {
+          lang: language,
+          themes: { light: 'github-light', dark: 'github-dark' },
+          defaultColor: false,
+        })
+      } catch {
+        // A language shiki cannot load must not fail the request; the client
+        // already renders plain preformatted text as its own fallback.
+        return ''
+      }
+      cache.set(key, html)
+      while (cache.size > maxEntries) {
+        const oldest = cache.keys().next().value as string | undefined
+        if (oldest === undefined) break
+        cache.delete(oldest)
+      }
+      return html
+    },
+    get size() { return cache.size },
+  }
+}

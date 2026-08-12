@@ -57,6 +57,7 @@ export interface CreateRunInput {
   links?: RunLink[]
   format: string
   agent?: string
+  project?: string
   workdir?: string
 }
 
@@ -193,6 +194,7 @@ export function createRunStore(opts: { runsDir: string }): RunStore {
         links: input.links ?? existing?.links ?? [],
         format: input.format,
         agent: input.agent ?? existing?.agent,
+        project: input.project ?? existing?.project,
         workdir: input.workdir ?? existing?.workdir,
         createdAt: existing?.createdAt ?? now,
         updatedAt: now,

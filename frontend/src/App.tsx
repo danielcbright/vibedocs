@@ -22,6 +22,7 @@ import { useConfig } from "@/hooks/use-config"
 import { findFirstMarkdown } from "@/lib/find-first-markdown"
 import type { AppView } from "@/lib/app-view"
 import { RunsView } from "@/agent-runs/RunsView"
+import { RunRail } from "@/agent-runs/RunRail"
 import { useRuns } from "@/agent-runs/hooks/use-runs"
 import { activeRunCount } from "@/agent-runs/lib/run-status"
 
@@ -251,7 +252,7 @@ function DocsApp() {
           </header>
           <div className="flex-1 min-h-0 overflow-hidden">
             {isRunsRoute ? (
-              <RunsView runs={runs} loading={runsLoading} activeRunId={activeRunId} onSelectRun={selectRun} onRunChanged={refreshRuns} recordsNonce={runRecordsNonce} />
+              <RunsView runs={runs} loading={runsLoading} activeRunId={activeRunId} onRunChanged={refreshRuns} recordsNonce={runRecordsNonce} />
             ) : (
             <DocContent
               html={html}
@@ -293,6 +294,13 @@ function DocsApp() {
               onAppViewChange={handleAppViewChange}
               runsEnabled={runsEnabled}
               activeRuns={activeRunCount(runs)}
+              runsRail={
+                <RunRail
+                  runs={runs}
+                  activeRunId={activeRunId}
+                  onSelect={(id) => { selectRun(id); setMobileSidebarOpen(false) }}
+                />
+              }
             />
           </SheetContent>
         </Sheet>
@@ -333,6 +341,7 @@ function DocsApp() {
               onAppViewChange={handleAppViewChange}
               runsEnabled={runsEnabled}
               activeRuns={activeRunCount(runs)}
+              runsRail={<RunRail runs={runs} activeRunId={activeRunId} onSelect={selectRun} />}
             />
           </ResizablePanel>
           <ResizableHandle withHandle />
@@ -341,15 +350,19 @@ function DocsApp() {
           <ResizablePanel id="content" defaultSize="62%" minSize="30%">
             <div className="flex flex-col h-full min-w-0 overflow-hidden">
               <header className="flex h-12 items-center gap-2 border-b px-4 shrink-0">
-                <ProjectSwitcher
-                  projects={projects}
-                  activeProject={activeProject}
-                  onNavigate={navigateSmart}
-                  inline
-                />
+                {isRunsRoute ? (
+                  <span className="text-sm font-medium">Agent Runs</span>
+                ) : (
+                  <ProjectSwitcher
+                    projects={projects}
+                    activeProject={activeProject}
+                    onNavigate={navigateSmart}
+                    inline
+                  />
+                )}
               </header>
               {isRunsRoute ? (
-                <RunsView runs={runs} loading={runsLoading} activeRunId={activeRunId} onSelectRun={selectRun} onRunChanged={refreshRuns} recordsNonce={runRecordsNonce} />
+                <RunsView runs={runs} loading={runsLoading} activeRunId={activeRunId} onRunChanged={refreshRuns} recordsNonce={runRecordsNonce} />
               ) : (
               <DocContent
                 html={html}
@@ -366,12 +379,14 @@ function DocsApp() {
               )}
             </div>
           </ResizablePanel>
-          <ResizableHandle />
-
-          {/* TOC - always rendered, content conditional */}
-          <ResizablePanel id="toc" defaultSize="20%" minSize={120} maxSize="30%">
-            {hasToc ? <TocPanel toc={toc} /> : null}
-          </ResizablePanel>
+          {/* No TOC in Runs — the transcript takes the full width, and the
+              handle must go with the panel or it dangles. */}
+          {!isRunsRoute && <ResizableHandle />}
+          {!isRunsRoute && (
+            <ResizablePanel id="toc" defaultSize="20%" minSize={120} maxSize="30%">
+              {hasToc ? <TocPanel toc={toc} /> : null}
+            </ResizablePanel>
+          )}
         </ResizablePanelGroup>
       </div>
       <SearchDialog

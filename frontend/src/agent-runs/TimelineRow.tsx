@@ -17,7 +17,7 @@ import type { CompiledRule } from "./lib/linkify"
  * the project's unified pipeline and already sanitized. Thinking stays plain
  * text — it is raw reasoning, not markdown.
  */
-export function TimelineRow({ event, workdir, rules = [] }: { event: AgentEvent; workdir?: string; rules?: readonly CompiledRule[] }) {
+export function TimelineRow({ event, workdir, rules = [], runId }: { event: AgentEvent; workdir?: string; rules?: readonly CompiledRule[]; runId?: string }) {
   const [open, setOpen] = useState(false)
   const expandable = isExpandable(event)
   const title = eventTitle(event, workdir)
@@ -114,7 +114,12 @@ export function TimelineRow({ event, workdir, rules = [] }: { event: AgentEvent;
                   </div>
                   {tool.output ? (
                     <>
-                      <CodeBlock code={tool.output} />
+                      <CodeBlock
+                        code={tool.output}
+                        // Only mounted when the row is expanded, so the
+                        // highlight fetch is genuinely lazy.
+                        highlightUrl={runId ? `/api/runs/${encodeURIComponent(runId)}/events/${event.seq}/output` : undefined}
+                      />
                       {tool.outputTruncated && (
                         <div className="text-[11px] text-muted-foreground">output truncated</div>
                       )}

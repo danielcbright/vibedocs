@@ -13,6 +13,8 @@
  *   --batch <n>       lines per POST (default: 64)
  *   --delay <ms>      pause between batches, to watch it stream (default: 0)
  *   --workdir <path>  run workdir, used to shorten displayed paths
+ *   --project <name>  project this run belongs to, used to group the rail
+ *   --status <s>      initial status (default: running)
  */
 import { readFileSync } from 'node:fs'
 import path from 'node:path'
@@ -41,6 +43,8 @@ const format = opt('format', 'cursor-stream-json')
 const batchSize = parseInt(opt('batch', '64'), 10)
 const delay = parseInt(opt('delay', '0'), 10)
 const workdir = opt('workdir', undefined)
+const project = opt('project', undefined)
+const status = opt('status', 'running')
 
 const lines = readFileSync(file, 'utf8')
   .split('\n').filter((l) => l.trim().length > 0)
@@ -64,7 +68,9 @@ async function post(pathname, body) {
 }
 
 const created = await post('/api/runs', {
-  id, title, format, status: 'running', ...(workdir ? { workdir } : {}),
+  id, title, format, status,
+  ...(workdir ? { workdir } : {}),
+  ...(project ? { project } : {}),
 })
 console.log(`run ${created.data.id} -> ${base}${created.data.url}`)
 
