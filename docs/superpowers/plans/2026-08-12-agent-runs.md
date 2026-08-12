@@ -3677,7 +3677,9 @@ const runIngest = createIngest({ store: runStore, broadcast: (msg) => clientChan
   }
 ```
 
-In `src/server.ts`, after `registerFileRoute(...)` and **before** `registerStaticRoutes(...)` (the SPA fallback swallows unmatched GETs):
+In `src/server.ts`, after `registerFileRoute(...)` and **before** `registerStaticRoutes(...)`.
+
+This ordering is load-bearing, and the failure mode is worse than "route not found". Verified against the running dev server 2026-08-12: the SPA fallback answers **any** unmatched path with `200` and `text/html`, including `/api/nope`. So registering the runs routes after it would not 404 — it would return an HTML page with a success status, and any client checking `res.ok` (including `scripts/replay-transcript.mjs`) would report the push as having worked. Add a route test asserting `GET /api/runs` returns `content-type: application/json`, not just a 2xx.
 
 ```ts
 registerAgentRunsRoutes(app, {
@@ -4167,19 +4169,59 @@ Assisted-by: Claude Opus 5"
 
 ---
 
-### Task 9: The frontend vertical slice
+### Task 9: The entrypoint, then the transcript view
 
-The end of Phase A: navigate to `#/runs`, pick a run in the rail, read its transcript with real rendered markdown. No follow mode, no filters, no virtualization yet — those are Phase B, and each is a separate reviewable change.
+Two commits. **Commit A is the entrypoint and an empty Runs view** — the smallest thing that makes the feature visible and navigable. **Commit B is the rail and timeline.** Splitting them means the feature shows up in the UI as soon as the routes exist, rather than appearing all at once at the end, and each half is separately reviewable.
+
+No follow mode, no filters, no virtualization — those are Phase B.
 
 **Route namespace:** `#/runs` and `#/runs/:id`. The leading slash matters — `parseHash` in `frontend/src/App.tsx:24` splits on the first `/` and treats segment 0 as a project name, so a leading `/` yields an empty project, which no directory can be. That makes the namespace collision-proof against a project literally named `runs`.
 
-**Files:**
-- Create: `frontend/src/agent-runs/RunsView.tsx`, `RunRail.tsx`, `RunHeader.tsx`, `Timeline.tsx`, `TimelineRow.tsx`
-- Create: `frontend/src/agent-runs/hooks/use-runs.ts`, `use-run-records.ts`
+#### The entrypoint (decided 2026-08-12)
+
+A **segmented view switch at the top of the sidebar header**, directly under the logo and above the file filter.
+
+```
+┌─ sidebar ────────────────┐
+│ [logo] VibeDocs      [◐] │
+│ ┌───────┬────────────┐   │
+│ │  Docs │ Runs   ●2  │   │  <- App View switch (new)
+│ └───────┴────────────┘   │
+│ [Filter files...       ] │
+│ [Docs|All]      [Upload] │  <- file-type filter (existing, unrelated)
+│ ▸ docs/                  │
+└──────────────────────────┘
+```
+
+Four things this has to get right, none of which the earlier draft specified:
+
+- **Naming collision — do not reuse `ViewMode`.** `frontend/src/App.tsx:51` already defines `type ViewMode = "docs" | "all"`, which is the **file-type filter** (which files appear in the tree). The new switch is a different axis entirely: which *view* the app is in. Call it **`AppView = 'docs' | 'runs'`**. Two controls in the same sidebar header would otherwise share a name and a `"docs"` value while meaning unrelated things. Add both terms to `CONTEXT.md` under a new "Agent Runs" section with an explicit `_Avoid_` note, per that file's convention.
+- **Always visible when enabled, never when disabled.** Render the switch iff `runsEnabled` from `/api/config`. At zero runs it still shows, with no badge — discoverability before the first run matters more than tidiness, and it is the only way to tell "enabled but empty" from "broken". The badge counts runs whose status is **not** terminal (`done`/`failed`/`stopped`).
+- **Getting back must return where you were.** Clicking `Docs` restores the last docs hash rather than dumping the user at the root. Keep the last non-runs hash in a ref updated on hashchange; fall back to `""` if there isn't one.
+- **Mobile is the same component.** `AppSidebar` renders inside the `Sheet` drawer on mobile (`App.tsx:239`), so the switch appears there for free. But in Runs view the drawer must show the **run rail**, not the docs tree — so the mobile branch chooses its drawer content on `AppView`, and selecting a run closes the drawer exactly as `navigateAndCloseDrawer` does today.
+
+**Empty state** (what you see today, with the feature on and nothing pushed): a centred panel using the existing `Empty` primitive from `frontend/src/components/ui/empty.tsx` — "No agent runs yet", one line on how a client records one (`POST /api/runs`), and a link to `docs/agent-runs.md`. **Never render the ingest token.**
+
+**Files (Commit A):**
+- Create: `frontend/src/agent-runs/RunsView.tsx` (shell + empty state), `hooks/use-runs.ts`
+- Modify: `frontend/src/components/app-sidebar.tsx` (the switch), `frontend/src/App.tsx` (`AppView` routing, last-docs-hash memory, mobile drawer content), `frontend/src/hooks/use-config.ts` + `frontend/src/lib/api-client.ts` (`runsEnabled`), `frontend/src/hooks/use-websocket.ts` (the two new variants)
+- Create: `frontend/tests/agent-runs-entrypoint.test.tsx`
+- Modify: `CONTEXT.md` (Agent Runs vocabulary)
+
+Tests for Commit A — the seams are `useRuns` and the switch's visibility logic, not the markup:
+- the switch does not render when `runsEnabled` is false
+- it renders with no badge when enabled and zero runs
+- the badge counts only non-terminal runs (2 running + 1 done → `2`)
+- clicking `Runs` sets the hash to `#/runs`
+- clicking `Docs` restores the previous docs hash, not the root
+- `RunsView` with zero runs renders the empty state and does not render a token
+
+**Files (Commit B):**
+- Create: `frontend/src/agent-runs/RunRail.tsx`, `RunHeader.tsx`, `Timeline.tsx`, `TimelineRow.tsx`
+- Create: `frontend/src/agent-runs/hooks/use-run-records.ts`
 - Create: `frontend/src/agent-runs/lib/tool-display.ts`
 - Create: `frontend/src/agent-runs/components/{CopyButton,CodeBlock,StatusIcon,ToolIcon,KindIcon}.tsx`
-- Modify: `frontend/src/App.tsx` (route on the hash, render `RunsView`)
-- Modify: `frontend/src/hooks/use-websocket.ts` (handle the two new variants — currently a compile error)
+- Modify: `frontend/src/agent-runs/RunsView.tsx` (swap the empty state for rail + detail once runs exist)
 - Create: `frontend/tests/agent-runs-timeline-row.test.tsx`
 
 **Interfaces:**
@@ -4190,7 +4232,7 @@ The end of Phase A: navigate to `#/runs`, pick a run in the rail, read its trans
   - `fmtTime(ms?: number): string`, `fmtDuration(ms?: number): string`, `shortenPath(p: string, workdir?: string): string`, `toolSummary(tool: ToolInfo): string`, `toolCopyText(event: AgentEvent): string`
   - `<RunsView />`, `<RunRail runs activeId onSelect />`, `<Timeline events workdir />`, `<TimelineRow event workdir />`
 
-- [ ] **Step 1: Handle the new WS variants (fixes the intended compile error)**
+- [ ] **Step A1: Handle the new WS variants (fixes the intended compile error)**
 
 In `frontend/src/hooks/use-websocket.ts`, extend `UseWebSocketOptions` and the switch:
 
@@ -4213,7 +4255,59 @@ interface UseWebSocketOptions {
 
 …and thread both through `useWebSocket` exactly as `onReload` is threaded: a ref per callback, an effect keeping it current, and reading off the ref inside `ws.onmessage` — so a callback swap never recreates the socket.
 
-- [ ] **Step 2: Write the display helpers**
+- [ ] **Step A2: Thread `runsEnabled` through the config client**
+
+`ServerConfig` in `frontend/src/lib/api-client.ts` and `DEFAULT_CONFIG` in `frontend/src/hooks/use-config.ts` both gain `runsEnabled: boolean`, defaulting to **false**. The existing comment on that hook states the rule this follows: safe defaults apply while loading and on failure, so the affordance stays hidden unless the server explicitly says otherwise.
+
+- [ ] **Step A3: Add the `AppView` switch and route to an empty Runs view**
+
+Write the failing tests first (`frontend/tests/agent-runs-entrypoint.test.tsx`), one at a time, per the list above — visibility, badge arithmetic, and hash behaviour are the seams; the markup is not.
+
+Then implement:
+
+```tsx
+// frontend/src/App.tsx — NOT ViewMode, which already means the file-type filter
+type AppView = "docs" | "runs"
+
+const RUN_TERMINAL: readonly RunStatus[] = ["done", "failed", "stopped"]
+export function activeRunCount(runs: readonly RunMeta[]): number {
+  return runs.filter((r) => !RUN_TERMINAL.includes(r.status)).length
+}
+```
+
+`AppSidebar` takes `appView`, `onAppViewChange`, `runsEnabled` and `activeRunCount`, and renders the segmented switch immediately after the logo row — above the file filter, so it reads as a view change rather than another filter. Reuse the existing segmented-control markup at `app-sidebar.tsx:169-192` for visual consistency, but keep it a separate control.
+
+`App.tsx` derives `AppView` from the hash, remembers the last docs hash in a ref, and renders `<RunsView>` instead of the docs layout when in runs. On mobile, the drawer's content switches on `AppView` too.
+
+- [ ] **Step A4: Verify in the running app, then commit A**
+
+With the dev server up, confirm by eye at `http://localhost:5173`:
+1. The `Docs | Runs` switch is present, with **no** badge (zero runs).
+2. Clicking `Runs` navigates to `#/runs` and shows the empty state — not a blank panel.
+3. Clicking `Docs` returns to the doc you were reading, not the root.
+4. The mobile drawer (narrow the window) shows the same switch.
+5. `VIBEDOCS_RUNS_ENABLED=false` restart → the switch is gone entirely.
+
+```bash
+npx vitest run frontend/tests/agent-runs-entrypoint.test.tsx
+npm run build      # frontend typecheck must pass
+git add frontend/src CONTEXT.md frontend/tests/agent-runs-entrypoint.test.tsx
+./scripts/check-public-safe.sh
+git commit -m "feat(agent-runs): sidebar view switch and empty Runs view
+
+Adds an AppView switch (Docs | Runs) at the top of the sidebar header, visible
+only when the server reports runsEnabled. Deliberately NOT named ViewMode: that
+type already exists for the file-type filter in the same header and means a
+different axis entirely.
+
+Always visible when the feature is enabled, badge-free at zero runs — being able
+to tell 'enabled but empty' from 'broken' is worth more than the tidier empty
+UI. Returning to Docs restores the previous doc rather than the root.
+
+Assisted-by: Claude Opus 5"
+```
+
+- [ ] **Step B1: Write the display helpers**
 
 Create `frontend/src/agent-runs/lib/tool-display.ts`:
 
@@ -4303,9 +4397,9 @@ export function eventTitle(event: AgentEvent, workdir?: string): string {
 }
 ```
 
-- [ ] **Step 3: Write the data hooks**
+- [ ] **Step B2: Write the record-paging hook**
 
-Create `frontend/src/agent-runs/hooks/use-runs.ts`:
+`use-runs.ts` already exists from Commit A (the rail count needs it). For reference, that hook is:
 
 ```ts
 import { useCallback, useEffect, useState } from "react"
@@ -4328,7 +4422,7 @@ export function useRuns() {
 }
 ```
 
-Create `frontend/src/agent-runs/hooks/use-run-records.ts`. The key property: it pages by record position and folds incrementally, so a WS nudge fetches only the tail and reconnect catch-up is the same call.
+Create the new one, `frontend/src/agent-runs/hooks/use-run-records.ts`. The key property: it pages by record position and folds incrementally, so a WS nudge fetches only the tail and reconnect catch-up is the same call.
 
 ```ts
 import { useCallback, useEffect, useRef, useState } from "react"
@@ -4384,7 +4478,7 @@ export function useRunRecords(runId: string | null) {
 }
 ```
 
-- [ ] **Step 4: Write the icon and copy primitives**
+- [ ] **Step B3: Write the icon and copy primitives**
 
 Create `frontend/src/agent-runs/components/StatusIcon.tsx`, `ToolIcon.tsx`, `KindIcon.tsx`, `CopyButton.tsx`. lucide only, no emoji. Suggested mapping — `running` → `Loader2` with `animate-spin`, `idle` → `Circle`, `waiting` → `Clock`, `blocked` → `OctagonAlert`, `done` → `CircleCheck`, `failed` → `CircleX`, `stopped` → `CircleStop`; tools — `shell` → `Terminal`, `read` → `FileText`, `edit` → `FilePen`, `grep` → `Search`, `glob` → `FolderSearch`, default `Wrench`; kinds — `init` → `Play`, `user` → `MessageSquare`, `thinking` → `Brain`, `assistant` → `Sparkles`, `result` → `Flag`, `other` → `Dot`.
 
@@ -4428,7 +4522,7 @@ export function CopyButton({ value, label, className, title = "Copy" }: {
 
 `CodeBlock` in this slice renders **plain preformatted text** with a copy button and a wrap toggle — no highlighting. Server-side output highlighting is Task 16; adding a client-side highlighter here would violate the global constraint.
 
-- [ ] **Step 5: Write TimelineRow, Timeline, RunRail, RunHeader, RunsView**
+- [ ] **Step B4: Write TimelineRow, Timeline, RunRail, RunHeader, RunsView**
 
 `TimelineRow` is the port of `V2Timeline`'s `Row`, with three changes: markdown-bearing kinds render `event.textHtml` through `dangerouslySetInnerHTML` (already sanitized server-side) instead of plain text; tool labels shorten against `workdir`; and it uses this repo's `Collapsible` from `@/components/ui/collapsible` rather than importing radix directly.
 
@@ -4447,26 +4541,20 @@ The same branch applies to `assistant` and to the expanded `user` brief. `thinki
 
 `Timeline` maps events to rows inside a `ScrollArea` with the absolute vertical spine (`V2Timeline.tsx:17`). `RunRail` groups active runs above done ones, each row showing title, one-line description, a `StatusIcon`, and its links. `RunHeader` shows identity and links. `RunsView` composes rail + detail in a `ResizablePanelGroup`, matching the docs layout.
 
-- [ ] **Step 6: Route it in App.tsx**
+- [ ] **Step B5: Wire live updates into the populated view**
 
-`parseHash` already yields `{ project: "", path: "runs/…" }` for a `#/runs/x` hash. Add a derived check and branch before the docs layout:
+Routing, the switch and `#/runs/:id` parsing all landed in Step A3 — do not redo them here. What remains is replacing `RunsView`'s empty state with rail + detail once runs exist, and connecting the WebSocket:
 
-```tsx
-const runsRoute = activeProject === "" && (activePath ?? "").startsWith("runs")
-const activeRunId = runsRoute ? ((activePath ?? "").split("/")[1] ?? null) : null
-// …
-if (runsRoute) return <RunsView activeRunId={activeRunId} />
-```
+- `onRunUpdated(runId)` — refresh the rail, and the open run's meta if the id matches.
+- `onRunRecords(runId, recCount)` — call `fetchTail()` when the id matches the open run. The nudge carries a count, not a payload, so this is the same `?fromRec=` call the initial load makes.
 
-Gate the nav entry on `runsEnabled` from `useConfig()` (extend that hook to read the new field), so a server with the feature off shows no Runs affordance at all.
+Keep the empty state as the zero-runs branch; it is the normal state of a freshly enabled server, not an error.
 
-Wire the WS callbacks in `RunsView`: `onRunUpdated` refreshes the rail and the open run's meta; `onRunRecords` calls `fetchTail()` when the id matches the open run.
-
-- [ ] **Step 7: Write a rendering test**
+- [ ] **Step B6: Write a rendering test**
 
 Create `frontend/tests/agent-runs-timeline-row.test.tsx` asserting: an assistant event with `textHtml` renders an `<h2>` and not the literal `##`; a tool event renders its label, status icon and summary; a running tool shows the running state; a tool path label is shortened against `workdir`; and an event with neither text nor tool renders without throwing.
 
-- [ ] **Step 8: Verify the whole slice against a real transcript**
+- [ ] **Step B7: Verify the whole slice against a real transcript**
 
 ```bash
 npm run build            # frontend typecheck + build must pass now
@@ -4484,7 +4572,7 @@ Open `http://localhost:5173/#/runs/demo`. Confirm, by eye:
 5. New events appear as the replay streams (`--delay 200` makes this visible).
 6. No console errors, and no `Invalid Date` or absurd durations in the gutter — that was the bake-off's missing-timestamp bug and Task 2 fixes it upstream of here.
 
-- [ ] **Step 9: Full verify and commit**
+- [ ] **Step B8: Full verify and commit**
 
 Run: `npm run verify` — CI's gate, in CI's order.
 
