@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtemp, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import path from 'path'
-import { parseAgentRunsEnv, loadAgentRunsClientConfig, compileLinkifyRules } from '../src/agent-runs/config.js'
+import { parseAgentRunsEnv, loadAgentRunsClientConfig, compileLinkifyRules, resolveRunsToken } from '../src/agent-runs/config.js'
 
 let dir: string
 beforeEach(async () => { dir = await mkdtemp(path.join(tmpdir(), 'vibedocs-cfg-')) })
@@ -100,5 +100,37 @@ describe('compileLinkifyRules', () => {
 
   it('skips an uncompilable pattern rather than throwing', () => {
     expect(compileLinkifyRules([{ pattern: '(', url: 'https://x.example.com', kind: 'other' }])).toEqual([])
+  })
+})
+
+describe('resolveRunsToken', () => {
+  it('reads the token from a file when only the file form is set', () => {
+    expect(resolveRunsToken({ VIBEDOCS_RUNS_TOKEN_FILE: '/secret' }, () => 's3cret\n')).toBe('s3cret')
+  })
+
+  it('lets an explicit value win over the file — never silently overridden', () => {
+    expect(resolveRunsToken(
+      { VIBEDOCS_RUNS_TOKEN: 'direct', VIBEDOCS_RUNS_TOKEN_FILE: '/secret' },
+      () => 'from-file',
+    )).toBe('direct')
+  })
+
+  it('fails closed when the file is missing or unreadable', () => {
+    // No token means ingest 404s. Starting an unauthenticated write endpoint
+    // because a secret file was absent would be the worse failure.
+    expect(resolveRunsToken({ VIBEDOCS_RUNS_TOKEN_FILE: '/nope' }, () => { throw new Error('ENOENT') })).toBeNull()
+  })
+
+  it('treats an empty or whitespace-only file as no token', () => {
+    expect(resolveRunsToken({ VIBEDOCS_RUNS_TOKEN_FILE: '/secret' }, () => '   \n')).toBeNull()
+  })
+
+  it('returns null when neither form is set', () => {
+    expect(resolveRunsToken({})).toBeNull()
+  })
+
+  it('is wired into parseAgentRunsEnv', () => {
+    const cfg = parseAgentRunsEnv({ VIBEDOCS_RUNS_ENABLED: 'true', VIBEDOCS_RUNS_TOKEN_FILE: '/secret' }, '/home/dev', () => 'tok')
+    expect(cfg.token).toBe('tok')
   })
 })

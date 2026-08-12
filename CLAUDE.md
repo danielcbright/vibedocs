@@ -20,6 +20,7 @@ VibeDocs — self-hosted markdown documentation browser **and** static-site gene
 | `VIBEDOCS_RUNS_ENABLED` | `false` | Master switch for the Agent Runs viewer. When falsy every `/api/runs*` route 404s and no Runs affordance renders. See [`docs/agent-runs.md`](docs/agent-runs.md). |
 | `VIBEDOCS_RUNS_DIR` | `~/.vibedocs/runs` | Agent-run storage root, one directory per run. |
 | `VIBEDOCS_RUNS_TOKEN` | _(unset)_ | Bearer token gating agent-run **ingest** writes. Unset → ingest 404s (feature not fingerprintable). |
+| `VIBEDOCS_RUNS_TOKEN_FILE` | _(unset)_ | Path to a file holding that token. Prefer this under any process manager: a launchd plist or systemd unit is typically world-readable (0644), so a token embedded in one is readable by every local user, while the file can be 0600. The direct variable wins if both are set; a missing or unreadable file yields no token, which disables ingest — failing closed. |
 
 ### Upload deployment modes
 

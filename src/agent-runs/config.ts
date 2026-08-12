@@ -9,6 +9,7 @@
  */
 
 import { readFile } from 'fs/promises'
+import { readFileSync } from 'fs'
 import path from 'path'
 import {
   EMPTY_AGENT_RUNS_CLIENT_CONFIG,
@@ -35,15 +36,48 @@ export interface AgentRunsEnvConfig {
   token: string | null
 }
 
+/**
+ * Resolve the ingest token from either the value or a file holding it.
+ *
+ * The file form exists so a process manager never has to embed the secret in
+ * its own config. A launchd plist or a systemd unit is typically world-readable
+ * (0644), so a token pasted into one is readable by every local user, while the
+ * file it points at can be 0600.
+ *
+ * The direct variable wins when both are set: an explicitly-supplied value
+ * should never be silently overridden by a file someone forgot about. A
+ * missing or unreadable file yields no token, which disables ingest — failing
+ * closed rather than starting an unauthenticated write endpoint.
+ */
+export function resolveRunsToken(
+  env: Record<string, string | undefined>,
+  read: (p: string) => string = (p) => readFileSync(p, 'utf8'),
+): string | null {
+  const direct = env.VIBEDOCS_RUNS_TOKEN
+  if (direct && direct.trim().length > 0) return direct
+
+  const file = env.VIBEDOCS_RUNS_TOKEN_FILE?.trim()
+  if (!file) return null
+  try {
+    const contents = read(file).trim()
+    return contents.length > 0 ? contents : null
+  } catch {
+    return null
+  }
+}
+
 export function parseAgentRunsEnv(
   env: Record<string, string | undefined>,
   home: string,
+  read?: (p: string) => string,
 ): AgentRunsEnvConfig {
   const explicit = env.VIBEDOCS_RUNS_DIR?.trim()
   const runsDir = explicit ? path.resolve(explicit) : path.join(home, '.vibedocs', 'runs')
-  const tokenRaw = env.VIBEDOCS_RUNS_TOKEN
-  const token = tokenRaw && tokenRaw.trim().length > 0 ? tokenRaw : null
-  return { enabled: isTruthy(env.VIBEDOCS_RUNS_ENABLED), runsDir, token }
+  return {
+    enabled: isTruthy(env.VIBEDOCS_RUNS_ENABLED),
+    runsDir,
+    token: resolveRunsToken(env, read),
+  }
 }
 
 /** Keep only rules that are complete, compilable, and not a dangerous scheme. */

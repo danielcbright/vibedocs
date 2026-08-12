@@ -161,10 +161,12 @@ if [ "$ENABLE_RUNS" = "1" ]; then
     openssl rand -hex 16 > "$TOKEN_FILE"
     chmod 600 "$TOKEN_FILE"
   fi
-  RUNS_TOKEN="$(cat "$TOKEN_FILE")"
+  # Point at the token file rather than embedding the token. A LaunchAgent
+  # plist is world-readable (0644 under the default umask), so a secret pasted
+  # into one is readable by every local user; the file it names is 0600.
   RUNS_ENV="
     <key>VIBEDOCS_RUNS_ENABLED</key><string>true</string>
-    <key>VIBEDOCS_RUNS_TOKEN</key><string>${RUNS_TOKEN}</string>"
+    <key>VIBEDOCS_RUNS_TOKEN_FILE</key><string>${TOKEN_FILE}</string>"
 fi
 
 # ── LaunchAgent ──────────────────────────────────────────────────────────────
@@ -199,6 +201,10 @@ cat > "$PLIST" <<PLIST_EOF
 </dict>
 </plist>
 PLIST_EOF
+
+# Defense in depth: the plist names no secret, but it does describe how this
+# service is wired, and there is no reason for it to be world-readable.
+chmod 600 "$PLIST"
 
 echo
 echo "Building…"

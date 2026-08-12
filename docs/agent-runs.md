@@ -15,6 +15,7 @@ The feature is **off by default**. Nothing in this document applies until
 | `VIBEDOCS_RUNS_ENABLED` | `false` | Master switch. When falsy, every `/api/runs*` route returns 404 and no Runs affordance appears in the UI. |
 | `VIBEDOCS_RUNS_DIR` | `~/.vibedocs/runs` | Where run data lives. One directory per run. |
 | `VIBEDOCS_RUNS_TOKEN` | _(unset)_ | Bearer token for **ingest** writes. Unset means ingest returns 404 — the endpoint does not admit it exists. |
+| `VIBEDOCS_RUNS_TOKEN_FILE` | _(unset)_ | A file holding the token instead. Prefer this under a process manager: service config files are usually world-readable, so an embedded secret is readable by every local user. The direct variable wins if both are set; an unreadable file yields no token and ingest stays closed. |
 
 Linkification rules live in `<VIBEDOCS_RUNS_DIR>/../agent-runs.json` (so
 `~/.vibedocs/agent-runs.json` by default). This is what keeps every
