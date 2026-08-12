@@ -2,7 +2,7 @@ import { useState } from "react"
 import type { RunMeta } from "@shared/agent-run-types"
 import { cn } from "@/lib/utils"
 import { RunStatusIcon } from "./components/icons"
-import { PrimaryLink } from "./RunLinks"
+import { RailLinks } from "./RunLinks"
 import { fmtRelative } from "./lib/tool-display"
 import { groupRuns, type RunGrouping, type RunSort } from "./lib/group-runs"
 
@@ -87,7 +87,7 @@ export function RunRail({ runs, activeRunId, onSelect }: {
                 <div className="flex items-center gap-2">
                   <RunStatusIcon status={run.status} />
                   <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium">{run.title}</span>
-                  <PrimaryLink links={run.links} />
+                  <RailLinks links={run.links} />
                 </div>
                 <div className="truncate pl-[22px] text-[10.5px] text-muted-foreground">
                   {[

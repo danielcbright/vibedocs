@@ -39,26 +39,44 @@ export function RunLinks({ links, size = "md" }: { links: RunLink[]; size?: "sm"
 
 
 /**
- * The single most identifying link, for a rail row.
+ * The links a rail row carries: the issue key and the PR, at most.
  *
- * A rail row shows one link, not all of them: the issue key is what an operator
- * scans for, and a row of chips turns the rail into a wall. The full set lives
- * in the detail header. Issue wins, then PR, then whatever is first.
+ * Not all of them — a full chip set turns the rail into a wall, and CI runs and
+ * one-offs belong in the detail header. But not just one either: the issue key
+ * is what you scan for while work is in flight, and the PR is the outcome you
+ * look for once it is finished, so a done run showing only its ticket hides the
+ * thing you actually came for.
  */
-export function PrimaryLink({ links }: { links: RunLink[] }) {
-  if (links.length === 0) return null
-  const link = links.find((l) => l.kind === "issue") ?? links.find((l) => l.kind === "pr") ?? links[0]
-  const Icon = KIND_ICON[link.kind] ?? ExternalLink
+export function railLinks(links: readonly RunLink[]): RunLink[] {
+  const issue = links.find((l) => l.kind === "issue")
+  const pr = links.find((l) => l.kind === "pr")
+  const picked = [issue, pr].filter((l): l is RunLink => l !== undefined)
+  // No issue and no PR: fall back to the first link rather than showing none.
+  return picked.length > 0 ? picked : links.slice(0, 1)
+}
+
+export function RailLinks({ links }: { links: RunLink[] }) {
+  const picked = railLinks(links)
+  if (picked.length === 0) return null
   return (
-    <a
-      href={link.url}
-      target="_blank"
-      rel="noreferrer noopener"
-      onClick={(e) => e.stopPropagation()}
-      className="inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-[1px] text-[10px] text-primary transition-colors hover:bg-accent"
-    >
-      <Icon className="h-2.5 w-2.5" />
-      {link.label}
-    </a>
+    <span className="flex shrink-0 items-center gap-1">
+      {picked.map((link) => {
+        const Icon = KIND_ICON[link.kind] ?? ExternalLink
+        return (
+          <a
+            key={`${link.kind}:${link.url}`}
+            href={link.url}
+            target="_blank"
+            rel="noreferrer noopener"
+            onClick={(e) => e.stopPropagation()}
+            title={link.label}
+            className="inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-[1px] text-[10px] text-primary transition-colors hover:bg-accent"
+          >
+            <Icon className="h-2.5 w-2.5" />
+            {link.label}
+          </a>
+        )
+      })}
+    </span>
   )
 }

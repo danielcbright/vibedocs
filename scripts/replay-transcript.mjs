@@ -15,8 +15,11 @@
  *   --workdir <path>  run workdir, used to shorten displayed paths
  *   --project <name>  project this run belongs to, used to group the rail
  *   --status <s>      initial status (default: running)
+ *   --follow          keep tailing the file and push new lines as they arrive
+ *                     (Ctrl-C to stop). Use this to watch a live agent session.
+ *   --poll <ms>       how often to check for growth in --follow (default: 400)
  */
-import { readFileSync } from 'node:fs'
+import { openSync, readSync, closeSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 
 const args = process.argv.slice(2)
@@ -45,11 +48,32 @@ const delay = parseInt(opt('delay', '0'), 10)
 const workdir = opt('workdir', undefined)
 const project = opt('project', undefined)
 const status = opt('status', 'running')
+const follow = args.includes('--follow')
+const pollMs = parseInt(opt('poll', '400'), 10)
 
-const lines = readFileSync(file, 'utf8')
-  .split('\n').filter((l) => l.trim().length > 0)
-  .map((l) => { try { return JSON.parse(l) } catch { return null } })
-  .filter(Boolean)
+/**
+ * Read from a byte offset to EOF and return whole lines plus the new offset.
+ * A partial trailing line (the agent is mid-write) is deliberately left behind
+ * for the next read rather than being parsed as truncated JSON.
+ */
+function readFrom(path, offset) {
+  const size = statSync(path).size
+  if (size <= offset) return { lines: [], offset }
+  const fd = openSync(path, 'r')
+  const buf = Buffer.alloc(size - offset)
+  readSync(fd, buf, 0, buf.length, offset)
+  closeSync(fd)
+  const text = buf.toString('utf8')
+  const lastNewline = text.lastIndexOf('\n')
+  if (lastNewline === -1) return { lines: [], offset }
+  const complete = text.slice(0, lastNewline)
+  return {
+    lines: complete.split('\n').filter((l) => l.trim().length > 0)
+      .map((l) => { try { return JSON.parse(l) } catch { return null } })
+      .filter(Boolean),
+    offset: offset + Buffer.byteLength(complete, 'utf8') + 1,
+  }
+}
 
 async function post(pathname, body) {
   const res = await fetch(`${base}${pathname}`, {
@@ -75,11 +99,48 @@ const created = await post('/api/runs', {
 console.log(`run ${created.data.id} -> ${base}${created.data.url}`)
 
 let clientSeq = 0
-for (let i = 0; i < lines.length; i += batchSize) {
-  const { data } = await post(`/api/runs/${encodeURIComponent(id)}/events`, {
-    format, clientSeq: ++clientSeq, events: lines.slice(i, i + batchSize),
-  })
-  process.stdout.write(`\r${Math.min(i + batchSize, lines.length)}/${lines.length} lines — ${data.eventCount} events`)
-  if (delay > 0) await new Promise((r) => setTimeout(r, delay))
+let pushed = 0
+
+async function push(lines) {
+  for (let i = 0; i < lines.length; i += batchSize) {
+    const { data } = await post(`/api/runs/${encodeURIComponent(id)}/events`, {
+      format, clientSeq: ++clientSeq, events: lines.slice(i, i + batchSize),
+    })
+    pushed += Math.min(batchSize, lines.length - i)
+    process.stdout.write(`\r${pushed} lines pushed — ${data.eventCount} events`)
+    if (delay > 0) await new Promise((r) => setTimeout(r, delay))
+  }
 }
-console.log(`\ndone — ${base}${created.data.url}`)
+
+let offset = 0
+{
+  const first = readFrom(file, offset)
+  offset = first.offset
+  await push(first.lines)
+}
+
+if (!follow) {
+  console.log(`\ndone — ${base}${created.data.url}`)
+  process.exit(0)
+}
+
+console.log(`\nfollowing ${file} — Ctrl-C to stop`)
+process.on('SIGINT', () => {
+  console.log('\nstopped following')
+  process.exit(0)
+})
+
+// Poll rather than fs.watch: watch events are unreliable across editors and
+// network filesystems, and a 400ms poll on a stat() is cheap.
+for (;;) {
+  await new Promise((r) => setTimeout(r, pollMs))
+  let next
+  try {
+    next = readFrom(file, offset)
+  } catch {
+    continue // file briefly unavailable (rotated, being replaced) — try again
+  }
+  if (next.lines.length === 0) continue
+  offset = next.offset
+  await push(next.lines)
+}
