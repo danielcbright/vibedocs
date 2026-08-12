@@ -90,3 +90,24 @@ export function eventTitle(event: AgentEvent, workdir?: string): string {
       return `${event.meta?.vendorType ?? "event"}/${event.meta?.vendorSubtype ?? ""}`
   }
 }
+
+
+/**
+ * Relative time for the rail: "now", "4m", "3h", "2d".
+ *
+ * A rail is scanned, not read — recency is the question being asked, and an
+ * absolute clock time makes the reader do the subtraction.
+ */
+export function fmtRelative(ms: number | undefined, now: number = Date.now()): string {
+  if (!ms || !Number.isFinite(ms)) return ""
+  const secs = Math.round((now - ms) / 1000)
+  if (secs < 0) return "now"
+  if (secs < 60) return "now"
+  const mins = Math.floor(secs / 60)
+  if (mins < 60) return `${mins}m`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days}d`
+  return `${Math.floor(days / 7)}w`
+}

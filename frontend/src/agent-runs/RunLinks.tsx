@@ -36,3 +36,29 @@ export function RunLinks({ links, size = "md" }: { links: RunLink[]; size?: "sm"
     </div>
   )
 }
+
+
+/**
+ * The single most identifying link, for a rail row.
+ *
+ * A rail row shows one link, not all of them: the issue key is what an operator
+ * scans for, and a row of chips turns the rail into a wall. The full set lives
+ * in the detail header. Issue wins, then PR, then whatever is first.
+ */
+export function PrimaryLink({ links }: { links: RunLink[] }) {
+  if (links.length === 0) return null
+  const link = links.find((l) => l.kind === "issue") ?? links.find((l) => l.kind === "pr") ?? links[0]
+  const Icon = KIND_ICON[link.kind] ?? ExternalLink
+  return (
+    <a
+      href={link.url}
+      target="_blank"
+      rel="noreferrer noopener"
+      onClick={(e) => e.stopPropagation()}
+      className="inline-flex shrink-0 items-center gap-1 rounded-full border px-1.5 py-[1px] text-[10px] text-primary transition-colors hover:bg-accent"
+    >
+      <Icon className="h-2.5 w-2.5" />
+      {link.label}
+    </a>
+  )
+}

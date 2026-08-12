@@ -2,7 +2,8 @@ import { useState } from "react"
 import type { RunMeta } from "@shared/agent-run-types"
 import { cn } from "@/lib/utils"
 import { RunStatusIcon } from "./components/icons"
-import { RunLinks } from "./RunLinks"
+import { PrimaryLink } from "./RunLinks"
+import { fmtRelative } from "./lib/tool-display"
 import { groupRuns, type RunGrouping, type RunSort } from "./lib/group-runs"
 
 const GROUPINGS: { value: RunGrouping; label: string }[] = [
@@ -75,26 +76,26 @@ export function RunRail({ runs, activeRunId, onSelect }: {
                 type="button"
                 onClick={() => onSelect(run.id)}
                 className={cn(
-                  "tap-row flex w-full flex-col gap-0.5 border-l-2 px-3 py-1.5 text-left transition-colors",
+                  "tap-row flex w-full flex-col gap-px border-l-2 px-3 py-1.5 text-left transition-colors",
                   run.id === activeRunId
                     ? "border-l-primary bg-sidebar-accent"
                     : "border-l-transparent hover:bg-sidebar-accent/50",
                 )}
               >
+                {/* Two lines, two weights. The row answers "what is it and is
+                    it moving?" — everything else lives in the detail header. */}
                 <div className="flex items-center gap-2">
                   <RunStatusIcon status={run.status} />
                   <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium">{run.title}</span>
+                  <PrimaryLink links={run.links} />
                 </div>
-                {/* Project only matters as a row detail when it is not already
-                    the group heading. */}
-                {run.project && grouping !== "project" && (
-                  <div className="truncate pl-[22px] text-[10.5px] text-muted-foreground">{run.project}</div>
-                )}
-                {run.links.length > 0 && (
-                  <div className="pl-[22px]">
-                    <RunLinks links={run.links} size="sm" />
-                  </div>
-                )}
+                <div className="truncate pl-[22px] text-[10.5px] text-muted-foreground">
+                  {[
+                    fmtRelative(run.updatedAt),
+                    grouping !== "project" ? run.project : null,
+                    run.eventCount > 0 ? `${run.eventCount} events` : null,
+                  ].filter(Boolean).join(" · ")}
+                </div>
               </button>
             ))}
           </div>

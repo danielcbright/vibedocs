@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { fmtDuration, shortenPath, toolSummary, eventTitle, toolCopyText } from "@/agent-runs/lib/tool-display"
+import { fmtDuration, fmtRelative, shortenPath, toolSummary, eventTitle, toolCopyText } from "@/agent-runs/lib/tool-display"
 import type { AgentEvent, ToolInfo } from "@shared/agent-run-types"
 
 const tool = (over: Partial<ToolInfo> = {}): ToolInfo =>
@@ -65,5 +65,20 @@ describe("toolCopyText", () => {
   })
   it("falls back to the event text for non-tool events", () => {
     expect(toolCopyText({ seq: 1, ts: 1, kind: "assistant", text: "hello" })).toBe("hello")
+  })
+})
+
+describe("fmtRelative", () => {
+  const now = 1_700_000_000_000
+  it("scales units for a rail scan", () => {
+    expect(fmtRelative(now - 5_000, now)).toBe("now")
+    expect(fmtRelative(now - 4 * 60_000, now)).toBe("4m")
+    expect(fmtRelative(now - 3 * 3_600_000, now)).toBe("3h")
+    expect(fmtRelative(now - 2 * 86_400_000, now)).toBe("2d")
+    expect(fmtRelative(now - 21 * 86_400_000, now)).toBe("3w")
+  })
+  it("treats a future or missing timestamp as now, never as a negative age", () => {
+    expect(fmtRelative(now + 60_000, now)).toBe("now")
+    expect(fmtRelative(undefined, now)).toBe("")
   })
 })

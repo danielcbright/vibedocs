@@ -17,6 +17,9 @@ VibeDocs — self-hosted markdown documentation browser **and** static-site gene
 | `VIBEDOCS_UPLOAD_TOKEN` | _(unset)_ | Shared-secret bearer token gating `POST /api/upload/*`. When unset, the upload endpoint returns 404 (safe by default — uploads disabled). When set, requests must send `Authorization: Bearer <token>`. |
 | `VIBEDOCS_READ_ONLY` | `false` | When truthy (`true`/`1`/`yes`/`on`), `POST /api/upload/*` returns 404 unconditionally — even with a valid token. Frontend upload UI is hidden. Read-only takes precedence over the token gate. |
 | `VIBEDOCS_UPLOAD_MAX_BYTES` | `10485760` (10 MB) | Per-file upload size cap. Files exceeding this return 413. |
+| `VIBEDOCS_RUNS_ENABLED` | `false` | Master switch for the Agent Runs viewer. When falsy every `/api/runs*` route 404s and no Runs affordance renders. See [`docs/agent-runs.md`](docs/agent-runs.md). |
+| `VIBEDOCS_RUNS_DIR` | `~/.vibedocs/runs` | Agent-run storage root, one directory per run. |
+| `VIBEDOCS_RUNS_TOKEN` | _(unset)_ | Bearer token gating agent-run **ingest** writes. Unset → ingest 404s (feature not fingerprintable). |
 
 ### Upload deployment modes
 
@@ -47,6 +50,37 @@ The ordering above lives in the `UPLOAD_GATES` array in `src/upload-pipeline.ts`
 | **Hydration** (`--hydration full\|minimal`) | `full` ships the SPA bundle; `minimal` ships CSS + server-rendered nav and ~500 KB less JS. `composePageHtml` is the only branch point. |
 | **PWA** (`src/cli/pwa.ts`) | Every build is installable and offline-capable in BOTH modes. SW registration is a plain script, never `type="module"`, or minimal mode's no-module-script contract breaks. |
 | **Search** (Pagefind, `src/cli/pagefind.ts`) | On by default in both modes, independent of the React bundle. `pagefind` is an **optionalDependency**; `resolveSearchEnabled` must drive the per-page markup and the indexing step together, or pages 404 on `/pagefind/*`. |
+
+### Agent Runs — see `docs/agent-runs.md`
+
+A live viewer for headless coding-agent runs, off unless `VIBEDOCS_RUNS_ENABLED`
+is set. Three seams: **ingest** (`src/agent-runs/`), **format adapters**
+(`src/agent-runs/formats/`), **view** (`frontend/src/agent-runs/`).
+
+Four things that will bite if you touch this code:
+
+1. **Writes split by threat model, not by method.** Ingest (`POST /api/runs`,
+   `POST …/events`, `POST …/ack`) takes a bearer token; control (`PATCH
+   /api/runs/:id`, `POST …/commands`) takes a same-origin `Origin` header. The
+   browser is never given the ingest token — serving it to the page would put a
+   shared secret in devtools. `src/agent-runs/auth.ts` is the single seam.
+2. **`events.ndjson` is a log of records, not events.** An append-only file
+   cannot rewrite a tool call on completion, so `started` appends and
+   `completed` patches. Paging is therefore by **record position**
+   (`?fromRec=`), never by event seq — a patch can target an event from an
+   earlier page. `applyRecords()` in `src/shared/agent-run-types.ts` is the one
+   fold, used by both sides.
+3. **Route order is load-bearing, and the failure looks like success.** All
+   `/api/runs*` routes must register before `registerStaticRoutes`, and
+   `/api/runs/config` before `/api/runs/:id`. The SPA fallback answers *any*
+   unmatched path with `200 text/html`, so a misordered route returns a success
+   status with an HTML body and a client checking `res.ok` reports a push that
+   never happened. The route tests assert `content-type`, not just a 2xx.
+4. **A clean `tsc -p tsconfig.cli.json` does not mean your file was checked.**
+   That project reaches files by following imports from `src/server.ts`. Confirm
+   with `npx tsc -p tsconfig.cli.json --listFiles | grep -c 'src/agent-runs/'`
+   (currently >0 because the routes are wired in). Note also that vitest runs
+   through esbuild, so the suite stays green while types are broken — run both.
 
 ## Tech Stack
 

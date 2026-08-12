@@ -1,106 +1,109 @@
 import { useState } from "react"
-import { CircleCheck, CircleX, Clock, OctagonAlert } from "lucide-react"
+import { ChevronDown, CircleCheck, CircleX, Clock, OctagonAlert } from "lucide-react"
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import type { RunMeta, RunStatus } from "@shared/agent-run-types"
 import { cn } from "@/lib/utils"
 
+const OUTCOMES: { status: RunStatus; label: string; icon: typeof CircleCheck }[] = [
+  { status: "done", label: "Merged", icon: CircleCheck },
+  { status: "waiting", label: "Waiting", icon: Clock },
+  { status: "failed", label: "Failed", icon: CircleX },
+]
+
 /**
- * Lifecycle controls.
+ * Run controls.
  *
- * Marking merged / failed / waiting are pure state writes — PATCH {status},
- * no process involved. Stop is different: VibeDocs does not own the agent
- * process and may not be on the same machine, so it records INTENT by queueing
- * a command the owning client polls for and acks. There is no exec endpoint.
+ * Two kinds of action, given two weights rather than four equal buttons.
+ * Recording an outcome (merged / waiting / failed) is something you do once, at
+ * the end, so it collapses into one menu. Stop is the only thing you reach for
+ * while a run is moving, so it stays a button — and only while there is
+ * something to stop.
  *
- * Both paths are same-origin writes; the browser never holds the ingest token.
+ * Marking an outcome is a pure state write: PATCH {status}, no process
+ * involved. Stop is not: VibeDocs does not own the agent process and may not be
+ * on the same machine, so it records intent for the owning client to poll and
+ * ack. There is no exec endpoint.
  */
 export function RunActions({ meta, onChanged }: { meta: RunMeta; onChanged: () => void }) {
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  async function patchStatus(status: RunStatus) {
-    setBusy(status)
+  async function send(label: string, run: () => Promise<Response>) {
+    setBusy(label)
     setError(null)
     try {
-      const res = await fetch(`/api/runs/${encodeURIComponent(meta.id)}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status }),
-      })
-      if (!res.ok) throw new Error(`status ${res.status}`)
-      onChanged()
+      const res = await run()
+      if (!res.ok) throw new Error(res.status === 403 ? "not allowed from this origin" : `failed (${res.status})`)
     } catch (err) {
-      // Roll back to whatever the server actually has rather than leaving a
-      // lying status on screen.
       setError(err instanceof Error ? err.message : "failed")
-      onChanged()
     } finally {
+      // Reconcile with what the server actually has, either way — a failed
+      // write must not leave a status on screen that was never saved.
+      onChanged()
       setBusy(null)
     }
   }
 
-  async function requestStop() {
-    setBusy("stop")
-    setError(null)
-    try {
-      const res = await fetch(`/api/runs/${encodeURIComponent(meta.id)}/commands`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind: "stop" }),
-      })
-      if (!res.ok) throw new Error(`stop ${res.status}`)
-      onChanged()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "failed")
-    } finally {
-      setBusy(null)
-    }
-  }
+  const setStatus = (status: RunStatus) =>
+    send(status, () => fetch(`/api/runs/${encodeURIComponent(meta.id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    }))
+
+  const requestStop = () =>
+    send("stop", () => fetch(`/api/runs/${encodeURIComponent(meta.id)}/commands`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: "stop" }),
+    }))
 
   const isTerminal = ["done", "failed", "stopped"].includes(meta.status)
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <Action icon={CircleCheck} label="Merged" onClick={() => patchStatus("done")} busy={busy === "done"} disabled={meta.status === "done"} />
-      <Action icon={Clock} label="Waiting" onClick={() => patchStatus("waiting")} busy={busy === "waiting"} disabled={meta.status === "waiting"} />
-      <Action icon={CircleX} label="Failed" onClick={() => patchStatus("failed")} busy={busy === "failed"} disabled={meta.status === "failed"} />
-      {!isTerminal && (
-        <Action
-          icon={OctagonAlert}
-          label={meta.stopRequested ? "Stop requested" : "Stop"}
-          onClick={requestStop}
-          busy={busy === "stop"}
-          disabled={meta.stopRequested === true}
-          tone="danger"
-        />
-      )}
+    <div className="flex items-center gap-1.5">
       {error && <span className="text-[11px] text-red-500">{error}</span>}
-    </div>
-  )
-}
 
-function Action({ icon: Icon, label, onClick, busy, disabled, tone }: {
-  icon: typeof CircleCheck
-  label: string
-  onClick: () => void
-  busy: boolean
-  disabled?: boolean
-  tone?: "danger"
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={busy || disabled}
-      className={cn(
-        "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition-colors",
-        "disabled:cursor-not-allowed disabled:opacity-50",
-        tone === "danger"
-          ? "text-red-500 hover:bg-red-500/10"
-          : "text-muted-foreground hover:bg-accent hover:text-foreground",
+      {!isTerminal && (
+        <button
+          type="button"
+          onClick={requestStop}
+          disabled={busy !== null || meta.stopRequested === true}
+          className={cn(
+            "inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition-colors",
+            "text-muted-foreground hover:bg-accent hover:text-foreground",
+            "disabled:cursor-not-allowed disabled:opacity-50",
+          )}
+        >
+          <OctagonAlert className="h-3 w-3" />
+          {meta.stopRequested ? "Stop requested" : "Stop"}
+        </button>
       )}
-    >
-      <Icon className="h-3 w-3" />
-      {busy ? "…" : label}
-    </button>
+
+      <DropdownMenu>
+        <DropdownMenuTrigger
+          disabled={busy !== null}
+          className="inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+        >
+          {busy && busy !== "stop" ? "Saving…" : "Set outcome"}
+          <ChevronDown className="h-3 w-3" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          {OUTCOMES.map(({ status, label, icon: Icon }) => (
+            <DropdownMenuItem
+              key={status}
+              disabled={meta.status === status}
+              onSelect={() => void setStatus(status)}
+              className="gap-2 text-xs"
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {label}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   )
 }
