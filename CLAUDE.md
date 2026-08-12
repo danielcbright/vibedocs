@@ -275,7 +275,17 @@ This is the vibedocs-side capstone of the publishable-static-site engine (#45 sp
 
 ## Deployment
 
-An optional systemd unit file is provided in `systemd/vibedocs.service`. Edit the placeholder paths, then run `scripts/setup-service.sh` to install it. Use `scripts/promote.sh` to build, validate, and restart the service after code changes.
+**macOS:** `scripts/install-macos.sh` installs a LaunchAgent that starts at
+login. It *asks which folders to index* rather than assuming a root — a home
+directory typically contains `~/Library` (thousands of directories of
+application state) and often employer-synced folders, and neither belongs in a
+documentation browser. Selected folders are symlinked into `~/.vibedocs/roots`
+and `VIBEDOCS_ROOT` points there; discovery uses `stat`, not `lstat`, so each
+symlink resolves to a project. Changing the selection later is adding or
+removing a link. The script is also drivable non-interactively
+(`--folders a,b,c --yes`) for an agent installing on someone's behalf.
+
+**Linux:** an optional systemd unit file is provided in `systemd/vibedocs.service`. Edit the placeholder paths, then run `scripts/setup-service.sh` to install it. Use `scripts/promote.sh` to build, validate, and restart the service after code changes.
 
 ### Exposing beyond localhost (tailnet, LAN, public)
 

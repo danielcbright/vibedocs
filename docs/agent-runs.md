@@ -77,7 +77,21 @@ picks the icon. The client supplies the URLs; VibeDocs never builds one.
 4. Poll `GET /api/runs/:id/commands`, act on a queued `stop`, then ack it.
 
 `scripts/replay-transcript.mjs` is a working reference for steps 1–2 and is
-useful for pushing a captured transcript at a running server.
+useful for pushing a captured transcript at a running server:
+
+```bash
+export VIBEDOCS_RUNS_TOKEN=...
+
+# backfill a finished transcript
+node scripts/replay-transcript.mjs <events.ndjson> --id my-run --project my-app
+
+# attach to a session that is still being written, and keep following it
+node scripts/replay-transcript.mjs <events.ndjson> --id my-run --follow
+```
+
+`--follow` reads from a byte offset and leaves a partial trailing line for the
+next pass, so a line the agent is mid-way through writing is never parsed as
+truncated JSON.
 
 ## Stopping a run
 
