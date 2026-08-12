@@ -76,6 +76,11 @@ function DocsApp() {
   const appView: AppView = isRunsRoute ? "runs" : "docs"
 
   const { runs, loading: runsLoading, refresh: refreshRuns } = useRuns(runsEnabled)
+  const [runRecordsNonce, setRunRecordsNonce] = useState(0)
+
+  const selectRun = useCallback((id: string) => {
+    window.location.hash = `/runs/${encodeURIComponent(id)}`
+  }, [])
 
   // Remember where the user was in Docs so the switch returns them there
   // instead of dumping them at the root.
@@ -188,9 +193,11 @@ function DocsApp() {
     onRunUpdated: useCallback(() => {
       refreshRuns()
     }, [refreshRuns]),
-    onRunRecords: useCallback(() => {
+    onRunRecords: useCallback((incomingId: string) => {
       refreshRuns()
-    }, [refreshRuns]),
+      // Only nudge the open run; every other run's tail can wait until opened.
+      if (incomingId === activeRunId) setRunRecordsNonce((n) => n + 1)
+    }, [refreshRuns, activeRunId]),
   })
 
   const hasToc = toc.length >= 2
@@ -244,7 +251,7 @@ function DocsApp() {
           </header>
           <div className="flex-1 min-h-0 overflow-hidden">
             {isRunsRoute ? (
-              <RunsView runs={runs} loading={runsLoading} activeRunId={activeRunId} />
+              <RunsView runs={runs} loading={runsLoading} activeRunId={activeRunId} onSelectRun={selectRun} onRunChanged={refreshRuns} recordsNonce={runRecordsNonce} />
             ) : (
             <DocContent
               html={html}
@@ -342,7 +349,7 @@ function DocsApp() {
                 />
               </header>
               {isRunsRoute ? (
-                <RunsView runs={runs} loading={runsLoading} activeRunId={activeRunId} />
+                <RunsView runs={runs} loading={runsLoading} activeRunId={activeRunId} onSelectRun={selectRun} onRunChanged={refreshRuns} recordsNonce={runRecordsNonce} />
               ) : (
               <DocContent
                 html={html}
