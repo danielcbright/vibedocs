@@ -60,6 +60,12 @@ export interface AgentEvent {
   kind: EventKind
   /** user/assistant/thinking/result body. Markdown for assistant + result. */
   text?: string
+  /**
+   * Rendered HTML for `text`, attached at READ time and never persisted.
+   * events.ndjson stores only the raw markdown, so improving the pipeline
+   * improves every past run without a migration.
+   */
+  textHtml?: string
   tool?: ToolInfo
   /** Kind-specific: durationMs, tokens, sessionId, model, isError. */
   meta?: Record<string, unknown>
