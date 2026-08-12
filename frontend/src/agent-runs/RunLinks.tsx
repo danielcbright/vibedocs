@@ -1,10 +1,24 @@
-import { CircleDot, ExternalLink, GitPullRequest, PlayCircle } from "lucide-react"
+import { CircleDot, ExternalLink, GitMerge, GitPullRequest, GitPullRequestDraft, PlayCircle } from "lucide-react"
 import type { LinkKind, RunLink } from "@shared/agent-run-types"
 import { cn } from "@/lib/utils"
+import { linkColorClass, linkTitle } from "./lib/link-colors"
 
 const KIND_ICON = {
   issue: CircleDot, pr: GitPullRequest, ci: PlayCircle, other: ExternalLink,
 } as const satisfies Record<LinkKind, unknown>
+
+/**
+ * A merged PR gets the merge glyph and a draft gets the draft glyph, matching
+ * what the icon means everywhere else people see it.
+ */
+function iconFor(link: RunLink) {
+  if (link.kind === "pr") {
+    if (link.state === "merged") return GitMerge
+    if (link.state === "draft") return GitPullRequestDraft
+    return GitPullRequest
+  }
+  return KIND_ICON[link.kind] ?? ExternalLink
+}
 
 /**
  * Link chips. Rendered inside the rail row's button, so each stops propagation:
@@ -15,16 +29,18 @@ export function RunLinks({ links, size = "md" }: { links: RunLink[]; size?: "sm"
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {links.map((link) => {
-        const Icon = KIND_ICON[link.kind] ?? ExternalLink
+        const Icon = iconFor(link)
         return (
           <a
             key={`${link.kind}:${link.url}`}
             href={link.url}
             target="_blank"
             rel="noreferrer noopener"
+            title={linkTitle(link)}
             onClick={(e) => e.stopPropagation()}
             className={cn(
-              "inline-flex items-center gap-1 rounded-full border px-2 py-[1px] text-primary transition-colors hover:bg-accent",
+              "inline-flex items-center gap-1 rounded-full border px-2 py-[1px] transition-colors hover:bg-accent",
+              linkColorClass(link),
               size === "sm" ? "text-[10.5px]" : "text-[11px]",
             )}
           >

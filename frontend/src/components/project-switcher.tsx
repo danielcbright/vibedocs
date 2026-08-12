@@ -1,3 +1,4 @@
+import { projectDisplayName } from "@/lib/project-display"
 import { Check, ChevronsUpDown, FolderTree } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -44,6 +45,14 @@ export function ProjectSwitcher({
 }: ProjectSwitcherProps) {
   if (isStaticBuild() || projects.length === 0) return null
 
+  // Label by display name, but keep matching on the folder name — that is the
+  // routing key the hash carries, so a configured name never breaks a link.
+  const activeLabel = activeProject
+    ? projectDisplayName(
+        projects.find((p) => p.name === activeProject) ?? { name: activeProject, siteConfig: null },
+      )
+    : null
+
   const menu = (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -59,7 +68,7 @@ export function ProjectSwitcher({
         >
           <FolderTree className="h-4 w-4" />
           <span className="max-w-[12rem] truncate text-sm font-medium">
-            {activeProject ?? "Switch project"}
+            {activeLabel ?? "Switch project"}
           </span>
           {inline ? (
             <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
@@ -78,7 +87,7 @@ export function ProjectSwitcher({
               onSelect={() => onNavigate(project.name, "")}
               className="tap-row justify-between gap-2"
             >
-              <span className="truncate">{project.name}</span>
+              <span className="truncate">{projectDisplayName(project)}</span>
               {isActive ? (
                 <Check className="h-4 w-4 shrink-0 text-primary" />
               ) : null}

@@ -87,15 +87,29 @@ function DocsApp() {
   // instead of dumping them at the root.
   const lastDocsHash = useRef<string>("")
   useEffect(() => {
-    if (!isRunsRoute) lastDocsHash.current = window.location.hash
-  }, [isRunsRoute, activeProject, activePath])
+    // Guard on the hash itself rather than on derived state: state updates a
+    // tick after the hash changes, so a state-based check can capture a runs
+    // hash during the gap and then "return to docs" would go nowhere.
+    const hash = window.location.hash
+    if (!hash.startsWith("#/runs")) lastDocsHash.current = hash
+  }, [activeProject, activePath])
 
   const handleAppViewChange = useCallback((next: AppView) => {
     if (next === "runs") {
       window.location.hash = "/runs"
       return
     }
-    window.location.hash = lastDocsHash.current.replace(/^#/, "")
+    const target = lastDocsHash.current.replace(/^#/, "")
+    // Assigning the same value fires no hashchange, so an empty target while
+    // already at an empty hash would silently do nothing. Drive state directly
+    // as well, which also covers "never visited a doc yet".
+    if (target && `#${target}` !== window.location.hash) {
+      window.location.hash = target
+      return
+    }
+    window.location.hash = ""
+    setActiveProject(null)
+    setActivePath(null)
   }, [])
   const { html, toc, loading, error, refresh: refreshDoc } = useDocument(activeProject, activePath)
   const sidebarPanelRef = usePanelRef()

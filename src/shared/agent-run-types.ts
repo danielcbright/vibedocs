@@ -23,10 +23,23 @@ export const RUN_STATUSES: readonly RunStatus[] = [
 /** Display hint that selects the icon. VibeDocs never builds the URL. */
 export type LinkKind = 'issue' | 'pr' | 'ci' | 'other'
 
+/**
+ * Lifecycle of a linked item, when the client knows it.
+ *
+ * Optional because a link is useful long before its state is: a PR reference
+ * scraped from agent output has no state until something asks the forge. When
+ * present it drives colour, using the conventions people already read from
+ * GitHub — merged is purple, open is green, closed is red, draft is grey.
+ */
+export type LinkState = 'open' | 'merged' | 'closed' | 'draft'
+
+export const LINK_STATES: readonly LinkState[] = ['open', 'merged', 'closed', 'draft']
+
 export interface RunLink {
   label: string
   url: string
   kind: LinkKind
+  state?: LinkState
 }
 
 export type EventKind =

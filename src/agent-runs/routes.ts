@@ -17,7 +17,7 @@ import type { Ingest } from './ingest.js'
 import type { RunStore } from './store.js'
 import { createCommandQueue, type CommandQueue } from './commands.js'
 import { createCodeHighlighter, enrichRecords, type TextRenderer } from './text-render.js'
-import { RUN_STATUSES, type RunCommandKind, type RunLink, type RunStatus } from '../shared/agent-run-types.js'
+import { LINK_STATES, RUN_STATUSES, type LinkState, type RunCommandKind, type RunLink, type RunStatus } from '../shared/agent-run-types.js'
 import { isSafeUrlTemplate, type AgentRunsClientConfig } from '../shared/agent-runs-config-types.js'
 import { VibedocsError } from '../errors.js'
 
@@ -62,7 +62,12 @@ function parseLinks(value: unknown): RunLink[] {
     // sanitizes too, but an executable scheme must not survive storage.
     if (!isSafeUrlTemplate(l.url)) throw new VibedocsError('invalid', 'link url scheme not allowed')
     const kind = typeof l.kind === 'string' && VALID_LINK_KINDS.has(l.kind) ? (l.kind as RunLink['kind']) : 'other'
-    return { label: l.label, url: l.url, kind }
+    // State is optional and dropped when unrecognised — an unknown value should
+    // render as "state unknown", not as a colour that asserts something false.
+    const state = typeof l.state === 'string' && LINK_STATES.includes(l.state as LinkState)
+      ? (l.state as LinkState)
+      : undefined
+    return { label: l.label, url: l.url, kind, ...(state ? { state } : {}) }
   })
 }
 

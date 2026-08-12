@@ -1,3 +1,4 @@
+import { projectDisplayName } from "@/lib/project-display"
 import { Folder } from "lucide-react"
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty"
@@ -60,11 +61,11 @@ export function ProjectPicker({ projects, onNavigate }: ProjectPickerProps) {
                 }
               }}
               className="cursor-pointer text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              aria-label={`Open ${project.name}`}
+              aria-label={`Open ${projectDisplayName(project)}`}
             >
               <CardHeader>
                 <Folder className="h-6 w-6 text-muted-foreground" aria-hidden="true" />
-                <CardTitle>{project.name}</CardTitle>
+                <CardTitle>{projectDisplayName(project)}</CardTitle>
                 <CardDescription>
                   {docCount} {docCount === 1 ? "doc" : "docs"}
                 </CardDescription>

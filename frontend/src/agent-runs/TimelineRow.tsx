@@ -23,13 +23,32 @@ export function TimelineRow({ event, workdir, rules = [], runId }: { event: Agen
   const title = eventTitle(event, workdir)
   const tool = event.tool
 
+  // A `result` is the turn's outcome and the thing you scroll to find, so the
+  // whole node carries the colour rather than a badge on the end of it.
+  const isResult = event.kind === "result"
+  const resultFailed = isResult && event.meta?.isError === true
+  const resultOk = isResult && !resultFailed
+
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
-      <div className="group relative flex gap-3 py-[3px]" data-kind={event.kind}>
+      <div
+        className={cn(
+          "group relative flex gap-3 py-[3px]",
+          isResult && "my-1 rounded-md py-1.5 pr-2",
+          resultOk && "bg-emerald-500/10 ring-1 ring-inset ring-emerald-500/25",
+          resultFailed && "bg-red-500/10 ring-1 ring-inset ring-red-500/25",
+        )}
+        data-kind={event.kind}
+        data-result={isResult ? (resultFailed ? "failed" : "complete") : undefined}
+      >
         <div className="w-[70px] shrink-0 pt-[3px] text-right font-mono text-[11px] text-muted-foreground">
           {fmtTime(event.ts)}
         </div>
-        <div className="relative z-10 mt-[2px] flex size-[22px] shrink-0 items-center justify-center rounded-full border bg-background text-muted-foreground">
+        <div className={cn(
+          "relative z-10 mt-[2px] flex size-[22px] shrink-0 items-center justify-center rounded-full border bg-background text-muted-foreground",
+          resultOk && "border-emerald-500/50 text-emerald-600 dark:text-emerald-400",
+          resultFailed && "border-red-500/50 text-red-600 dark:text-red-400",
+        )}>
           {tool ? <ToolIcon tool={tool.name} /> : <KindIcon kind={event.kind} />}
         </div>
 
@@ -49,7 +68,11 @@ export function TimelineRow({ event, workdir, rules = [], runId }: { event: Agen
             ) : (
               // Assistant bodies render below as markdown, so the header line
               // would just repeat them; give it the spine and nothing else.
-              <div className="min-w-0 flex-1 text-[13px] leading-relaxed">
+              <div className={cn(
+                "min-w-0 flex-1 text-[13px] leading-relaxed",
+                resultOk && "font-medium text-emerald-700 dark:text-emerald-400",
+                resultFailed && "font-medium text-red-700 dark:text-red-400",
+              )}>
                 {event.kind === "assistant" ? null : <Linked text={title} rules={rules} />}
               </div>
             )}
