@@ -21,6 +21,13 @@ Copied verbatim from the spec (`docs/specs/2026-08-12-agent-runs-design.md`) and
 - **Status vocabulary:** `running`, `idle`, `blocked`, `waiting`, `done`, `failed`, `stopped`. The client owns the meaning; VibeDocs only renders it.
 - **Commands are a closed vocabulary** (`stop` only this release). Never free-text shell. No arbitrary-exec endpoint on the server.
 - **Typecheck through the CLI project:** `npx tsc -p tsconfig.cli.json --noEmit`. A bare root `tsc --noEmit` surfaces a different pre-existing error.
+- **A clean CLI typecheck does not mean your file was checked.** `tsconfig.cli.json` has an explicit `include` list and reaches everything else by following the import graph from `src/server.ts`. Until Task 7 wires the routes in, **no `src/agent-runs/**` file is in scope at all** — verified 2026-08-12: `--listFiles | grep agent-run` returned nothing while the typecheck reported clean. Two consequences:
+  - Before Task 7, check a new module directly: `npx tsc --noEmit --strict --target ES2022 --module ESNext --moduleResolution bundler --skipLibCheck <file>`.
+  - In Task 7, after wiring, **prove** the graph now reaches the feature:
+    ```bash
+    npx tsc -p tsconfig.cli.json --listFiles | grep -c 'src/agent-runs/'   # must be > 0
+    ```
+    If it is zero, CI is not typechecking the backend feature and the wiring is incomplete.
 - **`npm run verify` is the "am I done?" command.** It runs CI's steps in CI's order.
 - **Commit trailers:** `Assisted-by: Claude Opus 5`. Never `Co-Authored-By: Claude ...` (breaks EasyCLA) and never `Claude-Session:` (leaks an internal URL).
 - **Commit locally per task; squash once at the end; push exactly once.** Each task ends in its own local commit so a reviewer can step through the work and a bad task can be dropped. Nothing is pushed until Task 19 squashes the branch into a single commit. **Never push an intermediate commit** — doing so turns the squash into a force-push over a published branch.
