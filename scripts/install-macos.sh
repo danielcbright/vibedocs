@@ -76,6 +76,7 @@ if [ -z "$FOLDERS" ]; then
 
   candidates=()
   i=0
+  tcc_seen=0
   while IFS= read -r dir; do
     name="$(basename "$dir")"
     case "$name" in
@@ -87,7 +88,14 @@ if [ -z "$FOLDERS" ]; then
     i=$((i + 1))
     candidates+=("$name")
     noun="markdown files"; [ "$count" -eq 1 ] && noun="markdown file"
-    printf "  %2d) %-34s %s %s\n" "$i" "$name" "$count" "$noun"
+    # Documents / Desktop / Downloads are TCC-protected on macOS. A LaunchAgent
+    # without Full Disk Access blocks on them at startup and never binds its
+    # port, with an empty log — so warn rather than let someone pick a silent hang.
+    tcc=""
+    case "$name" in
+      Documents|Desktop|Downloads) tcc="  ← needs Full Disk Access"; tcc_seen=1 ;;
+    esac
+    printf "  %2d) %-34s %s %s%s\n" "$i" "$name" "$count" "$noun" "$tcc"
   done < <(find "$HOME" -maxdepth 1 -type d ! -path "$HOME" | sort)
 
   if [ ${#candidates[@]} -eq 0 ]; then
@@ -95,6 +103,14 @@ if [ -z "$FOLDERS" ]; then
     echo
     echo "Pass folders explicitly: --folders path/one,path/two"
     exit 1
+  fi
+
+  if [ "$tcc_seen" = "1" ]; then
+    echo
+    echo "  Note: folders marked above are protected by macOS privacy controls."
+    echo "  A background service cannot read them until you grant Full Disk Access"
+    echo "  to node (System Settings > Privacy & Security > Full Disk Access)."
+    echo "  Without it the service starts but never answers, and logs nothing."
   fi
 
   echo
@@ -212,7 +228,32 @@ echo "Building…"
 
 launchctl load -w "$PLIST"
 
+# Do not report success without checking. The failure this catches is a
+# TCC-protected folder in the roots: the process starts, blocks before binding,
+# and writes nothing to its log, so "installed" would otherwise be a lie.
+printf "\nStarting"
+up=""
+for _ in $(seq 1 30); do
+  if curl -fsS -o /dev/null "http://localhost:${PORT}/api/projects" 2>/dev/null; then up="yes"; break; fi
+  printf "."
+  sleep 1
+done
 echo
+
+if [ -z "$up" ]; then
+  echo "The service was installed but is not answering on port ${PORT}." >&2
+  echo >&2
+  echo "The usual cause is a folder protected by macOS privacy controls" >&2
+  echo "(Documents, Desktop, Downloads). A background service blocks on those" >&2
+  echo "at startup and logs nothing. Either:" >&2
+  echo "  - grant Full Disk Access to $(command -v node)" >&2
+  echo "    (System Settings > Privacy & Security > Full Disk Access), or" >&2
+  echo "  - re-run without those folders." >&2
+  echo >&2
+  echo "Currently indexing: $(ls "$ROOTS_DIR" | tr '\n' ' ')" >&2
+  exit 1
+fi
+
 echo "VibeDocs is running at http://localhost:${PORT}"
 echo "  roots:  $ROOTS_DIR"
 echo "  logs:   $VIBEDOCS_HOME/vibedocs.log"

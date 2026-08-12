@@ -286,6 +286,15 @@ symlink resolves to a project. Changing the selection later is adding or
 removing a link. The script is also drivable non-interactively
 (`--folders a,b,c --yes`) for an agent installing on someone's behalf.
 
+**macOS privacy controls are the trap here.** `~/Documents`, `~/Desktop` and
+`~/Downloads` are TCC-protected. A LaunchAgent whose roots include one of them
+starts, blocks *before* binding its port, and writes **nothing** to either log —
+`launchctl` reports it running, `lsof` shows no sockets, and CPU sits at 0%. It
+looks like a hang in vibedocs and is not: the same roots serve in seconds from a
+shell that already has permission. Either grant Full Disk Access to the `node`
+binary, or leave those folders out. The installer flags them in its picker and
+health-checks the port after loading rather than claiming success blindly.
+
 **Linux:** an optional systemd unit file is provided in `systemd/vibedocs.service`. Edit the placeholder paths, then run `scripts/setup-service.sh` to install it. Use `scripts/promote.sh` to build, validate, and restart the service after code changes.
 
 ### Exposing beyond localhost (tailnet, LAN, public)
