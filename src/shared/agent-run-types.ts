@@ -84,6 +84,46 @@ export type EventRecord =
   | { op: 'append'; event: AgentEvent }
   | { op: 'patch'; seq: number; patch: Partial<AgentEvent> }
 
+export interface RunMeta {
+  id: string
+  title: string
+  description?: string
+  status: RunStatus
+  links: RunLink[]
+  /** Adapter key, e.g. 'cursor-stream-json'. */
+  format: string
+  /** Free-text agent identity. Display only. */
+  agent?: string
+  /** Absolute path the agent ran in. Used to shorten displayed paths. */
+  workdir?: string
+  createdAt: number
+  updatedAt: number
+  /** Count of logical events (appends only). */
+  eventCount: number
+  /** Count of lines in events.ndjson (appends + patches). The paging key. */
+  recCount: number
+  /**
+   * Which adapter version produced these records. Canonical-only storage means
+   * old runs keep whatever the adapter of the day emitted.
+   */
+  adapterVersion: number
+  /** Highest client-supplied batch sequence accepted. Batch idempotency key. */
+  lastClientSeq?: number
+  /** True while a stop command is queued and unacked. */
+  stopRequested?: boolean
+}
+
+export type RunCommandKind = 'stop'
+
+export interface RunCommand {
+  id: string
+  kind: RunCommandKind
+  createdAt: number
+  ackedAt?: number
+  /** Client-reported outcome. Free text, display only. */
+  ackNote?: string
+}
+
 /** Per-event cap on stored tool output. Beyond this, truncate and flag. */
 export const MAX_TOOL_OUTPUT_BYTES = 256 * 1024
 
