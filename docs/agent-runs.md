@@ -96,8 +96,80 @@ picks the icon. The client supplies the URLs; VibeDocs never builds one.
    `POST /api/runs/:id/events` as they are written — batched, roughly every
    250ms or 64 lines.
 2. `PATCH` the status on lifecycle transitions.
-3. `PATCH` links when a PR appears.
+3. `PATCH` links when a PR appears. **`links` replaces the array** — send the full
+   set every time, or a client reporting a newly-found PR silently drops the issue
+   link it set earlier.
 4. Poll `GET /api/runs/:id/commands`, act on a queued `stop`, then ack it.
+
+`scripts/run-supervisor.mjs` does all four for an arbitrary agent command, and is
+the reference to copy or to wrap:
+
+```bash
+VIBEDOCS_RUNS_TOKEN=… node scripts/run-supervisor.mjs \
+  --id lane-a --project web-app --transcript /path/to/events.ndjson \
+  -- my-agent --its-own --flags
+```
+
+### Why a supervisor rather than "the caller reports status"
+
+Because the caller frequently is not alive when the run ends. An orchestrating
+agent's session finishes, its context compacts, an operator interrupts it. Any of
+those and the run sits at `running` forever. Tying the closeout to a process's own
+death makes it structural rather than a promise, so the supervisor registers the
+run, streams the transcript, and PATCHes a terminal status on **every** exit path —
+including the one that is easiest to hit, a command that cannot be spawned at all
+(which emits `error`, never `exit`).
+
+Exit code → status, overridable because codes are a client convention:
+
+| exit | status | why |
+|---|---|---|
+| 0 | `waiting` | the turn finished; the work has not landed |
+| 1 | `failed` | |
+| 2 | `blocked` | needs a person — distinct from failed so it is not buried |
+| 124 | `failed` | timeout, named in the description |
+| other | `failed` | an unknown exit is not good news |
+
+**`done` is never set automatically.** It has to stay a deliberate signal that work
+landed; promoting a clean exit to `done` would make every finished turn look
+shipped.
+
+### Stopping, end to end
+
+`stop` records intent only — the server does not own the agent process and may not
+be on the same machine, so it cannot kill anything. The full path:
+
+1. The browser (or any control-authorised client) `POST`s `{"kind":"stop"}`.
+2. The owning client's poller returns from `GET …/commands?waitMs=…`. This is a
+   real long-poll backed by a waiter registry, not an interval — measured delivery
+   is ~140ms after the request, so there is no reason to busy-poll.
+3. It records that a stop was requested **before** killing anything. Skipping this
+   is the classic mistake: the kill makes the agent exit non-zero, which by exit
+   code alone is indistinguishable from a crash, so the run would close as `failed`
+   on every *successful* deliberate stop.
+4. It terminates the agent, escalating from `SIGTERM` to `SIGKILL` after a grace
+   period — an agent may trap `SIGTERM` and carry on, and stop has to actually stop.
+5. It acks **only after acting**. An unacked command is the only signal that nobody
+   honoured a stop; acking first erases it.
+
+If nothing is polling, a queued stop simply waits and `stopRequested` stays true.
+That is why the rail renders a stop-pending state rather than continuing to show
+the run as merely running.
+
+### The limits, stated plainly
+
+- **No signal handler survives `SIGKILL`, the OOM killer, or power loss.** Those
+  leave a run non-terminal with nothing alive to close it. `scripts/reap-runs.mjs`
+  sweeps for them: it closes any non-terminal run whose recorded supervisor is
+  gone, and `--dry-run` reports without mutating.
+- **Reaping is deliberately narrow.** It only judges runs it has a local
+  supervisor record for, on this host. A run driven from another machine is left
+  alone — a local pid says nothing about it, and a wrong guess would mark a healthy
+  run failed.
+- **Out-of-band edits do not broadcast.** Hand-editing a run's files (or deleting
+  its directory rather than using `DELETE`) is invisible to connected clients until
+  they reload. Fine for a break-glass fix; worth knowing before you conclude the UI
+  is stale for some other reason.
 
 `scripts/replay-transcript.mjs` is a working reference for steps 1–2 and is
 useful for pushing a captured transcript at a running server:
