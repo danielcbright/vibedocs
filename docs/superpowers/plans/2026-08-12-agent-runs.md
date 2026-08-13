@@ -1,5 +1,12 @@
 # Agent Runs Implementation Plan
 
+> **Note (2026-08-13):** the `scripts/check-public-safe.sh` gate this plan refers to
+> was removed from the repository. Its pattern list necessarily spelled out the
+> maintainer's employer and private tooling names, which is the one thing a public
+> repo must not carry — a leak guard that leaks defeats itself. The capability now
+> lives in the maintainer's local tooling. `gitleaks` (see `.gitleaks.toml`) remains
+> the in-repo scanner, and it runs in CI.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A live viewer for headless coding-agent runs inside VibeDocs — lane rail on the left, streaming timeline transcript on the right — fed entirely over HTTP by an external dispatch client.

@@ -1,17 +1,18 @@
 # VibeDocs Agent Runs — design
 
-> Status: approved 2026-08-12 by Daniel. Supersedes the cmux-workspace lane viewer that
-> `cursor-dispatch.sh` drives today.
-> Reference implementation and component research: kept outside this repo (local notes).
+> Status: approved 2026-08-12. Supersedes watching agent runs through a terminal pane.
+> Reference implementation and component research: kept outside this repo.
 
 ## The problem
 
-Headless `cursor-agent` lanes are dispatched by `cursor-dispatch.sh` (start / follow / status /
-watch / stop). Watching one today means a cmux workspace tailing `events.ndjson` through
-`render-lane.py` over an SSH bridge, and reading a lane's outcome means scrolling a frozen
-terminal pane. It is plain text: no clickable Jira or PR links, no scrollback worth the name, no
-way to expand a truncated tool result, and the SSH/surface choreography behind it is the most
-fragile part of the dispatch wrapper.
+A headless coding agent writes a stream of JSON to a file or to stdout, and the usual way to
+watch one is to tail that stream in a terminal. That is plain text: no clickable issue or PR
+links, no scrollback worth the name, no way to expand a truncated tool result, and no way to see
+several runs at once. Reading a finished run's outcome means scrolling a frozen pane.
+
+Whatever dispatches the agent also ends up owning the display — terminal panes, multiplexer
+windows, whatever — which makes the most fragile part of a dispatch tool the part that has
+nothing to do with dispatching.
 
 ## What we're building
 
@@ -20,14 +21,14 @@ shows agent runs as they work — a lane rail on the left, a live transcript on 
 entirely through an HTTP API. VibeDocs knows nothing about the dispatch client or any issue tracker; clients push runs and events to it, and
 configuration supplies the link targets.
 
-This replaces the cmux workspace machinery **entirely**. `cursor-dispatch.sh` stops creating
-workspaces, stops the SSH watch bridge, stops the emoji state machine, and instead POSTs to the
-API. `watch`/`open-watch`/`close-watch` collapse into "open this URL".
+This takes the display concern away from the dispatch client entirely. A client stops owning
+panes, windows, or a status state machine, and instead POSTs to the API. "Watch this run"
+collapses into "open this URL".
 
 ## Architecture
 
 ```
-cursor-dispatch.sh                    vibedocs server (Hono)              browser
+dispatch client                       vibedocs server (Hono)              browser
   start  ──► POST /api/runs ──────────►  write meta.json               ──► WS push
   (tail) ──► POST /api/runs/:id/events►  append events.ndjson          ──► WS push
   status ──► PATCH /api/runs/:id ─────►  update meta.json              ──► WS push
@@ -128,7 +129,7 @@ This was the open question, and it splits cleanly in two:
 - **Stop is different** — VibeDocs does not own the agent process and may not even be on the same
   machine, so it cannot kill anything. It records **intent**: the button POSTs a `stop` command,
   which sits in the run's command queue until the owning client picks it up via
-  `GET /api/runs/:id/commands` and acts on it (`cursor-dispatch.sh stop <lane>`), then acks.
+  `GET /api/runs/:id/commands`, acts on it using its own stop mechanism, then acks.
   The UI shows `stop requested` until the ack arrives, then the status the client reports.
 
 This keeps the server free of an arbitrary-exec endpoint while still giving Daniel a working Stop
@@ -189,7 +190,7 @@ text as untrusted.
 
 ### The rail
 
-Sidebar + detail, mirroring the cmux layout being replaced, using lucide icons for status —
+Sidebar + detail, using lucide icons for status —
 **no emoji anywhere**. Groups: active runs above, done below. Each row shows title, one-line
 description, status, and links.
 
@@ -204,29 +205,38 @@ bake-off header crams ticket, description, PR link and three action buttons into
 reads as cluttered; the rail rows stack four lines of metadata at three different weights. Both
 want a considered pass rather than another round of ad-hoc tweaks.
 
-## Client changes (`cursor-dispatch.sh`)
+## The client contract
 
-Out of scope for the VibeDocs repo, but the contract the wrapper must meet:
+Whatever launches the agent has to do four things. This repo ships
+`scripts/run-supervisor.mjs`, which does all of them for an arbitrary command, so a client can
+either wrap it or implement the contract itself:
 
-- `start` → `POST /api/runs`, then stream `events.ndjson` lines to `POST /api/runs/:id/events` as
-  they are written (batched, ~250ms or 64 lines, whichever first).
-- Lifecycle lines it already writes to its own status file additionally `PATCH` the run status.
-- `PR #N` detection already in the wrapper becomes a `links` PATCH.
-- A background poller on `GET /api/runs/:id/commands` executes queued `stop` and acks.
-- Everything cmux: `open-watch`, `close-watch`, `mark-done`, `mark-failed`, `set-pr`, the
-  `.group-{active,done}` files, the SSH bridge — deleted. `watch` prints the run URL.
+- On start, `POST /api/runs`, then stream the agent's JSON lines to `POST /api/runs/:id/events`
+  as they are written (batched, ~250ms or 64 lines, whichever first).
+- `PATCH` the run status on lifecycle transitions.
+- `PATCH` `links` when a PR or issue URL becomes known. Note `links` replaces the array.
+- Poll `GET /api/runs/:id/commands`, act on a queued `stop` using its own stop mechanism, then
+  ack it.
+
+A client that adopts this stops needing display code of its own — no panes, no windows, no status
+state machine. Those concerns move to the browser, and the client's own reporting paths become
+dead code it can delete.
+
+**What this repo must never learn:** how any particular client organises its work. The supervisor
+takes an opaque command to run, an opaque command to run on stop, and a transcript path — all
+supplied by the caller. If it ever needs to know about a client's directory layout, naming scheme
+or tooling, that is the signal the boundary has been crossed.
 
 ## Upstream PR
 
-The feature ships vendor-neutral so it can go back to `danielcbright/vibedocs`: no Jira, no
-GitHub Enterprise, no cursor-dispatch specifics in the code — those live in config and in the
-client. New dependencies must stay near zero; the transcript UI composes the `components/ui/`
+The feature ships vendor-neutral: no issue tracker, no repository host, and no client-specific
+assumptions in the code — those live in config and in the client. New dependencies must stay near zero; the transcript UI composes the `components/ui/`
 primitives already present (Collapsible, ScrollArea, Card, Badge, Button, Command) in the
 prompt-kit style, plus a virtualizer. Do not import a rival design system.
 
 ## Testing
 
-- **Adapter unit tests** against fixtures synthesized from real captured cursor events:
+- **Adapter unit tests** against fixtures synthesized from real captured agent events:
   delta coalescing, tool started/completed merge, the
   newline-in-`call_id` case, missing timestamps, and a `result` event whose body is empty on a
   resumed turn.
