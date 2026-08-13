@@ -123,7 +123,7 @@ describe('AppState — search rebuild is coalesced, never concurrent', () => {
   function countingStore(rebuildMs = 5) {
     let concurrent = 0
     let version = 0
-    const stats = { maxConcurrent: 0, started: 0, completed: 0 }
+    const stats = { maxConcurrent: 0, started: 0, completed: 0, patches: [] as string[] }
     const store: IndexStore = {
       get version() {
         return version
@@ -139,6 +139,15 @@ describe('AppState — search rebuild is coalesced, never concurrent', () => {
         version += 1
         return version
       },
+      async updateFile(p) {
+        stats.patches.push(`upsert:${path.basename(p)}`)
+        return ++version
+      },
+      async removeFile(p) {
+        stats.patches.push(`remove:${path.basename(p)}`)
+        return ++version
+      },
+      async settled() {},
     }
     return { store, stats }
   }
@@ -152,7 +161,7 @@ describe('AppState — search rebuild is coalesced, never concurrent', () => {
     await state.start()
 
     for (let i = 0; i < 50; i++) {
-      fsEvents.emit({ kind: 'unlink', path: path.join(projectDir, `doc-${i}.md`) })
+      fsEvents.emit({ kind: 'unlinkDir', path: path.join(projectDir, `sub-${i}`) })
     }
 
     await state.settleSearchIndex()
@@ -171,7 +180,7 @@ describe('AppState — search rebuild is coalesced, never concurrent', () => {
     const before = stats.started
 
     for (let i = 0; i < 50; i++) {
-      fsEvents.emit({ kind: 'add', path: path.join(projectDir, `doc-${i}.md`) })
+      fsEvents.emit({ kind: 'addDir', path: path.join(projectDir, `sub-${i}`) })
     }
 
     await state.settleSearchIndex()
@@ -179,6 +188,29 @@ describe('AppState — search rebuild is coalesced, never concurrent', () => {
     // 50 events must not mean 50 walks. They arrive inside one debounce window,
     // so they collapse to a single rebuild.
     expect(stats.started - before).toBeLessThanOrEqual(2)
+    await state.shutdown()
+  })
+
+  it('patches the index per file instead of re-walking on file events', async () => {
+    const projectDir = path.join(tmpDir, 'alpha')
+    await mkdir(projectDir, { recursive: true })
+
+    const { store, stats } = countingStore()
+    const { state, fsEvents } = buildState({ searchStore: store })
+    await state.start()
+    const before = stats.started
+
+    fsEvents.emit({ kind: 'add', path: path.join(projectDir, 'a.md') })
+    fsEvents.emit({ kind: 'change', path: path.join(projectDir, 'b.md') })
+    fsEvents.emit({ kind: 'unlink', path: path.join(projectDir, 'c.md') })
+    fsEvents.emit({ kind: 'change', path: path.join(projectDir, 'logo.png') })
+
+    await state.settleSearchIndex()
+
+    expect(stats.patches).toEqual(['upsert:a.md', 'upsert:b.md', 'remove:c.md'])
+    // A single file's change must never cost a full walk — that is the whole
+    // point of the incremental path.
+    expect(stats.started - before).toBe(0)
     await state.shutdown()
   })
 
@@ -196,13 +228,13 @@ describe('AppState — search rebuild is coalesced, never concurrent', () => {
     const before = stats.started
     const completedBefore = stats.completed
 
-    fsEvents.emit({ kind: 'change', path: path.join(projectDir, 'first.md') })
+    fsEvents.emit({ kind: 'unlinkDir', path: path.join(projectDir, 'first') })
     // Wait past the debounce so the first rebuild is genuinely in flight.
     await new Promise((r) => setTimeout(r, 10))
     expect(stats.started - before).toBe(1)
     expect(stats.completed - completedBefore).toBe(0)
 
-    fsEvents.emit({ kind: 'change', path: path.join(projectDir, 'second.md') })
+    fsEvents.emit({ kind: 'unlinkDir', path: path.join(projectDir, 'second') })
     await state.settleSearchIndex()
 
     expect(stats.started - before).toBe(2)
@@ -219,7 +251,9 @@ describe('AppState — search rebuild is coalesced, never concurrent', () => {
     await state.start()
     const before = stats.started
 
-    fsEvents.emit({ kind: 'change', path: path.join(projectDir, 'notes.md') })
+    // Must be a directory event: file events take the incremental path and
+    // would make this assertion pass without exercising cancel at all.
+    fsEvents.emit({ kind: 'addDir', path: path.join(projectDir, 'sub') })
     await state.shutdown()
 
     await new Promise((r) => setTimeout(r, 80))

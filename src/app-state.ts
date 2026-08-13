@@ -112,11 +112,14 @@ export function createAppState(opts: CreateAppStateOptions): AppState {
   }
 
   /**
-   * Rebuilds are coalesced and single-flighted. Calling this per file-system
-   * event is safe; it is NOT safe to call `searchStore.rebuild()` directly from
-   * an event handler — each concurrent walk retains a full copy of every indexed
-   * file, so an event burst becomes an out-of-memory crash. See
+   * Full re-walk. Coalesced and single-flighted, because each concurrent walk
+   * retains a full copy of every indexed file and an event burst would
+   * otherwise become an out-of-memory crash. Never call
+   * `searchStore.rebuild()` straight from an event handler. See
    * `src/coalescing-runner.ts`.
+   *
+   * Reached only by directory-level events now — a single file's change is
+   * handled incrementally below.
    */
   const searchRebuilds = createCoalescingRunner({
     delayMs: opts.searchRebuildDelayMs,
@@ -129,8 +132,21 @@ export function createAppState(opts: CreateAppStateOptions): AppState {
     },
   })
 
-  function rebuildSearchIndex(): void {
+  function scheduleSearchRebuild(): void {
     searchRebuilds.schedule()
+  }
+
+  /**
+   * One file changed: patch its entry rather than re-walking every project.
+   * The store serialises these internally, so firing without awaiting is safe
+   * and preserves watcher order.
+   */
+  function patchSearchIndex(absPath: string, kind: 'upsert' | 'remove'): void {
+    const done =
+      kind === 'remove' ? searchStore.removeFile(absPath) : searchStore.updateFile(absPath)
+    void done.catch((err) => {
+      console.error(`Search index patch failed for ${absPath}:`, err)
+    })
   }
 
   function handleFsEvent(ev: FsEvent): void {
@@ -143,7 +159,7 @@ export function createAppState(opts: CreateAppStateOptions): AppState {
           // Only broadcast project-relative paths. Absolute paths would leak
           // the host filesystem layout to every connected client.
           if (rel !== null) clientChannel.broadcast(reloadMessage(rel))
-          rebuildSearchIndex()
+          patchSearchIndex(ev.path, 'upsert')
         } else {
           clientChannel.broadcast(refreshTreeMessage())
         }
@@ -153,24 +169,31 @@ export function createAppState(opts: CreateAppStateOptions): AppState {
         console.log(`  +  added:   ${rel ?? ev.path}`)
         if (isSiteConfig(ev.path)) siteConfigCache.invalidateFromPath(ev.path)
         clientChannel.broadcast(refreshTreeMessage())
-        if (isMarkdownPath(ev.path)) rebuildSearchIndex()
+        if (isMarkdownPath(ev.path)) patchSearchIndex(ev.path, 'upsert')
         return
       }
       case 'unlink': {
         console.log(`  -  removed: ${rel ?? ev.path}`)
         if (isSiteConfig(ev.path)) siteConfigCache.invalidateFromPath(ev.path)
         clientChannel.broadcast(refreshTreeMessage())
-        if (isMarkdownPath(ev.path)) rebuildSearchIndex()
+        if (isMarkdownPath(ev.path)) patchSearchIndex(ev.path, 'remove')
         return
       }
+      // Directory events are the reconcile path. Chokidar does not promise a
+      // per-file event for every file inside a directory that appears or
+      // disappears in one operation (a git checkout, a worktree sweep), so a
+      // full re-walk is the only way to be sure. It is debounced and
+      // single-flighted, which is what makes it affordable to trigger here.
       case 'addDir': {
         console.log(`  +  dir:     ${rel ?? ev.path}`)
         clientChannel.broadcast(refreshTreeMessage())
+        scheduleSearchRebuild()
         return
       }
       case 'unlinkDir': {
         console.log(`  -  dir:     ${rel ?? ev.path}`)
         clientChannel.broadcast(refreshTreeMessage())
+        scheduleSearchRebuild()
         return
       }
     }
@@ -209,8 +232,11 @@ export function createAppState(opts: CreateAppStateOptions): AppState {
       return searchStore.version
     },
 
-    settleSearchIndex() {
-      return searchRebuilds.settled()
+    async settleSearchIndex() {
+      // Drain the coalesced rebuilds first — a rebuild queues itself on the
+      // store's mutation chain, so draining the store afterwards covers both.
+      await searchRebuilds.settled()
+      await searchStore.settled()
     },
 
     broadcast(message) {
