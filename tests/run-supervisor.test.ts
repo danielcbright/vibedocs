@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 // @ts-expect-error — plain .mjs script module, no type declarations by design.
-import { mapExitToStatus, DEFAULT_EXIT_MAP, planSupervision, selectStopCommand } from '../scripts/lib/supervisor-plan.mjs'
+import { mapExitToStatus, DEFAULT_EXIT_MAP, planSupervision, selectStopCommand, planReap } from '../scripts/lib/supervisor-plan.mjs'
 
 /**
  * The supervisor exists so a run is never stranded in a non-terminal state when
@@ -162,5 +162,52 @@ describe('selectStopCommand', () => {
 
   it('skips commands already acked', () => {
     expect(selectStopCommand([{ id: 'a', kind: 'stop', createdAt: 1, ackedAt: 99 }])).toBeNull()
+  })
+})
+
+describe('planReap', () => {
+  const alive = (pid: number) => pid === 111 // 111 is running, everything else is gone
+
+  it('never reaps a run that already reached a terminal status', () => {
+    const entries = [
+      { id: 'a', status: 'done', supervisorPid: 222 },
+      { id: 'b', status: 'failed', supervisorPid: 222 },
+      { id: 'c', status: 'stopped', supervisorPid: 222 },
+    ]
+    expect(planReap(entries, alive)).toEqual([])
+  })
+
+  it('reaps a non-terminal run whose supervisor is gone', () => {
+    const plan = planReap([{ id: 'a', status: 'running', supervisorPid: 222 }], alive)
+    expect(plan).toHaveLength(1)
+    expect(plan[0].id).toBe('a')
+    expect(plan[0].reason).toMatch(/supervisor/i)
+  })
+
+  it('leaves a run alone while its supervisor is still alive', () => {
+    expect(planReap([{ id: 'a', status: 'running', supervisorPid: 111 }], alive)).toEqual([])
+  })
+
+  it('never reaps a run it has no supervisor record for', () => {
+    // This is the important restraint. A run with no local sidecar might be
+    // driven by a client on another machine, where local PID liveness says
+    // nothing. Reaping it would mark someone else's healthy run as failed.
+    expect(planReap([{ id: 'a', status: 'running', supervisorPid: null }], alive)).toEqual([])
+    expect(planReap([{ id: 'a', status: 'running' }], alive)).toEqual([])
+  })
+
+  it('reaps every non-terminal status, not just running', () => {
+    const entries = ['running', 'idle', 'blocked', 'waiting'].map((status, i) => ({
+      id: `r${i}`, status, supervisorPid: 222,
+    }))
+    expect(planReap(entries, alive).map((r) => r.id)).toEqual(['r0', 'r1', 'r2', 'r3'])
+  })
+
+  it('ignores a sidecar recorded on another host', () => {
+    // A PID is only meaningful on the machine that issued it; the same number is
+    // very likely a live, unrelated process here.
+    const entries = [{ id: 'a', status: 'running', supervisorPid: 222, host: 'someone-else' }]
+    expect(planReap(entries, alive, { host: 'this-box' })).toEqual([])
+    expect(planReap([{ ...entries[0], host: 'this-box' }], alive, { host: 'this-box' })).toHaveLength(1)
   })
 })

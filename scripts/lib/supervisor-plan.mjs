@@ -58,6 +58,47 @@ export function mapExitToStatus({ code, signal = null, stopRequested = false }, 
   return { status, description: describeExit(code, status) }
 }
 
+/** Statuses that mean the run is over. Mirrors the frontend's own set. */
+export const TERMINAL_STATUSES = Object.freeze(['done', 'failed', 'stopped'])
+
+/**
+ * Which runs are stranded and should be closed out.
+ *
+ * The supervisor's closeout rests on signal handling, and nothing survives
+ * SIGKILL, the OOM killer, or power loss. Those leave a run non-terminal with
+ * nothing alive to finish it, and only an outside sweep can notice.
+ *
+ * Two restraints matter more than the detection itself:
+ *
+ * - **No supervisor record, no reaping.** A run with no local sidecar may be
+ *   driven by a client on another machine. Local PID liveness says nothing about
+ *   it, and guessing would mark someone else's healthy run as failed.
+ * - **A PID is only meaningful on the host that issued it.** The same number is
+ *   very likely a live, unrelated process here, so a sidecar from elsewhere is
+ *   treated as unknown rather than as evidence.
+ *
+ * `isAlive` is injected so this stays pure and testable; the caller supplies a
+ * real liveness probe.
+ */
+export function planReap(entries, isAlive, { host = null } = {}) {
+  const plan = []
+  for (const entry of entries ?? []) {
+    if (TERMINAL_STATUSES.includes(entry.status)) continue
+
+    const pid = entry.supervisorPid
+    if (pid === null || pid === undefined) continue
+    if (host !== null && entry.host !== undefined && entry.host !== host) continue
+
+    if (!isAlive(pid)) {
+      plan.push({
+        id: entry.id,
+        reason: `Supervisor (pid ${pid}) is gone; the run was never closed out.`,
+      })
+    }
+  }
+  return plan
+}
+
 /**
  * Which queued command, if any, this supervisor should act on.
  *

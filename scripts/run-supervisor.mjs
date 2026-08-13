@@ -32,6 +32,9 @@
  * Those leave a stranded run for a reaper to find.
  */
 import { spawn } from 'node:child_process'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { homedir, hostname } from 'node:os'
+import path from 'node:path'
 import { mapExitToStatus, planSupervision, selectStopCommand } from './lib/supervisor-plan.mjs'
 import { createRunsClient } from './lib/runs-client.mjs'
 import { readFrom } from './lib/transcript-tail.mjs'
@@ -54,6 +57,13 @@ const created = await client.registerRun({
   ...(cfg.workdir ? { workdir: cfg.workdir } : {}),
 })
 console.error(`run ${created.data.id} -> ${client.base}${created.data.url}`)
+
+// Leave a record of who is supervising this run, so a sweep can tell a stranded
+// run from a healthy one after a hard kill this process could not trap. Written
+// beside the run's own files, and best-effort: a supervisor on a different
+// machine has no access to them, and that is exactly the case `reap` declines to
+// judge.
+writeSupervisorSidecar(cfg.id)
 
 // ── stream the transcript, if there is one ──────────────────────────────────
 let follower = null
@@ -136,6 +146,30 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
 }
 
 // ── helpers ────────────────────────────────────────────────────────────────
+
+/**
+ * Record this supervisor's identity next to the run.
+ *
+ * The host is recorded alongside the pid because a pid alone is meaningless
+ * elsewhere — the same number is very likely a live, unrelated process on another
+ * machine, so a reaper that ignored the host could mark a healthy run failed.
+ */
+function writeSupervisorSidecar(runId) {
+  try {
+    const runsDir = process.env.VIBEDOCS_RUNS_DIR
+      ? path.resolve(process.env.VIBEDOCS_RUNS_DIR)
+      : path.join(homedir(), '.vibedocs', 'runs')
+    const file = path.join(runsDir, runId, 'supervisor.json')
+    mkdirSync(path.dirname(file), { recursive: true })
+    writeFileSync(
+      file,
+      JSON.stringify({ pid: process.pid, host: hostname(), startedAt: Date.now() }, null, 2) + '\n',
+    )
+  } catch {
+    // Not fatal. Losing the sidecar only means a hard-killed run cannot be
+    // auto-reaped; the run itself is unaffected.
+  }
+}
 
 function argOf(flag, fallback) {
   const sep = process.argv.indexOf('--')
