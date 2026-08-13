@@ -29,6 +29,7 @@ import {
   type ProjectInfo,
 } from './discovery.js'
 import { createIndexStore, type IndexStore, type SearchResult } from './search.js'
+import { createCoalescingRunner } from './coalescing-runner.js'
 import { createSiteConfigCache, type SiteConfigCache } from './site-config-cache.js'
 import { loadSiteConfig } from './site-config.js'
 import type { SafePath } from './path-resolver.js'
@@ -59,6 +60,13 @@ export interface CreateAppStateOptions {
   searchStore?: IndexStore
   /** Optional: inject a pre-built site-config cache (testability). */
   siteConfigCache?: SiteConfigCache
+  /**
+   * Debounce window for search-index rebuilds. Defaults to
+   * `DEFAULT_COALESCE_DELAY_MS`. Tests shorten it; there is no reason to tune it
+   * in production — the single-flight guarantee, not this number, is what bounds
+   * memory.
+   */
+  searchRebuildDelayMs?: number
 }
 
 export interface AppState {
@@ -70,6 +78,13 @@ export interface AppState {
   search(query: string, maxResults?: number): SearchResult[]
   /** Current search-index version (bumped on each successful rebuild). */
   readonly searchVersion: number
+  /**
+   * Test/diagnostics: resolves once no search-index rebuild is scheduled, in
+   * flight, or owed. Rebuilds are debounced and single-flighted, so callers that
+   * need to observe the settled index must await this rather than drain
+   * microtasks.
+   */
+  settleSearchIndex(): Promise<void>
   /** Broadcast a typed WS message to every connected client. */
   broadcast(message: WsMessage): void
   /** Upload-route policy. Routes read this to know which gate to apply. */
@@ -96,12 +111,26 @@ export function createAppState(opts: CreateAppStateOptions): AppState {
     return path.basename(filePath) === CONFIG_FILENAME
   }
 
-  function rebuildSearchIndex(): void {
-    searchStore.rebuild().then((v) => {
+  /**
+   * Rebuilds are coalesced and single-flighted. Calling this per file-system
+   * event is safe; it is NOT safe to call `searchStore.rebuild()` directly from
+   * an event handler — each concurrent walk retains a full copy of every indexed
+   * file, so an event burst becomes an out-of-memory crash. See
+   * `src/coalescing-runner.ts`.
+   */
+  const searchRebuilds = createCoalescingRunner({
+    delayMs: opts.searchRebuildDelayMs,
+    run: async () => {
+      const v = await searchStore.rebuild()
       console.log(`  🔍 Search index v${v}: rebuilt`)
-    }).catch((err) => {
+    },
+    onError: (err) => {
       console.error('Search rebuild failed:', err)
-    })
+    },
+  })
+
+  function rebuildSearchIndex(): void {
+    searchRebuilds.schedule()
   }
 
   function handleFsEvent(ev: FsEvent): void {
@@ -180,6 +209,10 @@ export function createAppState(opts: CreateAppStateOptions): AppState {
       return searchStore.version
     },
 
+    settleSearchIndex() {
+      return searchRebuilds.settled()
+    },
+
     broadcast(message) {
       clientChannel.broadcast(message)
     },
@@ -193,6 +226,9 @@ export function createAppState(opts: CreateAppStateOptions): AppState {
     },
 
     async shutdown() {
+      // Cancel first: closing the watcher can still deliver queued events, and a
+      // debounce timer left armed keeps the event loop alive after shutdown.
+      searchRebuilds.cancel()
       await fsEventSource.close()
       await clientChannel.close()
     },
@@ -291,6 +327,7 @@ export async function runLive(env: NodeJS.ProcessEnv = process.env): Promise<Liv
     renderPage: inner.renderPage.bind(inner),
     search: inner.search.bind(inner),
     get searchVersion() { return inner.searchVersion },
+    settleSearchIndex: inner.settleSearchIndex.bind(inner),
     broadcast: inner.broadcast.bind(inner),
     get uploadAuth() { return inner.uploadAuth },
     start: inner.start.bind(inner),
