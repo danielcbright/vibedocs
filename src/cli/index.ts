@@ -15,14 +15,25 @@
 import path from 'path'
 import { spawn } from 'child_process'
 import { fileURLToPath } from 'url'
-import { realpathSync } from 'fs'
+import { realpathSync, statSync } from 'fs'
 import { parseBuildArgs, parseServeArgs } from './args.js'
 import { runBuild } from './build.js'
 import { indexWithPagefind, isPagefindAvailable } from './pagefind.js'
 import { runLiveServer } from './serve-live.js'
+import { PROJECT_ROOTS } from '../discovery.js'
+import { resolveBuildRoot } from '../project-roots.js'
+
+/** Sync directory probe for the pure root-resolution helpers. */
+function isDirectory(absPath: string): boolean {
+  try {
+    return statSync(absPath).isDirectory()
+  } catch {
+    return false
+  }
+}
 
 const USAGE = `Usage:
-  vibedocs serve [--root <dir>] [--port <n>]
+  vibedocs serve [--root <dir>]... [--port <n>]   # --root repeatable
   vibedocs build --project <name> --out <dir> [--base-url <url>] [--frontend-dist <path>] [--hydration full|minimal]
   vibedocs build --project <name> --serve [--port <n>] [--frontend-dist <path>] [--hydration full|minimal]
 
@@ -99,10 +110,14 @@ export async function main(argv: string[]): Promise<number> {
   // Default out dir for --serve so the user doesn't have to specify both.
   const outDir = parsed.outDir ?? path.resolve(process.cwd(), 'dist')
 
-  // PROJECTS_DIR is where to look for `<projectName>` as a sibling dir.
-  // Mirrors discovery.ts. The cwd-basename fallback inside resolveProjectPath
-  // handles "run inside the project repo" cases like vibedocs itself.
-  const projectsRoot = process.env.VIBEDOCS_ROOT ?? process.cwd()
+  // Where to look for `<projectName>` as a sibling dir. Mirrors discovery.ts; the
+  // cwd-basename fallback inside resolveProjectPath handles "run inside the project
+  // repo" cases like vibedocs itself.
+  //
+  // A build renders ONE project, so it wants one root — but it must still find a
+  // project in a later root when the operator has exported VIBEDOCS_ROOTS, rather
+  // than reporting "project not found" for something that is right there.
+  const projectsRoot = resolveBuildRoot(PROJECT_ROOTS, parsed.projectName, isDirectory)
 
   // The React bundle ships next to the CLI source. When running through
   // `bin/vibedocs` via tsx, `import.meta.url` points at this file; the

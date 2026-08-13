@@ -50,8 +50,11 @@ function isDirectorySync(p: string): boolean {
  * folder that legitimately lives under a dot-directory (`~/.local/share/docs`)
  * still works — its own prefix is stripped rather than matched.
  */
-export function resolveIgnorePrefixes(rootDir: string, children: readonly string[]): string[] {
-  const prefixes = new Set<string>([rootDir])
+export function resolveIgnorePrefixes(
+  rootDir: string | readonly string[],
+  children?: readonly string[],
+): string[] {
+  const prefixes = new Set<string>()
   const add = (p: string) => {
     try {
       prefixes.add(realpathSync(p))
@@ -59,9 +62,27 @@ export function resolveIgnorePrefixes(rootDir: string, children: readonly string
       // Broken symlink or vanished entry — nothing to strip.
     }
   }
-  add(rootDir)
-  for (const child of children) add(path.join(rootDir, child))
+
+  // Several roots (#113) read their own children; the historical single-root form
+  // takes them from the caller, which already had them.
+  const roots = typeof rootDir === 'string' ? [rootDir] : rootDir
+  for (const root of roots) {
+    prefixes.add(root)
+    add(root)
+    const own = children ?? readChildren(root)
+    for (const child of own) add(path.join(root, child))
+  }
+
   return [...prefixes]
+}
+
+function readChildren(dir: string): string[] {
+  try {
+    return readdirSync(dir)
+  } catch {
+    // Root missing at boot — nothing to resolve.
+    return []
+  }
 }
 
 /**
@@ -139,26 +160,27 @@ export function isIgnoredWatchPath(
   return false
 }
 
-export interface ChokidarFsEventSourceOptions {
-  /** Absolute path of the directory holding every project. Watched recursively. */
-  rootDir: string
-}
+export type ChokidarFsEventSourceOptions =
+  | {
+      /** Absolute path of the directory holding every project. Watched recursively. */
+      rootDir: string
+      roots?: never
+    }
+  | {
+      /** Every configured root, watched recursively (#113). */
+      roots: readonly string[]
+      rootDir?: never
+    }
 
 export function createChokidarFsEventSource(
   opts: ChokidarFsEventSourceOptions,
 ): FsEventSource {
   const listeners: FsEventListener[] = []
-  const { rootDir } = opts
+  const roots = opts.rootDir !== undefined ? [opts.rootDir] : opts.roots
 
-  let children: string[] = []
-  try {
-    children = readdirSync(rootDir)
-  } catch {
-    // Root missing at boot — nothing to resolve; the watcher stays quiet.
-  }
-  const ignorePrefixes = resolveIgnorePrefixes(rootDir, children)
+  const ignorePrefixes = resolveIgnorePrefixes(roots)
 
-  const watcher = chokidar.watch(`${rootDir}/**/*`, {
+  const watcher = chokidar.watch(roots.map((root) => `${root}/**/*`), {
     ignoreInitial: true,
     // Chokidar supplies stats for effectively every call (measured: 176,869 of
     // 176,900 against the real roots, and never absent for a dot-path). The

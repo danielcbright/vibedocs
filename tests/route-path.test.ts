@@ -78,6 +78,54 @@ describe('extractProjectPath', () => {
   })
 })
 
+/**
+ * A project name whose characters `encodeURIComponent` would escape.
+ *
+ * These arrive un-escaped in practice: browsers leave `@`, `+`, `!` and `~` alone
+ * in a path, and the frontend's hash route carries the project name verbatim. The
+ * helper used to rebuild the expected prefix with `encodeURIComponent(project)`,
+ * so the comparison failed and the relative path came back empty — a 400 "Missing
+ * project or path" for a project that exists and is listed. Found while adding
+ * multi-root support (#113), which needs a qualified name to survive this hop.
+ */
+describe('extractProjectPath with characters encodeURIComponent would escape', () => {
+  for (const project of ['lit@eral', 'plus+name', 'bang!name', 'tilde~name']) {
+    it(`reads the path for a project named "${project}" sent verbatim`, () => {
+      // No `*` param on purpose: Hono does not reliably populate it for a
+      // wildcard route, which is why this helper parses the URL at all. With the
+      // fallback available the bug hides, because the fallback happens to be right.
+      const c = fakeContext(
+        `http://localhost:8080/api/render/${project}/docs/guide.md`,
+        { project },
+      )
+      expect(extractProjectPath(c, '/api/render')).toEqual({
+        project,
+        relativePath: 'docs/guide.md',
+      })
+    })
+
+    it(`reads the path for a project named "${project}" sent percent-encoded`, () => {
+      // The frontend's api-client encodes it, so both spellings reach the server.
+      const c = fakeContext(
+        `http://localhost:8080/api/render/${encodeURIComponent(project)}/docs/guide.md`,
+        { project },
+      )
+      expect(extractProjectPath(c, '/api/render')).toEqual({
+        project,
+        relativePath: 'docs/guide.md',
+      })
+    })
+  }
+
+  it('still decodes the tail, which is the reason this helper exists', () => {
+    const c = fakeContext(
+      'http://localhost:8080/api/render/a@b/folder%20name/My%20Doc.md',
+      { project: 'a@b' },
+    )
+    expect(extractProjectPath(c, '/api/render').relativePath).toBe('folder name/My Doc.md')
+  })
+})
+
 describe('resolveProjectPath', () => {
   let tmpDir: string
 
@@ -139,9 +187,13 @@ describe('resolveProjectPath', () => {
   })
 
   it('propagates VibedocsError(traversal) from the resolver on .. paths', () => {
+    // `..` spelled so it survives URL parsing. `new URL()` normalises a literal
+    // `p/../escape.md` — and a percent-encoded `%2e%2e` — down to `escape.md`
+    // before this helper ever sees it, so an encoded SLASH is what actually
+    // delivers `..` to the resolver, and it must still be refused.
     const c = fakeContext(
-      'http://localhost:8080/api/render/myproject/../escape.md',
-      { project: 'myproject', '*': '../escape.md' },
+      'http://localhost:8080/api/render/myproject/..%2fescape.md',
+      { project: 'myproject' },
     )
     const resolver = new PathResolver({ projectsDir: tmpDir })
     try {
@@ -151,5 +203,17 @@ describe('resolveProjectPath', () => {
       expect(err).toBeInstanceOf(VibedocsError)
       expect((err as VibedocsError).code).toBe('traversal')
     }
+  })
+
+  it('rejects a path that URL normalisation has already collapsed away', () => {
+    // `/api/render/myproject/../escape.md` arrives as `/api/render/escape.md`, so
+    // there is no path after the project segment at all. Refusing it as "missing"
+    // is accurate; what matters is that it is refused rather than served.
+    const c = fakeContext(
+      'http://localhost:8080/api/render/myproject/../escape.md',
+      { project: 'myproject' },
+    )
+    const resolver = new PathResolver({ projectsDir: tmpDir })
+    expect(() => resolveProjectPath(c, '/api/render', resolver)).toThrow(VibedocsError)
   })
 })

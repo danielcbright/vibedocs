@@ -1,8 +1,10 @@
 import { readFile, readdir, stat } from 'fs/promises'
+import { statSync } from 'fs'
 import path from 'path'
 import { PROJECTS_DIR } from './discovery.js'
 import { EXCLUDED_DIRS } from './excluded-paths.js'
 import { isMarkdownPath } from './markdown-paths.js'
+import { projectNameFor } from './project-roots.js'
 
 /**
  * In-memory full-text index.
@@ -49,7 +51,10 @@ export interface IndexStore {
 }
 
 export interface IndexStoreOptions {
+  /** Single root. Historical shape; equivalent to `roots: [projectsDir]`. */
   projectsDir?: string
+  /** Every configured root, in order (#113). */
+  roots?: readonly string[]
 }
 
 /** Where an indexable file lives, in the terms the wire format uses. */
@@ -71,11 +76,21 @@ export interface IndexKey {
  * never indexes loose files in the roots dir), no dot-prefixed segment, no
  * `EXCLUDED_DIRS` segment, markdown only.
  */
-export function resolveIndexKey(rootDir: string, absPath: string): IndexKey | null {
-  const rel = path.relative(rootDir, absPath)
-  if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return null
+export function resolveIndexKey(
+  rootDir: string | readonly string[],
+  absPath: string,
+): IndexKey | null {
+  const roots = typeof rootDir === 'string' ? [rootDir] : rootDir
 
-  const segments = rel.split(path.sep)
+  // First root that contains the path. Roots cannot nest (parseRoots rejects
+  // that), so at most one can match and order does not change the answer.
+  const root = roots.find((r) => {
+    const rel = path.relative(r, absPath)
+    return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel)
+  })
+  if (root === undefined) return null
+
+  const segments = path.relative(root, absPath).split(path.sep)
   // A project directory plus at least a filename. `collectAll` only descends
   // into project directories, so a loose file in the roots dir is not indexed.
   if (segments.length < 2) return null
@@ -87,7 +102,21 @@ export function resolveIndexKey(rootDir: string, absPath: string): IndexKey | nu
 
   if (!isMarkdownPath(segments[segments.length - 1])) return null
 
-  return { project: segments[0], relPath: segments.slice(1).join('/') }
+  // Naming goes through the same function discovery uses, so a hit always carries
+  // a name the path resolver can turn back into a directory.
+  const project = projectNameFor(roots, path.join(root, segments[0]), existsAsDir)
+  if (project === null) return null
+
+  return { project, relPath: segments.slice(1).join('/') }
+}
+
+/** Sync existence probe for `projectNameFor`. */
+function existsAsDir(absPath: string): boolean {
+  try {
+    return statSync(absPath).isDirectory()
+  } catch {
+    return false
+  }
 }
 
 /** Key of the in-memory map: the absolute path. Never leaves this module. */
@@ -119,7 +148,7 @@ async function readEntry(absPath: string, key: IndexKey): Promise<IndexEntry | n
   }
 }
 
-async function collectInto(map: IndexMap, dir: string, rootDir: string): Promise<void> {
+async function collectInto(map: IndexMap, dir: string, roots: readonly string[]): Promise<void> {
   let names: string[]
   try {
     names = await readdir(dir)
@@ -140,48 +169,51 @@ async function collectInto(map: IndexMap, dir: string, rootDir: string): Promise
 
     if (s.isDirectory()) {
       if (EXCLUDED_DIRS.has(name)) continue
-      await collectInto(map, fullPath, rootDir)
+      await collectInto(map, fullPath, roots)
       continue
     }
 
     // Scope decision goes through resolveIndexKey so the walk and incremental
     // updates cannot drift apart.
-    const key = resolveIndexKey(rootDir, fullPath)
+    const key = resolveIndexKey(roots, fullPath)
     if (key === null) continue
     const entry = await readEntry(fullPath, key)
     if (entry !== null) map.set(fullPath, entry)
   }
 }
 
-async function collectAll(rootDir: string): Promise<IndexMap> {
+async function collectAll(roots: readonly string[]): Promise<IndexMap> {
   const map: IndexMap = new Map()
-  let projects: string[]
 
-  try {
-    projects = await readdir(rootDir)
-  } catch {
-    return map
-  }
-
-  for (const name of projects.sort()) {
-    if (name.startsWith('.') || EXCLUDED_DIRS.has(name)) continue
-    const projectDir = path.join(rootDir, name)
-
+  for (const rootDir of roots) {
+    let projects: string[]
     try {
-      const s = await stat(projectDir)
-      if (!s.isDirectory()) continue
+      projects = await readdir(rootDir)
     } catch {
+      // A configured root that is not there must not stop the others.
       continue
     }
 
-    await collectInto(map, projectDir, rootDir)
+    for (const name of projects.sort()) {
+      if (name.startsWith('.') || EXCLUDED_DIRS.has(name)) continue
+      const projectDir = path.join(rootDir, name)
+
+      try {
+        const s = await stat(projectDir)
+        if (!s.isDirectory()) continue
+      } catch {
+        continue
+      }
+
+      await collectInto(map, projectDir, roots)
+    }
   }
 
   return map
 }
 
 export function createIndexStore(options: IndexStoreOptions = {}): IndexStore {
-  const rootDir = options.projectsDir ?? PROJECTS_DIR
+  const roots = options.roots ?? [options.projectsDir ?? PROJECTS_DIR]
   let entries: IndexMap = new Map()
   let version = 0
 
@@ -238,7 +270,7 @@ export function createIndexStore(options: IndexStoreOptions = {}): IndexStore {
 
     rebuild(): Promise<number> {
       return serial(async () => {
-        entries = await collectAll(rootDir)
+        entries = await collectAll(roots)
         version += 1
         return version
       })
@@ -246,7 +278,7 @@ export function createIndexStore(options: IndexStoreOptions = {}): IndexStore {
 
     updateFile(absPath: string): Promise<number> {
       return serial(async () => {
-        const key = resolveIndexKey(rootDir, absPath)
+        const key = resolveIndexKey(roots, absPath)
         // Out of scope for the index — and out of scope means out of scope even
         // if we happen to hold a stale entry for it, so nothing to remove.
         if (key === null) return version

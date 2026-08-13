@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import path from 'path'
 import { parseBuildArgs, parseServeArgs, resolveHydration } from '../src/cli/args.js'
 
 describe('parseBuildArgs', () => {
@@ -104,14 +105,36 @@ describe('resolveHydration — precedence (#76)', () => {
 
 describe('parseServeArgs — `vibedocs serve` (live browser from the npm package)', () => {
   it('defaults to the current directory and port 8080 when given no flags', () => {
-    expect(parseServeArgs([])).toEqual({ root: process.cwd(), port: 8080 })
+    expect(parseServeArgs([])).toEqual({ roots: [process.cwd()], port: 8080 })
+  })
+})
+
+describe('parseServeArgs — several roots (#113)', () => {
+  it('accumulates a repeated --root, in the order given', () => {
+    // Repeatable rather than a colon-separated `--roots`, because a shell already
+    // gives us argument separation and a colon in a path would be unquotable.
+    // Order is preserved: it decides which root keeps a shared project name.
+    expect(parseServeArgs(['--root', '/a', '--root', '/b']).roots).toEqual(['/a', '/b'])
+  })
+
+  it('resolves each root to an absolute path', () => {
+    const parsed = parseServeArgs(['--root', 'docs', '--root', '../shared'])
+    expect(parsed.roots).toEqual([path.resolve('docs'), path.resolve('../shared')])
+  })
+
+  it('drops a root repeated verbatim', () => {
+    expect(parseServeArgs(['--root', '/a', '--root', '/a']).roots).toEqual(['/a'])
+  })
+
+  it('still requires a value', () => {
+    expect(() => parseServeArgs(['--root', '/a', '--root'])).toThrow(/--root requires a value/)
   })
 })
 
 describe('parseServeArgs — flags', () => {
   it('honours --root and --port, resolving root to an absolute path', () => {
     expect(parseServeArgs(['--root', '/srv/docs', '--port', '9000'])).toEqual({
-      root: '/srv/docs',
+      roots: ['/srv/docs'],
       port: 9000,
     })
   })

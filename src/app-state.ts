@@ -23,7 +23,7 @@
 import path from 'path'
 import { readFile } from 'fs/promises'
 import {
-  discoverProjects,
+  discoverAcrossRoots,
   filterProjects,
   toProjectRelativePath,
   type ProjectInfo,
@@ -47,9 +47,21 @@ import type { ClientChannel } from './ports/client-channel.js'
 
 const CONFIG_FILENAME = '.vibedocs.config.ts'
 
-export interface CreateAppStateOptions {
-  /** Absolute directory that holds every project as a subfolder. */
-  projectsDir: string
+export type CreateAppStateOptions = CreateAppStateBase &
+  (
+    | {
+        /** Absolute directory that holds every project as a subfolder. */
+        projectsDir: string
+        roots?: never
+      }
+    | {
+        /** Every configured root, in order (#113). */
+        roots: readonly string[]
+        projectsDir?: never
+      }
+  )
+
+interface CreateAppStateBase {
   /** Source of file-system events. Production wraps chokidar; tests use in-memory. */
   fsEventSource: FsEventSource
   /** Fan-out sink for WS messages. Production wraps `ws`; tests use in-memory. */
@@ -98,14 +110,16 @@ export interface AppState {
 }
 
 export function createAppState(opts: CreateAppStateOptions): AppState {
-  const { projectsDir, fsEventSource, clientChannel, uploadAuth } = opts
+  const { fsEventSource, clientChannel, uploadAuth } = opts
+  // One list from here down, so nothing below has to know which option was used.
+  const roots = opts.projectsDir !== undefined ? [opts.projectsDir] : opts.roots
 
   const searchStore =
-    opts.searchStore ?? createIndexStore({ projectsDir })
+    opts.searchStore ?? createIndexStore({ roots })
 
   const siteConfigCache =
     opts.siteConfigCache ??
-    createSiteConfigCache({ loadConfig: loadSiteConfig, projectsDir })
+    createSiteConfigCache({ loadConfig: loadSiteConfig, projectsDir: roots })
 
   function isSiteConfig(filePath: string): boolean {
     return path.basename(filePath) === CONFIG_FILENAME
@@ -150,7 +164,7 @@ export function createAppState(opts: CreateAppStateOptions): AppState {
   }
 
   function handleFsEvent(ev: FsEvent): void {
-    const rel = toProjectRelativePath(ev.path, projectsDir)
+    const rel = toProjectRelativePath(ev.path, roots)
     switch (ev.kind) {
       case 'change': {
         console.log(`  ↺  changed: ${rel ?? ev.path}`)
@@ -203,7 +217,7 @@ export function createAppState(opts: CreateAppStateOptions): AppState {
 
   return {
     async listProjects(fileType: 'all' | 'markdown' | 'assets' = 'all') {
-      const projects = await discoverProjects(projectsDir)
+      const projects = await discoverAcrossRoots(roots)
       const filtered = filterProjects(projects, fileType)
       return Promise.all(
         filtered.map(async (p) => ({
@@ -276,7 +290,7 @@ import { createTextRenderer, type TextRenderer } from './agent-runs/text-render.
 import type { AgentRunsClientConfig } from './shared/agent-runs-config-types.js'
 import { createChokidarFsEventSource } from './adapters/chokidar-fs-event-source.js'
 import { createInMemoryClientChannel } from './adapters/in-memory-client-channel.js'
-import { PROJECTS_DIR } from './discovery.js'
+import { PROJECT_ROOTS } from './discovery.js'
 
 /**
  * Agent Runs runtime state. Lives inside AppState per ADR-0001: the store's
@@ -292,7 +306,9 @@ export interface AgentRunsRuntime {
 }
 
 export interface LiveAppState extends AppState {
-  /** Projects-directory absolute path (snapshot of env at boot). */
+  /** Every configured root, absolute (snapshot of env at boot). */
+  readonly roots: readonly string[]
+  /** First configured root. Retained for callers that are inherently single-root. */
   readonly projectsDir: string
   readonly agentRuns: AgentRunsRuntime
   /**
@@ -314,12 +330,12 @@ export interface LiveAppState extends AppState {
  * chokidar or ws imports into it.
  */
 export async function runLive(env: NodeJS.ProcessEnv = process.env): Promise<LiveAppState> {
-  const projectsDir = PROJECTS_DIR
-  const fsEventSource = createChokidarFsEventSource({ rootDir: projectsDir })
+  const roots = PROJECT_ROOTS
+  const fsEventSource = createChokidarFsEventSource({ roots })
   let clientChannel: ClientChannel = createInMemoryClientChannel()
 
   const inner = createAppState({
-    projectsDir,
+    roots,
     fsEventSource,
     // Pass a proxy that always delegates to the current clientChannel so the
     // server.ts swap takes effect for all subsequent broadcasts.
@@ -357,7 +373,8 @@ export async function runLive(env: NodeJS.ProcessEnv = process.env): Promise<Liv
     start: inner.start.bind(inner),
     shutdown: inner.shutdown.bind(inner),
     siteConfigCacheHas: inner.siteConfigCacheHas.bind(inner),
-    projectsDir,
+    roots,
+    projectsDir: roots[0],
     agentRuns,
     setClientChannel(channel) {
       clientChannel = channel

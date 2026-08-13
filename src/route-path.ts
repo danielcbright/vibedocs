@@ -13,7 +13,16 @@ import type { PathResolver, SafePath } from './path-resolver.js'
  *   3. `decodeURIComponent` the sliced tail so resolvers receive on-disk
  *      filenames (e.g. "folder name/My Doc.md" not "folder%20name/My%20Doc.md").
  *
- * If the URL pathname does not match the expected prefix (proxy rewrites,
+ * Step 2 drops the project by finding the first `/` after the route base, and
+ * NOT by rebuilding the prefix as `encodeURIComponent(project)`. That rebuild was
+ * wrong whenever the client spelled the project differently from
+ * `encodeURIComponent` — and clients routinely do, because browsers leave `@`,
+ * `+` and `!` alone in a path and the frontend's hash route carries the name
+ * verbatim. The comparison then failed, the tail came back empty, and a project
+ * that exists and is listed answered 400 "Missing project or path". Parsing by
+ * position is independent of spelling, so both forms work.
+ *
+ * If the URL pathname does not match the route base at all (proxy rewrites,
  * unusual base), fall back to the wildcard route param so we still hand the
  * resolver *something* rather than crashing on a bad string slice.
  *
@@ -26,10 +35,17 @@ export function extractProjectPath(
 ): { project: string; relativePath: string } {
   const project = c.req.param('project') ?? ''
   const fullPath = new URL(c.req.url).pathname
-  const prefix = `${routeBase}/${encodeURIComponent(project)}/`
-  const relativePath = fullPath.startsWith(prefix)
-    ? decodeURIComponent(fullPath.slice(prefix.length))
-    : (c.req.param('*') ?? '')
+  const base = `${routeBase}/`
+
+  if (!fullPath.startsWith(base)) {
+    return { project, relativePath: c.req.param('*') ?? '' }
+  }
+
+  const afterBase = fullPath.slice(base.length)
+  const slash = afterBase.indexOf('/')
+  // No slash means there is no path after the project segment, which the caller
+  // treats as a 400 unless it allows an empty path.
+  const relativePath = slash === -1 ? '' : decodeURIComponent(afterBase.slice(slash + 1))
   return { project, relativePath }
 }
 

@@ -98,8 +98,11 @@ function assignFlagValue(out: Partial<ParsedBuildArgs>, flag: string, value: str
  *   CLI --hydration → siteConfig.hydration → 'full'
  */
 export interface ParsedServeArgs {
-  /** Directory containing the project folders to browse. */
-  root: string
+  /**
+   * Directories containing the project folders to browse, in the order given.
+   * Order matters: it decides which root keeps a project name two roots share.
+   */
+  roots: string[]
   /** Port for the HTTP + WebSocket server. */
   port: number
 }
@@ -108,9 +111,13 @@ export interface ParsedServeArgs {
  * Parse `vibedocs serve` flags. Both are optional — the zero-flag invocation
  * (`npx vibedocs serve`) browses the current directory on the default port,
  * which is the whole point of having the subcommand.
+ *
+ * `--root` is repeatable (#113). Repeatable rather than a colon-separated
+ * `--roots` to mirror the env var, because the shell already separates arguments
+ * and a path containing a colon would otherwise be unexpressible.
  */
 export function parseServeArgs(argv: string[]): ParsedServeArgs {
-  let root = process.cwd()
+  const roots: string[] = []
   let port = 8080
 
   for (let i = 0; i < argv.length; i++) {
@@ -121,7 +128,8 @@ export function parseServeArgs(argv: string[]): ParsedServeArgs {
         throw new Error(`${token} requires a value`)
       }
       if (token === '--root') {
-        root = path.resolve(value)
+        const resolved = path.resolve(value)
+        if (!roots.includes(resolved)) roots.push(resolved)
       } else {
         const parsed = Number(value)
         if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
@@ -135,7 +143,7 @@ export function parseServeArgs(argv: string[]): ParsedServeArgs {
     }
   }
 
-  return { root, port }
+  return { roots: roots.length > 0 ? roots : [process.cwd()], port }
 }
 
 export function resolveHydration(

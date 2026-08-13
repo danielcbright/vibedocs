@@ -114,6 +114,7 @@ The demo content is entirely fictional (`stratus-key-DEMO-12345`, `https://api.c
 | Variable | Default | Description |
 |---|---|---|
 | `VIBEDOCS_ROOT` | current working directory | Root directory to scan for projects |
+| `VIBEDOCS_ROOTS` | _(unset)_ | Several roots, colon-separated (POSIX). Wins over `VIBEDOCS_ROOT` when both are set. See "Several roots" below. |
 | `VIBEDOCS_PORT` or `PORT` | `8080` | Port to listen on |
 | `VIBEDOCS_WS_ALLOWED_ORIGINS` | _(unset)_ | Comma-separated extra Origin allowlist for the WebSocket handshake. Defaults cover `localhost`. |
 | `VIBEDOCS_WS_ALLOW_NO_ORIGIN` | `false` | Accept WS handshakes with no `Origin` header (non-browser clients) |
@@ -141,6 +142,33 @@ $VIBEDOCS_ROOT/
 ```
 
 Each subdirectory becomes a "project" in the sidebar. Root-level `.md` files and everything under `docs/` are displayed.
+
+### Several roots
+
+To serve projects from more than one place — say code docs and personal notes —
+list the roots colon-separated:
+
+```bash
+VIBEDOCS_ROOTS="$HOME/Development:$HOME/Notes" vibedocs serve
+```
+
+Projects from every root appear in one flat list, ordered by root. A project
+keeps its plain folder name; only a name offered by two roots is disambiguated,
+and only for the later one — `notes` from the first root stays `notes`, while
+`notes` from a root called `Notes` becomes `notes~Notes`. That asymmetry is the
+point: **adding a root never renames an existing project**, so saved links keep
+working. (Adding one at the *front* of the list can rename, so append.)
+
+Two configurations are refused at startup, with the reason, because both are
+silently wrong rather than merely unusual:
+
+- **Roots sharing a basename** (`~/a/docs` and `~/b/docs`) — a project found in
+  both would want the same disambiguated name.
+- **A root inside another root** (`~/a` and `~/a/b`) — everything under the inner
+  one would be listed twice under two names, and every file change would fire
+  twice.
+
+Colon is the separator on Linux and macOS, which are the supported platforms.
 
 ## Development
 

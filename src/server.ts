@@ -3,7 +3,7 @@ import { serve } from '@hono/node-server'
 import { fileURLToPath } from 'url'
 import path from 'path'
 import type { Server } from 'net'
-import { PROJECTS_DIR } from './discovery.js'
+import { PROJECT_ROOTS, PROJECT_ROOTS_ERROR, PROJECT_ROOTS_NOTES } from './discovery.js'
 import { registerSearchRoute, registerFileRoute } from './server-routes.js'
 import { registerUploadRoute, registerConfigRoute } from './upload-route.js'
 import { PathResolver } from './path-resolver.js'
@@ -17,14 +17,23 @@ import { createWsClientChannel } from './adapters/ws-client-channel.js'
 import { registerStaticRoutes } from './static-files.js'
 import { registerAgentRunsRoutes } from './agent-runs/routes.js'
 
+// A root configuration that cannot work stops the server here, with the reason.
+// Booting anyway would serve an empty or double-counted set of projects and look
+// like a discovery bug.
+if (PROJECT_ROOTS_ERROR !== null) {
+  console.error(`\n✖ VibeDocs cannot start: ${PROJECT_ROOTS_ERROR}\n`)
+  process.exit(1)
+}
+for (const note of PROJECT_ROOTS_NOTES) console.warn(`  ⚠ ${note}`)
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const FRONTEND_DIST = path.join(__dirname, '..', 'frontend', 'dist')
 const PORT = parseInt(process.env.VIBEDOCS_PORT || process.env.PORT || '8080', 10)
 
 // Path resolvers are stateless allocations — module-level, NOT inside AppState.
 // docResolver locks markdown-only routes; assetResolver permits any file type.
-const docResolver = new PathResolver({ projectsDir: PROJECTS_DIR, requireExtensions: MARKDOWN_EXTENSIONS })
-const assetResolver = new PathResolver({ projectsDir: PROJECTS_DIR })
+const docResolver = new PathResolver({ roots: PROJECT_ROOTS, requireExtensions: MARKDOWN_EXTENSIONS })
+const assetResolver = new PathResolver({ roots: PROJECT_ROOTS })
 
 // AppState owns live runtime state: search index, site-config cache, chokidar
 // subscription, broadcast fan-out, upload-auth snapshot. ws fan-out is wired
@@ -84,6 +93,7 @@ const server = serve({ fetch: app.fetch, port: PORT }, () => {
 // Wire the real ws fan-out (CSWSH defense at the HTTP-upgrade step via the
 // Origin allowlist — see src/ws-auth.ts). Pre-swap broadcasts route through
 // runLive's placeholder in-memory channel.
+console.log(`  📁 Roots (${state.roots.length}): ${state.roots.join(', ')}`)
 console.log(`  🔒 WS origin allowlist: ${allowedOrigins.join(', ')}`)
 if (allowNoOrigin) console.log('  🔒 WS allows handshakes with no Origin header')
 const upMode = state.uploadAuth.readOnly ? 'READ-ONLY' : state.uploadAuth.token === null ? 'DISABLED' : 'TOKEN'
