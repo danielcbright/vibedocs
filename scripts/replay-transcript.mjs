@@ -19,8 +19,8 @@
  *                     (Ctrl-C to stop). Use this to watch a live agent session.
  *   --poll <ms>       how often to check for growth in --follow (default: 400)
  */
-import { openSync, readSync, closeSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
+import { readFrom } from './lib/transcript-tail.mjs'
 
 const args = process.argv.slice(2)
 const file = args.find((a) => !a.startsWith('--') && !args[args.indexOf(a) - 1]?.startsWith('--'))
@@ -51,29 +51,8 @@ const status = opt('status', 'running')
 const follow = args.includes('--follow')
 const pollMs = parseInt(opt('poll', '400'), 10)
 
-/**
- * Read from a byte offset to EOF and return whole lines plus the new offset.
- * A partial trailing line (the agent is mid-write) is deliberately left behind
- * for the next read rather than being parsed as truncated JSON.
- */
-function readFrom(path, offset) {
-  const size = statSync(path).size
-  if (size <= offset) return { lines: [], offset }
-  const fd = openSync(path, 'r')
-  const buf = Buffer.alloc(size - offset)
-  readSync(fd, buf, 0, buf.length, offset)
-  closeSync(fd)
-  const text = buf.toString('utf8')
-  const lastNewline = text.lastIndexOf('\n')
-  if (lastNewline === -1) return { lines: [], offset }
-  const complete = text.slice(0, lastNewline)
-  return {
-    lines: complete.split('\n').filter((l) => l.trim().length > 0)
-      .map((l) => { try { return JSON.parse(l) } catch { return null } })
-      .filter(Boolean),
-    offset: offset + Buffer.byteLength(complete, 'utf8') + 1,
-  }
-}
+// readFrom lives in ./lib/transcript-tail.mjs — shared with run-supervisor.mjs so
+// the offset arithmetic and the partial-trailing-line rule exist in one place.
 
 async function post(pathname, body) {
   const res = await fetch(`${base}${pathname}`, {
