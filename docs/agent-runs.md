@@ -110,6 +110,20 @@ VIBEDOCS_RUNS_TOKEN=… node scripts/run-supervisor.mjs \
   -- my-agent --its-own --flags
 ```
 
+`--transcript` follows a file the agent writes. For an agent that streams NDJSON
+to **stdout**, which is what CLI agents generally do, use `--capture` instead and
+the supervisor makes the file itself:
+
+```bash
+… --capture /path/to/events.ndjson -- my-agent --output-format stream-json
+```
+
+The two are mutually exclusive, since `--capture` writes the file the follower
+reads. Prefer it over `-- bash -c "my-agent > file"`: that wrapper shell is also
+the extra process layer that makes Stop signal the wrong pid (below). The file is
+opened for **append**, so it stays the run's transcript across turns — which is
+also what makes a resumed byte offset mean what it says.
+
 ### Why a supervisor rather than "the caller reports status"
 
 Because the caller frequently is not alive when the run ends. An orchestrating
@@ -156,6 +170,67 @@ If nothing is polling, a queued stop simply waits and `stopRequested` stays true
 That is why the rail renders a stop-pending state rather than continuing to show
 the run as merely running.
 
+#### When the supervisor holds the wrong pid
+
+Step 4 assumes the process the supervisor spawned *is* the agent. A client that
+spawns its agent into its own process group — common, since it lets the client
+group-kill its own tree — leaves the supervisor holding only an intermediate
+shell's pid. Measured: the agent was reparented to init, **kept running and kept
+writing files**, while the run displayed `stopped`. A UI asserting something false
+is worse than one that says nothing.
+
+`--stop-command '<cmd>'` hands the kill back to the client. The supervisor runs
+that string through a shell instead of signalling its child, and never learns what
+the mechanism is — which is how client knowledge stays out of this repo:
+
+```bash
+… --stop-command 'kill -TERM -- -$(cat /run/lane-a.pgid)' -- my-dispatch-client
+```
+
+What it does with the result is the part worth knowing, because the two cases are
+deliberately asymmetric:
+
+| The stop command | Signals the child | Acks | Run reports |
+|---|---|---|---|
+| exited 0 | only if the child outlives `--kill-grace` | yes | `stopped` |
+| exited non-zero, or outlived `--kill-grace` | never | **no** | whatever it really reaches |
+
+A stop that succeeded asserts the agent is gone, so a child still alive after the
+grace window is a leftover wrapper and killing it claims nothing false. A stop
+that *failed* asserts nothing: killing the wrapper then would close the run as
+`stopped` over a live agent, which is the exact lie the flag exists to remove. So
+nothing is killed, the command is left unacked — an unacked command is the only
+evidence an operator has that nothing honoured a stop — and pressing Stop again
+queues a new command, which is retried. The failed one is not retried in a loop,
+because a pending command returns from the long-poll instantly and forever.
+
+### More than one turn on one run
+
+A supervisor is one process per invocation; a run outlives several. Both halves of
+"where was I" therefore have to be recovered on startup, and they come from
+different places because different parties know them:
+
+- **The batch counter** is read back from the server (`GET /api/runs/:id`), which
+  owns it. Ingest dedups on `clientSeq <= lastClientSeq`, so a second turn
+  starting its counter at 1 has its opening batches silently dropped, and then —
+  once the counter passes the stored value — re-pushes the *earlier* turn's lines
+  as new events. Missing start, duplicated middle, no error anywhere. Asking the
+  server self-heals even with no local record.
+- **The byte offset** comes from `<runsDir>/<id>/supervisor.json`, because the
+  server knows nothing about the client's file. Four things invalidate a recorded
+  offset and reset it to 0: the file is gone, the path changed, the inode changed
+  (a client that *recreates* its transcript, which a size comparison cannot catch
+  once the new file is longer), or it shrank (one that truncates in place). A
+  shrink is also checked on every pass, not just at startup, since a client can
+  rewrite its transcript while this is still following.
+
+The sidecar therefore has two writers — the supervisor's identity, written once,
+and the follow position, written continuously — so both go through
+`patchSidecar`, which merges. A plain write of either erases the other.
+
+The one case nothing can distinguish: a truncate-in-place that regrows past the
+old offset before anyone looks. It reads exactly like an append.
+
 ### The limits, stated plainly
 
 - **No signal handler survives `SIGKILL`, the OOM killer, or power loss.** Those
@@ -166,6 +241,10 @@ the run as merely running.
   supervisor record for, on this host. A run driven from another machine is left
   alone — a local pid says nothing about it, and a wrong guess would mark a healthy
   run failed.
+- **A delegated stop is only as truthful as the client's own stop command.** If it
+  exits 0 without actually stopping anything, the run reports `stopped` over a live
+  agent. The supervisor cannot check the claim; it can only decline to make one of
+  its own when the command reports failure.
 - **Out-of-band edits do not broadcast.** Hand-editing a run's files (or deleting
   its directory rather than using `DELETE`) is invisible to connected clients until
   they reload. Fine for a break-glass fix; worth knowing before you conclude the UI

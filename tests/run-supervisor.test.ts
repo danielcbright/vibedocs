@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 // @ts-expect-error — plain .mjs script module, no type declarations by design.
-import { mapExitToStatus, DEFAULT_EXIT_MAP, planSupervision, selectStopCommand, planReap } from '../scripts/lib/supervisor-plan.mjs'
+import { mapExitToStatus, DEFAULT_EXIT_MAP, planSupervision, selectStopCommand, planReap, planStopAction, planFollowResume } from '../scripts/lib/supervisor-plan.mjs'
 
 /**
  * The supervisor exists so a run is never stranded in a non-terminal state when
@@ -129,6 +129,139 @@ describe('planSupervision', () => {
     // A supervisor is useful for lifecycle alone; a client that has no
     // transcript file should not be forced to invent one.
     expect(plan(['--id', 'x', '--', 'echo']).value.transcript).toBeUndefined()
+    expect(plan(['--id', 'x', '--', 'echo']).value.followPath).toBeUndefined()
+  })
+
+  it('follows whichever of --transcript or --capture named the file', () => {
+    // One derived path, so the two flags cannot disagree downstream about which
+    // file is being tailed.
+    expect(plan(['--id', 'x', '--transcript', '/w/a.ndjson', '--', 'echo']).value.followPath)
+      .toBe('/w/a.ndjson')
+    expect(plan(['--id', 'x', '--capture', '/w/b.ndjson', '--', 'echo']).value.followPath)
+      .toBe('/w/b.ndjson')
+  })
+
+  it('rejects --transcript and --capture together rather than silently picking one', () => {
+    // --capture *writes* the file the follower reads, so with both set one of them
+    // is ignored. Failing loudly beats streaming the wrong file.
+    const p = plan(['--id', 'x', '--transcript', '/w/a', '--capture', '/w/b', '--', 'echo'])
+    expect(p.ok).toBe(false)
+    expect(p.error).toMatch(/mutually exclusive/)
+  })
+
+  it('takes the stop command as one opaque string', () => {
+    // The supervisor must never learn how a client organises its processes, so
+    // this is passed through verbatim — shell syntax and all.
+    const p = plan(['--id', 'x', '--stop-command', 'kill -TERM -- -$(cat pgid)', '--', 'echo'])
+    expect(p.value.stopCommand).toBe('kill -TERM -- -$(cat pgid)')
+    expect(plan(['--id', 'x', '--', 'echo']).value.stopCommand).toBeUndefined()
+  })
+
+  it('does not read a --capture or --stop-command belonging to the child', () => {
+    const p = plan(['--id', 'x', '--', 'agent', '--capture', 'theirs', '--stop-command', 'theirs'])
+    expect(p.value.capture).toBeUndefined()
+    expect(p.value.stopCommand).toBeUndefined()
+  })
+})
+
+describe('planStopAction', () => {
+  it('signals its own child when no stop command was given', () => {
+    const a = planStopAction({ stopCommand: undefined })
+    expect(a).toMatchObject({ mechanism: 'signal', signalNow: true, killAfterGrace: true, ack: true, stopHolds: true })
+  })
+
+  it('never signals the child when a stop command is delegating the kill', () => {
+    // The flag exists because this process holds the wrong pid — an intermediate
+    // shell, not the agent. Signalling it reaps the wrapper and orphans the agent.
+    for (const delegateExit of [0, 1, null]) {
+      expect(planStopAction({ stopCommand: 'stop-me', delegateExit }).signalNow).toBe(false)
+    }
+  })
+
+  it('acks a delegated stop that succeeded, and still escalates if the child lingers', () => {
+    // A successful stop asserts the agent is gone, so a child still alive after
+    // the grace window is a leftover wrapper: killing it claims nothing false,
+    // and stop has to actually stop.
+    const a = planStopAction({ stopCommand: 'stop-me', delegateExit: 0 })
+    expect(a).toMatchObject({ mechanism: 'delegated', ack: true, stopHolds: true, killAfterGrace: true })
+  })
+
+  it('claims nothing when the delegated stop failed', () => {
+    // The whole point. A failed stop asserts nothing, so the agent is probably
+    // still working: killing the wrapper would close the run as `stopped` over a
+    // live agent, which is the lie this flag exists to remove.
+    for (const delegateExit of [1, 127, null]) {
+      const a = planStopAction({ stopCommand: 'stop-me', delegateExit })
+      expect(a.killAfterGrace).toBe(false)
+      // Unacked on purpose: it is the operator's only evidence nothing honoured it.
+      expect(a.ack).toBe(false)
+      // And the run reports whatever it really reaches, not `stopped`.
+      expect(a.stopHolds).toBe(false)
+    }
+  })
+
+  it('says why in every note, since a failed note is the log line an operator reads', () => {
+    expect(planStopAction({ stopCommand: 'x', delegateExit: 127 }).note).toContain('127')
+    expect(planStopAction({ stopCommand: 'x', delegateExit: null }).note.length).toBeGreaterThan(0)
+    expect(planStopAction({ stopCommand: undefined }).note.length).toBeGreaterThan(0)
+  })
+})
+
+describe('planFollowResume', () => {
+  const file = { path: '/w/events.ndjson', size: 500, ino: 42 }
+  const prior = { path: '/w/events.ndjson', offset: 500, size: 500, ino: 42, clientSeq: 7 }
+
+  it('starts at the top when there is no prior record', () => {
+    expect(planFollowResume(null, file).offset).toBe(0)
+    expect(planFollowResume({}, file).offset).toBe(0)
+    expect(planFollowResume({ offset: 0 }, file).offset).toBe(0)
+  })
+
+  it('resumes where the previous turn stopped', () => {
+    // Without this a second turn re-reads from byte 0: the server dedups the
+    // opening batches into nothing, then the counter passes the stored value and
+    // the earlier turn's lines arrive again as new events.
+    expect(planFollowResume(prior, { ...file, size: 900 }).offset).toBe(500)
+  })
+
+  it('starts over when the transcript is gone', () => {
+    // An offset into a file that does not exist is not a position — whatever
+    // appears at that path next is a different file.
+    expect(planFollowResume(prior, { path: file.path, size: null, ino: null }).offset).toBe(0)
+    expect(planFollowResume(prior, { path: file.path }).offset).toBe(0)
+  })
+
+  it('starts over when the transcript shrank', () => {
+    // A client that rewrites its transcript per turn. Reading on from the old
+    // offset would deliver nothing at all, and say nothing about it.
+    expect(planFollowResume(prior, { ...file, size: 120 }).offset).toBe(0)
+  })
+
+  it('starts over when the file was replaced, even though it is now longer', () => {
+    // The case a size comparison cannot catch: recreated, then grown past the old
+    // length before anyone looked.
+    expect(planFollowResume(prior, { ...file, size: 900, ino: 43 }).offset).toBe(0)
+  })
+
+  it('starts over when the path itself changed', () => {
+    expect(planFollowResume(prior, { ...file, path: '/w/other.ndjson', size: 900 }).offset).toBe(0)
+  })
+
+  it('falls back to the offset when no size was recorded', () => {
+    const old = { path: file.path, offset: 500, ino: 42 }
+    expect(planFollowResume(old, { ...file, size: 900 }).offset).toBe(500)
+    expect(planFollowResume(old, { ...file, size: 120 }).offset).toBe(0)
+  })
+
+  it('tolerates a sidecar written before inodes were recorded', () => {
+    const old = { path: file.path, offset: 500, size: 500 }
+    expect(planFollowResume(old, { ...file, size: 900 }).offset).toBe(500)
+  })
+
+  it('always explains the decision, because both answers are silent in effect', () => {
+    expect(planFollowResume(prior, { ...file, size: 900 }).reason.length).toBeGreaterThan(0)
+    expect(planFollowResume(prior, { ...file, size: 1 }).reason.length).toBeGreaterThan(0)
+    expect(planFollowResume(null, file).reason.length).toBeGreaterThan(0)
   })
 })
 

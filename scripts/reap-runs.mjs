@@ -16,11 +16,10 @@
  * because a local pid says nothing about it and a wrong guess would mark a
  * healthy run failed.
  */
-import { readFileSync } from 'node:fs'
-import { homedir, hostname } from 'node:os'
-import path from 'node:path'
+import { hostname } from 'node:os'
 import { planReap } from './lib/supervisor-plan.mjs'
 import { createRunsClient } from './lib/runs-client.mjs'
+import { readSidecar, resolveRunsDir } from './lib/run-sidecar.mjs'
 
 const argv = process.argv.slice(2)
 const opt = (name, fallback) => {
@@ -32,9 +31,7 @@ const dryRun = argv.includes('--dry-run')
 const token = process.env.VIBEDOCS_RUNS_TOKEN
 const url = opt('url', 'http://localhost:8080')
 const origin = opt('origin', url)
-const runsDir = process.env.VIBEDOCS_RUNS_DIR
-  ? path.resolve(process.env.VIBEDOCS_RUNS_DIR)
-  : path.join(homedir(), '.vibedocs', 'runs')
+const runsDir = resolveRunsDir(process.env)
 
 const client = createRunsClient({ url, token, origin })
 
@@ -49,18 +46,14 @@ function isAlive(pid) {
   }
 }
 
-function readSidecar(runId) {
-  try {
-    const raw = readFileSync(path.join(runsDir, runId, 'supervisor.json'), 'utf8')
-    const parsed = JSON.parse(raw)
-    return { supervisorPid: parsed.pid ?? null, host: parsed.host }
-  } catch {
-    return { supervisorPid: null }
-  }
+/** Only the identity half of the sidecar matters here; the follow position is the supervisor's. */
+function supervisorOf(runId) {
+  const sidecar = readSidecar(runsDir, runId)
+  return { supervisorPid: sidecar?.pid ?? null, host: sidecar?.host }
 }
 
 const { data: runs } = await client.listRuns()
-const entries = runs.map((r) => ({ id: r.id, status: r.status, ...readSidecar(r.id) }))
+const entries = runs.map((r) => ({ id: r.id, status: r.status, ...supervisorOf(r.id) }))
 const plan = planReap(entries, isAlive, { host: hostname() })
 
 if (plan.length === 0) {

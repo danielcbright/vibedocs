@@ -43,6 +43,7 @@ export function createRunsClient({ url, token, origin }) {
   return {
     base,
     listRuns: () => request('GET', '/api/runs'),
+    getRun: (id) => request('GET', `/api/runs/${encodeURIComponent(id)}`),
     registerRun: (meta) => request('POST', '/api/runs', meta),
     appendEvents: (id, body) => request('POST', `/api/runs/${encodeURIComponent(id)}/events`, body),
     patchRun: (id, patch) => request('PATCH', `/api/runs/${encodeURIComponent(id)}`, patch),
