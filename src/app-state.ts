@@ -315,9 +315,7 @@ export interface LiveAppState extends AppState {
  */
 export async function runLive(env: NodeJS.ProcessEnv = process.env): Promise<LiveAppState> {
   const projectsDir = PROJECTS_DIR
-  const fsEventSource = createChokidarFsEventSource({
-    watchGlob: `${projectsDir}/**/*`,
-  })
+  const fsEventSource = createChokidarFsEventSource({ rootDir: projectsDir })
   let clientChannel: ClientChannel = createInMemoryClientChannel()
 
   const inner = createAppState({
