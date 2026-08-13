@@ -114,6 +114,28 @@ describe('control writes', () => {
     expect((await res.json()).data.status).toBe('waiting')
   })
 
+  it('accepts a token-only PATCH, so a machine client can report its own lifecycle', async () => {
+    // The header must actually reach the gate — a unit test of the policy cannot
+    // catch the route forgetting to read Authorization.
+    const res = await app.request('/api/runs/r', {
+      method: 'PATCH', headers: auth, body: JSON.stringify({ status: 'waiting' }),
+    })
+    expect(res.status).toBe(200)
+    // content-type, not just 2xx: the SPA fallback answers unmatched paths with
+    // 200 text/html, so a status check alone can pass on a route that never ran.
+    expect(res.headers.get('content-type')).toContain('application/json')
+    expect((await res.json()).data.status).toBe('waiting')
+  })
+
+  it('accepts a token-only POST to the command queue', async () => {
+    const res = await app.request('/api/runs/r/commands', {
+      method: 'POST', headers: auth, body: JSON.stringify({ kind: 'stop' }),
+    })
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toContain('application/json')
+    expect((await res.json()).data.kind).toBe('stop')
+  })
+
   it('403s a cross-origin PATCH and one with no Origin — this is the CSRF boundary', async () => {
     expect((await app.request('/api/runs/r', {
       method: 'PATCH', headers: { Origin: 'https://attacker.example.com', 'Content-Type': 'application/json' },
@@ -122,6 +144,35 @@ describe('control writes', () => {
     expect((await app.request('/api/runs/r', {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'done' }),
     })).status).toBe(403)
+  })
+
+  it('403s a wrong token with no Origin — a failed token door does not become an open one', async () => {
+    expect((await app.request('/api/runs/r', {
+      method: 'PATCH', headers: { Authorization: 'Bearer nope', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'done' }),
+    })).status).toBe(403)
+  })
+
+  it('403s a bearer header when NO token is configured, rather than treating absent as a match', async () => {
+    // The dangerous shape: with no configured secret, an unguarded comparison
+    // could let any Authorization header through. Origin remains the only door.
+    app = build({ token: null })
+    await app.request('/api/runs', {
+      method: 'POST', headers: { Origin: ORIGIN, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'r', title: 'Run', format: 'cursor-stream-json' }),
+    })
+    expect((await app.request('/api/runs/r', {
+      method: 'PATCH', headers: { Authorization: 'Bearer anything', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'done' }),
+    })).status).toBe(403)
+  })
+
+  it('404s a control write when the feature is disabled, even with a valid token', async () => {
+    // Ordering guarantee: a switched-off server must not reveal token state.
+    app = build({ enabled: false })
+    expect((await app.request('/api/runs/r', {
+      method: 'PATCH', headers: auth, body: JSON.stringify({ status: 'done' }),
+    })).status).toBe(404)
   })
 
   it('400s an unknown status and an unsafe link scheme', async () => {

@@ -61,10 +61,15 @@ is set. Three seams: **ingest** (`src/agent-runs/`), **format adapters**
 Four things that will bite if you touch this code:
 
 1. **Writes split by threat model, not by method.** Ingest (`POST /api/runs`,
-   `POST …/events`, `POST …/ack`) takes a bearer token; control (`PATCH
-   /api/runs/:id`, `POST …/commands`) takes a same-origin `Origin` header. The
-   browser is never given the ingest token — serving it to the page would put a
-   shared secret in devtools. `src/agent-runs/auth.ts` is the single seam.
+   `POST …/events`, `POST …/ack`) takes a bearer token. Control (`PATCH
+   /api/runs/:id`, `POST …/commands`) takes **either** the bearer token **or** a
+   same-origin `Origin` header, because two callers need it and neither can show
+   the other's proof: the browser holds no secret (serving it the ingest token
+   would put a shared secret in devtools) so it proves same-origin, while a
+   machine client reporting its own lifecycle has no origin and would otherwise
+   have to fake one. Failing both is 403; a disabled feature is 404 and is
+   checked first. `src/agent-runs/auth.ts` is the single seam — do NOT compose the
+   OR in `routes.ts`, or the policy ends up in two places.
 2. **`events.ndjson` is a log of records, not events.** An append-only file
    cannot rewrite a tool call on completion, so `started` appends and
    `completed` patches. Paging is therefore by **record position**

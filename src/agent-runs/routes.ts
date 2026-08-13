@@ -128,7 +128,14 @@ export function registerAgentRunsRoutes(app: Hono, deps: AgentRunsRouteDeps): vo
   }
 
   function controlGate(c: Context): Response | null {
-    switch (checkRunsControlAuth(cfg, c.req.header('Origin'), allowedOrigins)) {
+    switch (
+      checkRunsControlAuth({
+        cfg,
+        origin: c.req.header('Origin'),
+        allowedOrigins,
+        authorization: c.req.header('Authorization'),
+      })
+    ) {
       case 'disabled':
         return c.json({ error: 'Not Found' }, 404)
       case 'forbidden':

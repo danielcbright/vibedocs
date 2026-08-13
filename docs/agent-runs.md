@@ -42,8 +42,29 @@ token** — serving it to the page would put a shared secret in devtools.
 | Path | Gate |
 |---|---|
 | `POST /api/runs`, `POST /api/runs/:id/events`, `POST …/commands/:cmdId/ack` | Bearer token (`VIBEDOCS_RUNS_TOKEN`) |
-| `PATCH /api/runs/:id`, `POST /api/runs/:id/commands` | Same-origin `Origin` header (the CSRF boundary) |
+| `PATCH /api/runs/:id`, `POST /api/runs/:id/commands` | Bearer token **or** same-origin `Origin` header |
 | every `GET` | Open on loopback |
+
+Control writes accept either credential because two legitimate callers need those
+routes and neither can present the other's proof. The browser holds no secret, so
+it proves same-origin — that check is the CSRF boundary, and it is why a
+cross-origin page cannot drive Stop. A machine client reporting its own run
+lifecycle has no origin to offer; requiring one would make it assert
+browser-ness it does not have, hollowing out the signal the origin check exists
+to read.
+
+Allowing the ingest token to authorise a status write is a smaller increment
+than it appears: a client that can append arbitrary events to a run's log can
+already fabricate the whole transcript, and it is the authority on whether its
+own turn succeeded. A missing `Origin` still fails the origin door — it simply no
+longer ends the request, because the token door is open to exactly the
+non-browser clients that absence identifies.
+
+Failing both returns **403**, not ingest's 404. Ingest hides itself so the
+feature cannot be fingerprinted; that buys nothing here, because reads are open
+on loopback and already disclose both the route and the run. A disabled feature
+still 404s everything, and that check runs first so a switched-off server never
+reveals whether a token is configured.
 
 ## API
 

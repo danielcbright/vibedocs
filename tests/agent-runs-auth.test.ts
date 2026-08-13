@@ -58,27 +58,68 @@ describe('checkRunsIngestAuth', () => {
 describe('checkRunsControlAuth', () => {
   const allow = ['http://localhost:8080', 'http://127.0.0.1:8080']
 
+  it('accepts a machine client presenting only the ingest token', () => {
+    // A non-browser client reporting its own lifecycle has no origin to offer
+    // and should not have to invent one. It already holds the ingest token, and
+    // a client that can append arbitrary events to a run can already fabricate
+    // the transcript — so letting it set status is a small increment.
+    expect(
+      checkRunsControlAuth({
+        cfg: { enabled: true, token: 's3cret' },
+        origin: undefined,
+        allowedOrigins: allow,
+        authorization: 'Bearer s3cret',
+      }),
+    ).toBe('ok')
+  })
+
+  it('accepts a request presenting both credentials', () => {
+    // Neither door invalidates the other — a client that happens to send both
+    // must not be penalised for it.
+    expect(
+      checkRunsControlAuth({
+        cfg: { enabled: true, token: 's3cret' },
+        origin: 'http://localhost:8080',
+        allowedOrigins: allow,
+        authorization: 'Bearer s3cret',
+      }),
+    ).toBe('ok')
+  })
+
+  it('accepts an allowlisted origin even when the token presented is wrong', () => {
+    // The browser never sends a token; a stale or bogus Authorization header
+    // must not disqualify an otherwise valid same-origin write.
+    expect(
+      checkRunsControlAuth({
+        cfg: { enabled: true, token: 's3cret' },
+        origin: 'http://localhost:8080',
+        allowedOrigins: allow,
+        authorization: 'Bearer wrong',
+      }),
+    ).toBe('ok')
+  })
+
   it('accepts a same-origin browser write with no token at all', () => {
-    expect(checkRunsControlAuth({ enabled: true }, 'http://localhost:8080', allow)).toBe('ok')
-    expect(checkRunsControlAuth({ enabled: true }, 'http://127.0.0.1:8080', allow)).toBe('ok')
+    expect(checkRunsControlAuth({ cfg: { enabled: true, token: null }, origin: 'http://localhost:8080', allowedOrigins: allow, authorization: undefined })).toBe('ok')
+    expect(checkRunsControlAuth({ cfg: { enabled: true, token: null }, origin: 'http://127.0.0.1:8080', allowedOrigins: allow, authorization: undefined })).toBe('ok')
   })
 
   it('rejects a cross-origin write — this is the CSRF boundary', () => {
-    expect(checkRunsControlAuth({ enabled: true }, 'https://attacker.example.com', allow)).toBe('forbidden')
+    expect(checkRunsControlAuth({ cfg: { enabled: true, token: null }, origin: 'https://attacker.example.com', allowedOrigins: allow, authorization: undefined })).toBe('forbidden')
   })
 
   it('rejects a request with no Origin header', () => {
     // A browser always sends Origin on POST/PATCH. Absence means a non-browser
     // client, and those belong on the token path.
-    expect(checkRunsControlAuth({ enabled: true }, undefined, allow)).toBe('forbidden')
-    expect(checkRunsControlAuth({ enabled: true }, '', allow)).toBe('forbidden')
+    expect(checkRunsControlAuth({ cfg: { enabled: true, token: null }, origin: undefined, allowedOrigins: allow, authorization: undefined })).toBe('forbidden')
+    expect(checkRunsControlAuth({ cfg: { enabled: true, token: null }, origin: '', allowedOrigins: allow, authorization: undefined })).toBe('forbidden')
   })
 
   it('matches origins case-insensitively', () => {
-    expect(checkRunsControlAuth({ enabled: true }, 'HTTP://LOCALHOST:8080', allow)).toBe('ok')
+    expect(checkRunsControlAuth({ cfg: { enabled: true, token: null }, origin: 'HTTP://LOCALHOST:8080', allowedOrigins: allow, authorization: undefined })).toBe('ok')
   })
 
   it('reports disabled before anything else', () => {
-    expect(checkRunsControlAuth({ enabled: false }, 'http://localhost:8080', allow)).toBe('disabled')
+    expect(checkRunsControlAuth({ cfg: { enabled: false, token: null }, origin: 'http://localhost:8080', allowedOrigins: allow, authorization: undefined })).toBe('disabled')
   })
 })

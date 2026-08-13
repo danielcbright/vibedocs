@@ -6,11 +6,13 @@
  *            secret. Bearer token, same policy shape as uploads.
  *
  *   CONTROL  PATCH /api/runs/:id, POST /api/runs/:id/commands
- *            The browser UI: Stop, mark merged, mark failed. It has no secret
- *            and must never be given one — handing the ingest token to the page
- *            would put it in devtools and in every page load. The check is
- *            same-origin instead, reusing the WS Origin allowlist, which is the
- *            CSRF boundary for these writes.
+ *            Two callers, either credential accepted. The browser UI (Stop, mark
+ *            merged, mark failed) has no secret and must never be given one —
+ *            handing the ingest token to the page would put it in devtools and in
+ *            every page load — so it proves same-origin, reusing the WS Origin
+ *            allowlist as the CSRF boundary. A machine client reporting its own
+ *            run lifecycle has no origin, so it may present the ingest token
+ *            instead. See checkRunsControlAuth for why that is safe.
  *
  * Reads stay open on loopback.
  */
@@ -41,23 +43,54 @@ export function checkRunsIngestAuth(
 
 export type RunsControlAuthResult =
   | 'disabled'  // feature off (404)
-  | 'forbidden' // cross-origin or no Origin (403)
+  | 'forbidden' // neither credential satisfied (403)
   | 'ok'
 
+export interface RunsControlAuthInput {
+  /** Feature switch plus the ingest token, if one is configured. */
+  cfg: Pick<AgentRunsEnvConfig, 'enabled' | 'token'>
+  /** The request's `Origin` header, if any. */
+  origin: string | undefined
+  allowedOrigins: readonly string[]
+  /** The request's `Authorization` header, if any. */
+  authorization: string | undefined
+}
+
 /**
- * Same-origin check for browser-initiated control writes.
+ * Control writes accept EITHER credential, because two legitimate callers need
+ * this route and neither can present the other's proof:
  *
- * `allowNoOrigin` is deliberately false and not configurable: browsers always
- * send Origin on POST/PATCH, so a missing one means a non-browser client, and
- * those belong on the token path. (The WS handshake has its own
- * VIBEDOCS_WS_ALLOW_NO_ORIGIN escape hatch for debugging; a state-changing write
- * is not the place for one.)
+ * - **The browser** holds no secret and must never be given one, so it proves
+ *   same-origin instead. That check is the CSRF boundary.
+ * - **A machine client** reporting its own run lifecycle has no origin to offer.
+ *   Forcing it to send one would have it assert browser-ness it doesn't have,
+ *   and would hollow out the very signal the origin check exists to read.
+ *
+ * Letting the ingest token authorise a status write is a smaller increment than
+ * it looks: a client that can append arbitrary events to a run's log can already
+ * fabricate the entire transcript, and it is the authority on whether its own
+ * turn succeeded.
+ *
+ * `allowNoOrigin` stays false and non-configurable. A missing Origin still fails
+ * the origin door — it just no longer ends the request, because the token door
+ * is now open to exactly the non-browser clients that absence identifies.
+ *
+ * Ordering note: `disabled` is checked first so a switched-off server reveals
+ * nothing about whether a token happens to be configured.
+ *
+ * On failure this returns `forbidden` (403) rather than borrowing ingest's
+ * 404-when-no-token-configured behaviour. That anti-fingerprinting matters on
+ * ingest, where the endpoint is the only evidence the feature exists; here it
+ * buys nothing, because reads are open on loopback and already disclose both the
+ * route and the run.
  */
-export function checkRunsControlAuth(
-  cfg: { enabled: boolean },
-  origin: string | undefined,
-  allowedOrigins: readonly string[],
-): RunsControlAuthResult {
+export function checkRunsControlAuth(input: RunsControlAuthInput): RunsControlAuthResult {
+  const { cfg, origin, allowedOrigins, authorization } = input
   if (!cfg.enabled) return 'disabled'
-  return isOriginAllowed(origin, allowedOrigins, { allowNoOrigin: false }) ? 'ok' : 'forbidden'
+
+  // Either door suffices. Token first: it is a constant-time comparison against
+  // a configured secret, and it is the path a machine client is expected to use.
+  if (cfg.token !== null && checkBearerToken(cfg.token, authorization)) return 'ok'
+  if (isOriginAllowed(origin, allowedOrigins, { allowNoOrigin: false })) return 'ok'
+  return 'forbidden'
 }
