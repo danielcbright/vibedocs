@@ -200,3 +200,48 @@ describe('patchRun', () => {
     await expect(store.patchRun('ghost', { status: 'done' })).rejects.toThrow(VibedocsError)
   })
 })
+
+describe('deleteRun', () => {
+  it('removes the run and everything under it', async () => {
+    const store = createRunStore({ runsDir: dir })
+    await store.createRun({ title: 'Doomed', format: 'cursor-stream-json', id: 'doomed' })
+    expect(await store.getRun('doomed')).not.toBeNull()
+
+    expect(await store.deleteRun('doomed')).toBe(true)
+
+    expect(await store.getRun('doomed')).toBeNull()
+    expect((await store.listRuns()).map((r) => r.id)).not.toContain('doomed')
+  })
+
+  it('reports false for a run that was never there, rather than throwing', async () => {
+    // Deleting twice is a normal race — two operators, or a retry. The caller
+    // decides whether absence is an error; the store just says what happened.
+    const store = createRunStore({ runsDir: dir })
+    expect(await store.deleteRun('never-existed')).toBe(false)
+  })
+
+  it('refuses an id that would escape the runs directory', async () => {
+    // Same traversal defence as every other id-taking method: this one deletes,
+    // so a missing check is destructive rather than merely leaky.
+    const store = createRunStore({ runsDir: dir })
+    await expect(store.deleteRun('../../etc')).rejects.toThrow()
+    await expect(store.deleteRun('a/b')).rejects.toThrow()
+  })
+
+  it('forgets the run\'s cached callId index, so a re-registered id starts clean', async () => {
+    await store.createRun({ ...base, id: 'recycled' })
+    await store.appendRecords('recycled', [toolStart('c1')])
+    await store.deleteRun('recycled')
+
+    // A run reusing the id must not inherit the old in-memory index. If it did,
+    // a patch naming the stale callId would resolve to seq 1 and land on an event
+    // that no longer exists — corrupting a fresh run with the previous one's history.
+    await store.createRun({ ...base, id: 'recycled' })
+    expect((await store.readRecords('recycled', 0)).recCount).toBe(0)
+
+    await store.appendRecords('recycled', [
+      { op: 'patch', callId: 'c1', patch: { tool: { status: 'success' } as any } },
+    ])
+    expect(await store.readEvents('recycled')).toEqual([])
+  })
+})

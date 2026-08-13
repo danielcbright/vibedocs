@@ -34,7 +34,23 @@ export interface RunRecordsMessage {
   recCount: number
 }
 
-export type WsMessage = ReloadMessage | RefreshTreeMessage | RunUpdatedMessage | RunRecordsMessage
+/**
+ * A run is gone. Distinct from `run-updated` on purpose: the client must drop it
+ * from the rail and, if it happens to be the one on screen, stop asking for its
+ * records. Reusing `run-updated` would have the client refetch a 404 and leave
+ * "what do we show now?" to be inferred.
+ */
+export interface RunDeletedMessage {
+  type: 'run-deleted'
+  runId: string
+}
+
+export type WsMessage =
+  | ReloadMessage
+  | RefreshTreeMessage
+  | RunUpdatedMessage
+  | RunRecordsMessage
+  | RunDeletedMessage
 
 // ── Constructors (server-side) ────────────────────────────────────────────────
 
@@ -52,6 +68,10 @@ export function runUpdatedMessage(runId: string): RunUpdatedMessage {
 
 export function runRecordsMessage(runId: string, recCount: number): RunRecordsMessage {
   return { type: 'run-records', runId, recCount }
+}
+
+export function runDeletedMessage(runId: string): RunDeletedMessage {
+  return { type: 'run-deleted', runId }
 }
 
 // ── Parser (client-side) ──────────────────────────────────────────────────────
@@ -87,6 +107,8 @@ export function parseWsMessage(raw: string): WsMessage | null {
       return typeof obj.runId === 'string' && typeof obj.recCount === 'number'
         ? { type: 'run-records', runId: obj.runId, recCount: obj.recCount }
         : null
+    case 'run-deleted':
+      return typeof obj.runId === 'string' ? { type: 'run-deleted', runId: obj.runId } : null
     default:
       return null
   }

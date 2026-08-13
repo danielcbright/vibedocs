@@ -10,7 +10,7 @@
  * callId -> seq correlation for tool patches, and batch idempotency.
  */
 
-import { mkdir, readFile, writeFile, rename, appendFile, readdir, stat } from 'fs/promises'
+import { mkdir, readFile, writeFile, rename, appendFile, readdir, stat, rm } from 'fs/promises'
 import path from 'path'
 import { randomUUID } from 'crypto'
 import {
@@ -86,6 +86,12 @@ export interface RunStore {
   appendRecords(id: string, pending: PendingRecord[], clientSeq?: number): Promise<AppendResult>
   readRecords(id: string, fromRec: number): Promise<{ records: EventRecord[]; recCount: number }>
   readEvents(id: string): Promise<AgentEvent[]>
+  /**
+   * Remove a run and everything under it. Resolves `false` when there was
+   * nothing there — deleting twice is an ordinary race (a retry, two operators),
+   * so the caller decides whether absence is an error.
+   */
+  deleteRun(id: string): Promise<boolean>
 }
 
 export function createRunStore(opts: { runsDir: string }): RunStore {
@@ -319,6 +325,29 @@ export function createRunStore(opts: { runsDir: string }): RunStore {
 
     async readEvents(id) {
       return applyRecords([], await readAllRecords(id))
+    },
+
+    async deleteRun(id) {
+      // Validate before touching the filesystem: this method deletes, so an
+      // unchecked id is destructive rather than merely leaky.
+      const safeId = assertValidRunId(id)
+      const dir = runDir(safeId)
+
+      try {
+        await stat(dir)
+      } catch {
+        return false
+      }
+
+      await rm(dir, { recursive: true, force: true })
+
+      // Drop the in-memory state keyed by this id. Without this, a run
+      // re-registered under the same id would inherit the old callId index, and
+      // its first tool patch would target an event that no longer exists.
+      callIndexes.delete(safeId)
+      writeChains.delete(safeId)
+
+      return true
     },
   }
 }

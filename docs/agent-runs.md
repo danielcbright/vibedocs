@@ -72,7 +72,8 @@ reveals whether a token is configured.
 |---|---|---|
 | `POST` | `/api/runs` | Register a run. Body: `{id?, title, description?, status?, links?, format, agent?, project?, workdir?}` → `{id, url}`. Re-registering an id updates metadata and keeps its events. |
 | `POST` | `/api/runs/:id/events` | Append raw vendor lines: `{format, clientSeq?, events: [...]}`. Idempotent on `clientSeq`. |
-| `PATCH` | `/api/runs/:id` | Partial update of `title`, `description`, `status`, `links`. |
+| `PATCH` | `/api/runs/:id` | Partial update of `title`, `description`, `status`, `links`. `links` **replaces** the array — a client sending only a newly-found PR link drops the issue link it set earlier. |
+| `DELETE` | `/api/runs/:id` | Remove a run and everything under it, and broadcast `run-deleted` so the rail drops it live. Gated like the other control writes; deletion is not more open than a status change. |
 | `GET` | `/api/runs` | Rail data. |
 | `GET` | `/api/runs/:id` | Run metadata. |
 | `GET` | `/api/runs/:id/events?fromRec=N` | Record page: `{records, recCount}`. |

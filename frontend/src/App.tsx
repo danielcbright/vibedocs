@@ -213,6 +213,14 @@ function DocsApp() {
       // Only nudge the open run; every other run's tail can wait until opened.
       if (incomingId === activeRunId) setRunRecordsNonce((n) => n + 1)
     }, [refreshRuns, activeRunId]),
+    onRunDeleted: useCallback((incomingId: string) => {
+      refreshRuns()
+      // If the run on screen is the one that vanished, fall back to the runs
+      // route rather than sitting on a view whose every fetch now 404s. Set the
+      // hash directly, as selectRun does — `navigate` builds `project/path`,
+      // which is the docs shape, not `/runs/<id>`.
+      if (incomingId === activeRunId) window.location.hash = "/runs"
+    }, [refreshRuns, activeRunId]),
   })
 
   const hasToc = toc.length >= 2

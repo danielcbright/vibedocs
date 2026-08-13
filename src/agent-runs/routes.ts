@@ -203,6 +203,20 @@ export function registerAgentRunsRoutes(app: Hono, deps: AgentRunsRouteDeps): vo
     return c.json({ data: meta })
   })
 
+  app.delete('/api/runs/:id', async (c) => {
+    const denied = controlGate(c)
+    if (denied) return denied
+
+    const id = c.req.param('id')
+    // ingest owns mutate-then-broadcast; the route stays a thin gate + shape check.
+    // Deleting a run used to be possible only out of band (removing its
+    // directory), which no connected client could ever learn about.
+    if (!(await ingest.deleteRun(id))) {
+      throw new VibedocsError('not-found', `Run not found: ${id}`)
+    }
+    return c.json({ data: { id, deleted: true } })
+  })
+
   app.post('/api/runs/:id/commands', async (c) => {
     const denied = controlGate(c)
     if (denied) return denied

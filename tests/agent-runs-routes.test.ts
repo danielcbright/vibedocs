@@ -240,3 +240,37 @@ describe('reads', () => {
     }
   })
 })
+
+describe('delete', () => {
+  beforeEach(async () => { await createRun() })
+
+  it('deletes a run on the control door and reports JSON', async () => {
+    const res = await app.request('/api/runs/r', { method: 'DELETE', headers: ctrl })
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toContain('application/json')
+    expect((await res.json()).data).toMatchObject({ id: 'r', deleted: true })
+    expect((await app.request('/api/runs/r')).status).toBe(404)
+  })
+
+  it('accepts the ingest token too, like the other control writes', async () => {
+    expect((await app.request('/api/runs/r', { method: 'DELETE', headers: auth })).status).toBe(200)
+  })
+
+  it('403s with neither credential — deletion is not more open than a status change', async () => {
+    expect((await app.request('/api/runs/r', { method: 'DELETE' })).status).toBe(403)
+    expect((await app.request('/api/runs/r', {
+      method: 'DELETE', headers: { Origin: 'https://attacker.example.com' },
+    })).status).toBe(403)
+    // ...and the run is still there.
+    expect((await app.request('/api/runs/r')).status).toBe(200)
+  })
+
+  it('404s a run that is not there', async () => {
+    expect((await app.request('/api/runs/nope', { method: 'DELETE', headers: ctrl })).status).toBe(404)
+  })
+
+  it('404s when the feature is disabled', async () => {
+    app = build({ enabled: false })
+    expect((await app.request('/api/runs/r', { method: 'DELETE', headers: ctrl })).status).toBe(404)
+  })
+})

@@ -6,6 +6,7 @@ interface UseWebSocketOptions {
   onRefreshTree?: () => void
   onRunUpdated?: (runId: string) => void
   onRunRecords?: (runId: string, recCount: number) => void
+  onRunDeleted?: (runId: string) => void
 }
 
 type WsCallbacks = UseWebSocketOptions
@@ -30,6 +31,9 @@ export function handleWsMessage(msg: WsMessage, callbacks: WsCallbacks): void {
     case "run-records":
       callbacks.onRunRecords?.(msg.runId, msg.recCount)
       break
+    case "run-deleted":
+      callbacks.onRunDeleted?.(msg.runId)
+      break
     default: {
       const _exhaustive: never = msg
       void _exhaustive
@@ -37,7 +41,7 @@ export function handleWsMessage(msg: WsMessage, callbacks: WsCallbacks): void {
   }
 }
 
-export function useWebSocket({ onReload, onRefreshTree, onRunUpdated, onRunRecords }: UseWebSocketOptions) {
+export function useWebSocket({ onReload, onRefreshTree, onRunUpdated, onRunRecords, onRunDeleted }: UseWebSocketOptions) {
   const [connected, setConnected] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
@@ -45,12 +49,14 @@ export function useWebSocket({ onReload, onRefreshTree, onRunUpdated, onRunRecor
   const onRefreshTreeRef = useRef(onRefreshTree)
   const onRunUpdatedRef = useRef(onRunUpdated)
   const onRunRecordsRef = useRef(onRunRecords)
+  const onRunDeletedRef = useRef(onRunDeleted)
 
   // Keep refs current without triggering reconnects
   useEffect(() => { onReloadRef.current = onReload }, [onReload])
   useEffect(() => { onRefreshTreeRef.current = onRefreshTree }, [onRefreshTree])
   useEffect(() => { onRunUpdatedRef.current = onRunUpdated }, [onRunUpdated])
   useEffect(() => { onRunRecordsRef.current = onRunRecords }, [onRunRecords])
+  useEffect(() => { onRunDeletedRef.current = onRunDeleted }, [onRunDeleted])
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return
@@ -72,6 +78,7 @@ export function useWebSocket({ onReload, onRefreshTree, onRunUpdated, onRunRecor
         onRefreshTree: onRefreshTreeRef.current,
         onRunUpdated: onRunUpdatedRef.current,
         onRunRecords: onRunRecordsRef.current,
+        onRunDeleted: onRunDeletedRef.current,
       })
     }
 

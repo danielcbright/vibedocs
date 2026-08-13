@@ -15,6 +15,7 @@ import type { AdapterState } from './formats/types.js'
 import type { AppendResult, CreateRunInput, PatchRunInput, RunStore } from './store.js'
 import type { RunMeta, RunStatus } from '../shared/agent-run-types.js'
 import {
+  runDeletedMessage,
   runRecordsMessage,
   runUpdatedMessage,
   type WsMessage,
@@ -38,6 +39,11 @@ export interface Ingest {
   registerRun(input: CreateRunInput): Promise<RunMeta>
   appendRaw(runId: string, format: string, raw: unknown[], clientSeq?: number): Promise<AppendResult>
   updateRun(runId: string, patch: PatchRunInput): Promise<RunMeta>
+  /**
+   * Remove a run and tell every client. Resolves false when there was nothing
+   * there, so the route decides whether absence is a 404.
+   */
+  deleteRun(runId: string): Promise<boolean>
   forgetAdapterState(runId: string): void
 }
 
@@ -102,6 +108,16 @@ export function createIngest(deps: IngestDeps): Ingest {
       }
       broadcast(runUpdatedMessage(runId))
       return meta
+    },
+
+    async deleteRun(runId) {
+      const deleted = await store.deleteRun(runId)
+      if (!deleted) return false
+      // Drop the adapter state too: a run re-registered under this id must not
+      // inherit half-parsed vendor state from the run that used to own it.
+      states.delete(runId)
+      broadcast(runDeletedMessage(runId))
+      return true
     },
 
     forgetAdapterState(runId) {
