@@ -85,7 +85,7 @@ export function RunRail({ runs, activeRunId, onSelect }: {
                 {/* Two lines, two weights. The row answers "what is it and is
                     it moving?" — everything else lives in the detail header. */}
                 <div className="flex items-center gap-2">
-                  <RunStatusIcon status={run.status} />
+                  <RunStatusIcon status={run.status} stopRequested={run.stopRequested} />
                   <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium">{run.title}</span>
                   <RailLinks links={run.links} />
                 </div>

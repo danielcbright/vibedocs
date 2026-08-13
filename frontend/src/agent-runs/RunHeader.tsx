@@ -24,7 +24,7 @@ export function RunHeader({ meta, onChanged }: { meta: RunMeta; onChanged: () =>
   return (
     <header className="shrink-0 border-b px-4 py-2.5">
       <div className="flex items-center gap-2">
-        <RunStatusIcon status={meta.status} className="h-4 w-4" />
+        <RunStatusIcon status={meta.status} stopRequested={meta.stopRequested} className="h-4 w-4" />
         <h2 className="min-w-0 flex-1 truncate text-sm font-semibold" title={meta.title}>
           {meta.title}
         </h2>

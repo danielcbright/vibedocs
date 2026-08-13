@@ -1,5 +1,5 @@
 import type { RunMeta } from "@shared/agent-run-types"
-import { RUN_TERMINAL_STATUSES } from "./run-status"
+import { isTerminalStatus, isUnresolvedStatus } from "./run-status"
 
 export type RunGrouping = "status" | "project" | "flat"
 export type RunSort = "newest" | "oldest"
@@ -53,10 +53,19 @@ export function groupRuns(
     return keys.map((label) => ({ label, runs: sorted(byProject.get(label)!, sort) }))
   }
 
-  const active = sorted(runs.filter((r) => !RUN_TERMINAL_STATUSES.includes(r.status)), sort)
-  const done = sorted(runs.filter((r) => RUN_TERMINAL_STATUSES.includes(r.status)), sort)
+  // Three groups, not two. A stopped run is finished but its work did not land,
+  // so listing it beside completed runs made it read as done — while moving it
+  // into Active would claim something is happening when the agent is gone.
+  // "Stopped" is its own shelf: over, and still someone's problem.
+  const active = sorted(runs.filter((r) => !isTerminalStatus(r.status)), sort)
+  const unresolved = sorted(runs.filter((r) => isUnresolvedStatus(r.status)), sort)
+  const done = sorted(
+    runs.filter((r) => isTerminalStatus(r.status) && !isUnresolvedStatus(r.status)),
+    sort,
+  )
   const groups: RunGroup[] = []
   if (active.length) groups.push({ label: "Active", runs: active })
+  if (unresolved.length) groups.push({ label: "Stopped", runs: unresolved })
   if (done.length) groups.push({ label: "Done", runs: done })
   return groups
 }

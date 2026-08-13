@@ -5,6 +5,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import type { RunMeta, RunStatus } from "@shared/agent-run-types"
 import { cn } from "@/lib/utils"
+import { isTerminalStatus } from "./lib/run-status"
 
 const OUTCOMES: { status: RunStatus; label: string; icon: typeof CircleCheck }[] = [
   { status: "done", label: "Merged", icon: CircleCheck },
@@ -60,7 +61,10 @@ export function RunActions({ meta, onChanged }: { meta: RunMeta; onChanged: () =
       body: JSON.stringify({ kind: "stop" }),
     }))
 
-  const isTerminal = ["done", "failed", "stopped"].includes(meta.status)
+  // One definition, imported. This used to be an inline copy of the terminal
+  // list, so moving a status between categories changed grouping while leaving
+  // this button's idea of "finished" behind.
+  const isTerminal = isTerminalStatus(meta.status)
 
   return (
     <div className="flex items-center gap-1.5">

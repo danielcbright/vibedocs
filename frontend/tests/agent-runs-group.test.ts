@@ -57,3 +57,32 @@ describe("groupRuns", () => {
     expect(input.map((r) => r.id)).toEqual(["a", "b", "c", "d"])
   })
 })
+
+describe("groupRuns — stopped is its own shelf", () => {
+  const withStopped = [
+    run("act", "running", 500),
+    run("stp", "stopped", 400),
+    run("fin", "done", 300),
+    run("bad", "failed", 200),
+  ]
+
+  it("separates stopped from Done so it does not read as finished", () => {
+    // A stopped run is over but its work did not land — someone has to pick it
+    // up. Listed beside completed runs it looks like a clean finish.
+    expect(shape(groupRuns(withStopped, "status", "newest"))).toEqual([
+      ["Active", ["act"]],
+      ["Stopped", ["stp"]],
+      ["Done", ["fin", "bad"]],
+    ])
+  })
+
+  it("does not put stopped back in Active — nothing is running", () => {
+    const groups = groupRuns(withStopped, "status", "newest")
+    expect(groups.find((g) => g.label === "Active")!.runs.map((r) => r.id)).not.toContain("stp")
+  })
+
+  it("omits the Stopped group entirely when nothing is stopped", () => {
+    expect(shape(groupRuns([run("a", "running", 1), run("b", "done", 2)], "status", "newest")))
+      .toEqual([["Active", ["a"]], ["Done", ["b"]]])
+  })
+})
