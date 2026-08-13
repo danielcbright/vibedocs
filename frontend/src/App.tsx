@@ -340,7 +340,7 @@ function DocsApp() {
   return (
     <>
       <div style={{ height: "100vh", overflow: "hidden" }}>
-        <ResizablePanelGroup direction="horizontal">
+        <ResizablePanelGroup orientation="horizontal">
           {/* Sidebar */}
           <ResizablePanel
             id="sidebar"

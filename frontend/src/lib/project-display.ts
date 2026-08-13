@@ -1,4 +1,4 @@
-import type { Project } from "@/hooks/use-projects"
+import type { ProjectInfo } from "@/hooks/use-projects"
 
 /**
  * What to call a project on screen.
@@ -9,7 +9,7 @@ import type { Project } from "@/hooks/use-projects"
  * `name` and have it used here. The routing key never changes, so existing
  * links keep working when someone adds or edits a display name.
  */
-export function projectDisplayName(project: Pick<Project, "name" | "siteConfig">): string {
+export function projectDisplayName(project: Pick<ProjectInfo, "name" | "siteConfig">): string {
   const configured = project.siteConfig?.name?.trim()
   return configured && configured.length > 0 ? configured : project.name
 }

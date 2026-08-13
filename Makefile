@@ -13,7 +13,7 @@
 
 .DEFAULT_GOAL := help
 # Every target is a task name, not a file to build.
-.PHONY: help install dev build build-cli typecheck test test-backend test-frontend verify pack-inspect release-check clean
+.PHONY: help install dev build build-cli typecheck typecheck-frontend test test-backend test-frontend verify pack-inspect release-check clean
 
 help: ## Show this help
 	@echo "vibedocs — make <target>"
@@ -36,8 +36,11 @@ build: ## Build the frontend into frontend/dist/
 build-cli: ## Compile the CLI into dist-cli/
 	npm run build:cli
 
-typecheck: ## Typecheck via tsconfig.cli.json (the one CI runs)
+typecheck: ## Typecheck the backend/CLI via tsconfig.cli.json
 	npm run typecheck
+
+typecheck-frontend: ## Typecheck the frontend (needs frontend deps installed)
+	npm run typecheck:frontend
 
 test: ## Run backend + frontend suites
 	npm test
@@ -48,7 +51,7 @@ test-backend: ## Run the backend suite only
 test-frontend: ## Run the frontend suite only
 	npm run test:frontend
 
-verify: ## Full gate: build:cli + typecheck + frontend build + both suites
+verify: ## Full gate: build:cli + typecheck + frontend build + frontend typecheck + both suites
 	npm run verify
 
 pack-inspect: ## Pack for real and assert the tarball ships the runtime surface

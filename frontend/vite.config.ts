@@ -85,6 +85,11 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
-    ws: true,
+    // NOTE: `server.ws` is typed `false | undefined` — it exists only to switch
+    // Vite's own HMR socket OFF. A `ws: true` here did nothing (Vite creates the
+    // socket unless the value is exactly `false`), and it read as if it were
+    // proxying the app's WebSocket to the backend, which it never was: the client
+    // dials `window.location.host`, so in dev that is Vite, not :8080. Proxying
+    // that would need a `'/'` entry with `ws: true`, which is a separate decision.
   },
 })

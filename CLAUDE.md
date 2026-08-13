@@ -157,8 +157,9 @@ npm run build         # Build frontend to frontend/dist/
 npm start             # Production: serve everything from Hono
 npm test              # Run tests (vitest)
 npm run test:watch    # Run tests in watch mode
-npm run typecheck     # tsc -p tsconfig.cli.json --noEmit — the one CI runs
-npm run verify        # Full gate, in CI's order: build:cli + typecheck + build + both suites
+npm run typecheck     # Backend/CLI: tsc -p tsconfig.cli.json --noEmit
+npm run typecheck:frontend  # Frontend: tsc -b (needs frontend deps installed)
+npm run verify        # Full gate, in CI's order: build:cli + typecheck + build + typecheck:frontend + both suites
 npm run pack:inspect  # Real pack; asserts the tarball ships the runtime surface
 npm run release:check # Pre-tag guard (clean tree, pushed, version free, tag free)
 ```
@@ -166,6 +167,23 @@ npm run release:check # Pre-tag guard (clean tree, pushed, version free, tag fre
 **`npm run verify` is the "am I done?" command.** It runs the same steps in the
 same order as the `test` CI job, so a green `verify` means CI will be green for
 the same reasons.
+
+**Two typecheck projects, and neither covers the other.** `typecheck` reaches
+files by following imports from `src/server.ts`; the frontend has its own
+`tsconfig` graph. Two traps live in the frontend one:
+
+- **It must be `tsc -b`.** `frontend/tsconfig.json` is solution-style (`files: []`
+  plus project references), so `tsc --noEmit` there checks *nothing* and exits 0.
+  That is how the frontend went entirely unchecked while looking gated (#190).
+- **`vite build` is not a typecheck.** Vite strips types through esbuild without
+  checking them, so a build stays green over broken types — exactly as vitest does
+  for the suites.
+
+It runs after `build` in both `verify` and CI, because it needs the frontend deps
+that step installs. It is also what enforces the WS protocol's exhaustiveness
+guarantee: `src/shared/ws-messages.ts` promises a new variant produces a compile
+error at every unhandled call-site, and `handleWsMessage`'s `never` check delivers
+that — but only when something actually compiles.
 
 There is also a `Makefile` — a **thin front door, not a build system**. Every
 target is one line delegating to an npm script (`make help` lists them). npm
@@ -237,7 +255,7 @@ release with generated notes.
 ```bash
 npm version <patch|minor|major>   # bumps package.json, commits, creates the tag
 npm run release:check             # clean tree? version free? tag points at HEAD?
-npm run verify                    # typecheck + both suites
+npm run verify                    # both typechecks + both suites
 npm run pack:inspect              # tarball actually ships the runtime surface
 git push origin main --follow-tags
 ```

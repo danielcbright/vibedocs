@@ -75,6 +75,12 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      # After the build, which is what installs the frontend deps this needs.
+      # Separate from the build because `vite build` does not typecheck — esbuild
+      # strips types without reading them.
+      - name: Typecheck frontend
+        run: npm run typecheck:frontend
+
       - name: Backend tests
         run: npm run test:backend
 

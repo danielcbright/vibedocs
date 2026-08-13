@@ -6,7 +6,7 @@ export type { SearchResult }
 export function useSearch(query: string, client: ApiClient = apiClient) {
   const [results, setResults] = useState<SearchResult[]>([])
   const [loading, setLoading] = useState(false)
-  const abortRef = useRef<AbortController>()
+  const abortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     const trimmed = query.trim()

@@ -59,10 +59,26 @@ jobs:
 
       # `npm run build` = `cd frontend && npm install && npx vite build`.
       # This installs frontend deps AND produces frontend/dist/, which the
-      # backend package-shape test requires. The frontend `vite build` is
-      # also the real frontend typecheck gate.
+      # backend package-shape test requires.
+      #
+      # It is NOT a typecheck: Vite strips types through esbuild without checking
+      # them, so a build stays green over broken types. That is what the next step
+      # is for, and it has to come after this one because it needs the deps this
+      # step installs.
       - name: Build frontend (installs frontend deps + produces frontend/dist/)
         run: npm run build
+
+      # `tsc -b`, not `tsc --noEmit`: frontend/tsconfig.json is solution-style
+      # (`files: []` + project references), so a bare --noEmit there checks
+      # nothing and exits 0 — which is how the frontend went unchecked entirely.
+      #
+      # This is also what enforces the WS protocol's exhaustiveness guarantee.
+      # src/shared/ws-messages.ts documents that a new message variant "will cause
+      # TypeScript compile errors in any unhandled call-site", and handleWsMessage
+      # does have the `never` check — but a documented compile error is only a
+      # guarantee if something compiles. Nothing did.
+      - name: Typecheck frontend
+        run: npm run typecheck:frontend
 
       - name: Backend tests
         run: npx vitest run
