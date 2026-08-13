@@ -106,19 +106,34 @@ export function isIgnoredWatchPath(
   isDirectory: boolean | undefined,
   prefixes: readonly string[],
 ): boolean {
-  const allSegments = absPath.split(path.sep).filter((s) => s.length > 0)
-  for (const segment of allSegments) {
-    if (EXCLUDED_DIRS.has(segment)) return true
-  }
+  const below = segmentsBelowRoot(absPath, prefixes)
 
-  const segments = segmentsBelowRoot(absPath, prefixes)
-  if (segments === null) return false
+  // Both rules apply only to segments BELOW a watched root. Testing the whole
+  // absolute path looks more defensive and is actively wrong: `EXCLUDED_DIRS`
+  // contains ordinary words like `tmp`, `build` and `out`, so a root that merely
+  // LIVES at such a path — `/tmp/scratch`, `/home/me/build/docs` — would have
+  // every file under it ignored, and the watcher would sit there reporting
+  // nothing while looking healthy. (Found by CI on Linux, where the test root is
+  // under `/tmp`; macOS hides it because its temp dir is `/var/folders/…/T`.)
+  //
+  // When the path is under no known root we cannot strip a prefix, so fall back
+  // to matching all segments — that path is either a symlink target we failed to
+  // resolve or something unexpected, and under-watching a stray path is better
+  // than watching a `node_modules` tree.
+  const segments = below ?? absPath.split(path.sep).filter((s) => s.length > 0)
 
   for (let i = 0; i < segments.length; i++) {
     const segment = segments[i]
+    if (EXCLUDED_DIRS.has(segment)) return true
+
     const isLastSegment = i === segments.length - 1
     // A dot-segment that is not the last one is necessarily a directory.
-    if (segment.startsWith('.') && (!isLastSegment || isDirectory === true)) return true
+    if (segment.startsWith('.') && (!isLastSegment || isDirectory === true)) {
+      // Only when the root context is known: with no prefix stripped, a dot
+      // segment may belong to the prefix itself (the default root is
+      // `~/.vibedocs/roots`), and matching it would ignore everything.
+      if (below !== null) return true
+    }
   }
 
   return false

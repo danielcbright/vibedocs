@@ -121,6 +121,29 @@ describe('isIgnoredWatchPath', () => {
     expect(isIgnoredWatchPath(`${root}/alpha/logo.png`, false, prefixes)).toBe(false)
   })
 
+  it('does not ignore a root that merely LIVES at an EXCLUDED_DIRS-shaped path', () => {
+    // EXCLUDED_DIRS holds ordinary words — tmp, build, out, dist. Matching them
+    // against the whole absolute path means a root at /tmp/scratch or
+    // /home/me/build/docs has every file under it ignored, and the watcher
+    // reports nothing while looking healthy. CI on Linux caught exactly this:
+    // its temp root is under /tmp, while macOS uses /var/folders/../T and hid it.
+    for (const root of ['/tmp/scratch', '/home/me/build/docs', '/opt/out/site', '/srv/dist/docs']) {
+      const p = [root]
+      expect(isIgnoredWatchPath(`${root}/alpha/notes.md`, false, p), root).toBe(false)
+      expect(isIgnoredWatchPath(`${root}/alpha`, true, p), root).toBe(false)
+      // ...while the same names BELOW the root are still excluded.
+      expect(isIgnoredWatchPath(`${root}/alpha/build/x.md`, false, p), root).toBe(true)
+      expect(isIgnoredWatchPath(`${root}/alpha/node_modules/x.md`, false, p), root).toBe(true)
+    }
+  })
+
+  it('does not ignore a root whose own path contains a dot-directory', () => {
+    // The default deployment root is ~/.vibedocs/roots. Its own dot segment must
+    // not disqualify everything beneath it.
+    const root = '/Users/someone/.vibedocs/roots'
+    expect(isIgnoredWatchPath(`${root}/alpha/deep/notes.md`, false, [root])).toBe(false)
+  })
+
   it('does not ignore the root itself', () => {
     expect(isIgnoredWatchPath(root, true, prefixes)).toBe(false)
   })
