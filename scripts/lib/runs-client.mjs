@@ -15,7 +15,7 @@
 export function createRunsClient({ url, token, origin }) {
   const base = url.replace(/\/$/, '')
 
-  async function request(method, pathname, body) {
+  async function request(method, pathname, body, signal) {
     const headers = { 'Content-Type': 'application/json' }
     if (token) headers.Authorization = `Bearer ${token}`
     if (origin) headers.Origin = origin
@@ -24,6 +24,7 @@ export function createRunsClient({ url, token, origin }) {
       method,
       headers,
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      ...(signal ? { signal } : {}),
     })
 
     // In production every unmatched GET returns the SPA's index.html with
@@ -44,8 +45,12 @@ export function createRunsClient({ url, token, origin }) {
     registerRun: (meta) => request('POST', '/api/runs', meta),
     appendEvents: (id, body) => request('POST', `/api/runs/${encodeURIComponent(id)}/events`, body),
     patchRun: (id, patch) => request('PATCH', `/api/runs/${encodeURIComponent(id)}`, patch),
-    listCommands: (id, waitMs) =>
-      request('GET', `/api/runs/${encodeURIComponent(id)}/commands?waitMs=${waitMs}`),
+    // `signal` matters here specifically: this request parks server-side for up
+    // to waitMs, and an in-flight fetch keeps Node's event loop alive. Without a
+    // way to abort it, a supervisor whose child has already exited would sit
+    // there for the rest of the long-poll window before it could exit.
+    listCommands: (id, waitMs, signal) =>
+      request('GET', `/api/runs/${encodeURIComponent(id)}/commands?waitMs=${waitMs}`, undefined, signal),
     ackCommand: (id, cmdId, note) =>
       request('POST', `/api/runs/${encodeURIComponent(id)}/commands/${encodeURIComponent(cmdId)}/ack`, { note }),
   }

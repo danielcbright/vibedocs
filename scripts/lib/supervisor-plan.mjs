@@ -58,6 +58,22 @@ export function mapExitToStatus({ code, signal = null, stopRequested = false }, 
   return { status, description: describeExit(code, status) }
 }
 
+/**
+ * Which queued command, if any, this supervisor should act on.
+ *
+ * Only `stop` is understood. If the server's vocabulary ever grows, an older
+ * supervisor must ignore what it cannot carry out rather than act-and-ack, which
+ * would silently consume a command nobody honoured. An unacked command is the
+ * only signal an operator has that nothing acted.
+ */
+export function selectStopCommand(commands) {
+  if (!Array.isArray(commands)) return null
+  const actionable = commands
+    .filter((c) => c && c.kind === 'stop' && c.ackedAt === undefined)
+    .sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0))
+  return actionable[0] ?? null
+}
+
 const DEFAULT_URL = 'http://localhost:8080'
 const DEFAULT_FORMAT = 'cursor-stream-json'
 

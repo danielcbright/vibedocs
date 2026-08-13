@@ -19,6 +19,8 @@
  *                       predate accepting the ingest token
  *   --poll <ms>         transcript poll interval (default: 400)
  *   --batch <n>         transcript lines per POST (default: 64)
+ *   --stop-poll <ms>    how long each Stop long-poll parks (default: 25000)
+ *   --kill-grace <ms>   wait after SIGTERM before SIGKILL (default: 10000)
  *
  * Why this exists rather than asking the caller to report status: whoever starts
  * a run often is not around when it ends. An orchestrating agent's session
@@ -30,7 +32,7 @@
  * Those leave a stranded run for a reaper to find.
  */
 import { spawn } from 'node:child_process'
-import { mapExitToStatus, planSupervision } from './lib/supervisor-plan.mjs'
+import { mapExitToStatus, planSupervision, selectStopCommand } from './lib/supervisor-plan.mjs'
 import { createRunsClient } from './lib/runs-client.mjs'
 import { readFrom } from './lib/transcript-tail.mjs'
 
@@ -64,7 +66,20 @@ if (cfg.transcript) {
 // ── run the wrapped command ────────────────────────────────────────────────
 let closed = false
 let stopRequested = false
+// `child.killed` is NOT liveness — Node sets it once a signal has been SENT,
+// even if the process trapped it and kept running. Guarding an escalation on it
+// makes SIGKILL unreachable, so a stubborn agent hangs the supervisor forever.
+// Track the real exit instead.
+let childExited = false
 const child = spawn(cfg.command[0], cfg.command.slice(1), { stdio: 'inherit' })
+
+// ── honour the Stop button ─────────────────────────────────────────────────
+// The server cannot kill anything — it may not even be on this host — so Stop
+// only records intent. Something on this machine has to collect it, and this
+// supervisor is the natural owner: it already lives exactly as long as the run
+// and it already holds the child's PID, which makes its kill precisely scoped
+// with no process-name matching.
+const stopPoller = pollForStop()
 
 /**
  * Close the run out exactly once.
@@ -76,6 +91,7 @@ const child = spawn(cfg.command[0], cfg.command.slice(1), { stdio: 'inherit' })
 async function closeout({ code, signal, description: override }) {
   if (closed) return
   closed = true
+  stopPoller.stop()
   // Await the final sweep: the last lines written are usually the most
   // interesting, and they must land before the terminal status so the UI does
   // not show a finished run missing its ending.
@@ -96,6 +112,7 @@ async function closeout({ code, signal, description: override }) {
 }
 
 child.on('exit', async (code, signal) => {
+  childExited = true
   await closeout({ code, signal })
   process.exit(process.exitCode ?? (typeof code === 'number' ? code : 1))
 })
@@ -104,6 +121,7 @@ child.on('exit', async (code, signal) => {
 // never 'exit'. Without this the run would sit at `running` forever — precisely
 // the stranded state this script exists to prevent, and the easiest one to hit.
 child.on('error', async (err) => {
+  childExited = true
   await closeout({ code: null, signal: null, description: `Could not start the command: ${err.message}` })
   process.exit(1)
 })
@@ -113,7 +131,7 @@ child.on('error', async (err) => {
 // a running agent to keep working with nothing watching it.
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
   process.on(sig, () => {
-    if (!child.killed) child.kill(sig)
+    if (!childExited) child.kill(sig)
   })
 }
 
@@ -124,6 +142,79 @@ function argOf(flag, fallback) {
   const ours = sep === -1 ? process.argv : process.argv.slice(0, sep)
   const i = ours.indexOf(flag)
   return i >= 0 && ours[i + 1] !== undefined ? ours[i + 1] : fallback
+}
+
+/**
+ * Long-poll the command queue and act on a queued stop.
+ *
+ * Three details carry the weight here:
+ *
+ * 1. **Set the flag before killing.** Stopping the child makes it exit non-zero,
+ *    which is indistinguishable from a crash by exit code alone — so without
+ *    this, every successful deliberate stop would close the run as `failed` and
+ *    the operator would see red for using the button as intended.
+ * 2. **Ack only after acting.** An unacked command is the only signal that
+ *    nobody honoured a stop; acking first would erase it.
+ * 3. **Escalate.** An agent may trap SIGTERM and keep going, so a grace period
+ *    later we SIGKILL. Stop has to actually stop.
+ */
+function pollForStop() {
+  const waitMs = Number(argOf('--stop-poll', '25000'))
+  const graceMs = Number(argOf('--kill-grace', '10000'))
+  const abort = new AbortController()
+  let running = true
+
+  ;(async () => {
+    while (running && !closed) {
+      let commands
+      try {
+        const res = await client.listCommands(cfg.id, waitMs, abort.signal)
+        commands = res.data
+      } catch (err) {
+        if (abort.signal.aborted) return
+        // A transient failure must not silently end stop support for the rest of
+        // the run, so pause briefly and re-park rather than giving up.
+        await new Promise((r) => setTimeout(r, 1000))
+        continue
+      }
+
+      const cmd = selectStopCommand(commands)
+      if (!cmd) continue
+
+      stopRequested = true // (1) before the kill, so the exit reads as `stopped`
+      console.error(`run ${cfg.id}: stop requested — terminating the agent`)
+      if (!childExited) child.kill('SIGTERM')
+
+      const escalation = setTimeout(() => {
+        if (!childExited) {
+          console.error(`run ${cfg.id}: agent ignored SIGTERM after ${graceMs}ms — SIGKILL`)
+          try {
+            child.kill('SIGKILL')
+          } catch {
+            // Already gone between the check and the signal; nothing to do.
+          }
+        }
+      }, graceMs)
+
+      // Clear the escalation once the child is genuinely gone, so a stopped run
+      // does not hold the process open for the rest of the grace window.
+      child.once('exit', () => clearTimeout(escalation))
+
+      try {
+        await client.ackCommand(cfg.id, cmd.id, 'Stopped by the run supervisor.') // (2)
+      } catch (err) {
+        console.error(`run ${cfg.id}: acted on the stop but could not ack it: ${err.message}`)
+      }
+      return
+    }
+  })()
+
+  return {
+    stop() {
+      running = false
+      abort.abort()
+    },
+  }
 }
 
 /**

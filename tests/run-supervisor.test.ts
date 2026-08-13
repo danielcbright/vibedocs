@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 // @ts-expect-error — plain .mjs script module, no type declarations by design.
-import { mapExitToStatus, DEFAULT_EXIT_MAP, planSupervision } from '../scripts/lib/supervisor-plan.mjs'
+import { mapExitToStatus, DEFAULT_EXIT_MAP, planSupervision, selectStopCommand } from '../scripts/lib/supervisor-plan.mjs'
 
 /**
  * The supervisor exists so a run is never stranded in a non-terminal state when
@@ -129,5 +129,38 @@ describe('planSupervision', () => {
     // A supervisor is useful for lifecycle alone; a client that has no
     // transcript file should not be forced to invent one.
     expect(plan(['--id', 'x', '--', 'echo']).value.transcript).toBeUndefined()
+  })
+})
+
+describe('selectStopCommand', () => {
+  it('returns nothing when the queue is empty', () => {
+    expect(selectStopCommand([])).toBeNull()
+    expect(selectStopCommand(undefined)).toBeNull()
+  })
+
+  it('picks the stop command to act on', () => {
+    const cmd = { id: 'c1', kind: 'stop', createdAt: 1 }
+    expect(selectStopCommand([cmd])).toEqual(cmd)
+  })
+
+  it('acts on the oldest stop when several are queued', () => {
+    // Several presses of the button queue several commands. Acting on the oldest
+    // and acking it keeps the queue draining in order rather than stranding one.
+    const a = { id: 'a', kind: 'stop', createdAt: 10 }
+    const b = { id: 'b', kind: 'stop', createdAt: 20 }
+    expect(selectStopCommand([b, a]).id).toBe('a')
+  })
+
+  it('ignores kinds it does not understand', () => {
+    // The server's vocabulary is closed to `stop` today. If it ever grows, an old
+    // supervisor must not act on a command whose meaning it does not know —
+    // acting-then-acking would silently consume it.
+    expect(selectStopCommand([{ id: 'x', kind: 'restart', createdAt: 1 }])).toBeNull()
+    const stop = { id: 's', kind: 'stop', createdAt: 2 }
+    expect(selectStopCommand([{ id: 'x', kind: 'restart', createdAt: 1 }, stop])).toEqual(stop)
+  })
+
+  it('skips commands already acked', () => {
+    expect(selectStopCommand([{ id: 'a', kind: 'stop', createdAt: 1, ackedAt: 99 }])).toBeNull()
   })
 })
