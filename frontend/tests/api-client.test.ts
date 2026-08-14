@@ -176,21 +176,34 @@ describe('createApiClient', () => {
       const result = await client.getConfig()
 
       expect(fetchSpy.mock.calls[0][0]).toBe('/api/config')
-      expect(result).toEqual({ uploadEnabled: true })
+      // A server that predates Agent Runs omits runsEnabled; absent means off,
+      // matching the safe-default rule the rest of this client follows.
+      expect(result).toEqual({ uploadEnabled: true, runsEnabled: false })
+    })
+
+    it('reads runsEnabled when the server reports it', async () => {
+      fetchSpy.mockResolvedValueOnce(
+        new Response(JSON.stringify({ uploadEnabled: false, runsEnabled: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+      const client = createApiClient({ fetch: fetchSpy })
+      expect(await client.getConfig()).toEqual({ uploadEnabled: false, runsEnabled: true })
     })
 
     it('returns safe defaults on non-ok response — config must never throw', async () => {
       fetchSpy.mockResolvedValueOnce(new Response('', { status: 500 }))
       const client = createApiClient({ fetch: fetchSpy })
 
-      expect(await client.getConfig()).toEqual({ uploadEnabled: false })
+      expect(await client.getConfig()).toEqual({ uploadEnabled: false, runsEnabled: false })
     })
 
     it('returns safe defaults on network failure', async () => {
       fetchSpy.mockRejectedValueOnce(new Error('network down'))
       const client = createApiClient({ fetch: fetchSpy })
 
-      expect(await client.getConfig()).toEqual({ uploadEnabled: false })
+      expect(await client.getConfig()).toEqual({ uploadEnabled: false, runsEnabled: false })
     })
   })
 

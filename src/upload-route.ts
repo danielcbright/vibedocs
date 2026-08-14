@@ -22,10 +22,14 @@ function respondWithUploadError(c: Context, err: UploadError) {
 // affordances. Intentionally minimal — no token leaked, no settings exposed.
 // uploadEnabled === !readOnly && tokenConfigured.
 
-export function registerConfigRoute(app: Hono, cfg: UploadAuthConfig): void {
+export function registerConfigRoute(
+  app: Hono,
+  cfg: UploadAuthConfig,
+  runsEnabled = false,
+): void {
   app.get('/api/config', (c) => {
     const uploadEnabled = !cfg.readOnly && cfg.token !== null
-    return c.json({ uploadEnabled })
+    return c.json({ uploadEnabled, runsEnabled })
   })
 }
 

@@ -20,6 +20,8 @@ export interface SearchResult {
 
 export interface ServerConfig {
   uploadEnabled: boolean
+  /** Whether the Agent Runs feature is enabled server-side. */
+  runsEnabled: boolean
 }
 
 export interface RequestOptions {
@@ -49,7 +51,7 @@ export class ApiError extends Error {
   }
 }
 
-const DEFAULT_CONFIG: ServerConfig = { uploadEnabled: false }
+const DEFAULT_CONFIG: ServerConfig = { uploadEnabled: false, runsEnabled: false }
 
 type FetchFn = typeof fetch
 
@@ -135,7 +137,12 @@ export function createApiClient(options: CreateApiClientOptions = {}): ApiClient
         if (!res.ok) return DEFAULT_CONFIG
         const json = (await res.json()) as Partial<ServerConfig>
         if (typeof json?.uploadEnabled === "boolean") {
-          return { uploadEnabled: json.uploadEnabled }
+          return {
+            uploadEnabled: json.uploadEnabled,
+            // Older servers omit runsEnabled; absent means off, matching the
+            // safe-default rule the rest of this client follows.
+            runsEnabled: json.runsEnabled === true,
+          }
         }
         return DEFAULT_CONFIG
       } catch {

@@ -20,6 +20,8 @@
 // invalidation is safe to do indefinitely (fixed in issue #62).
 
 import path from 'path'
+import { statSync } from 'fs'
+import { locateProject, projectNameFor } from './project-roots.js'
 import type { SiteConfig } from './site-config.js'
 
 const CONFIG_FILENAME = '.vibedocs.config.ts'
@@ -28,7 +30,8 @@ export interface SiteConfigCacheOptions {
   /** Loader, injectable so tests can run without touching the filesystem. */
   loadConfig: (projectPath: string) => Promise<SiteConfig | null>
   /** Absolute path of the directory that holds every project as a subfolder. */
-  projectsDir: string
+  /** Single root, or every configured root in order (#113). */
+  projectsDir: string | readonly string[]
 }
 
 export interface SiteConfigCache {
@@ -56,6 +59,7 @@ export interface SiteConfigCache {
 
 export function createSiteConfigCache(opts: SiteConfigCacheOptions): SiteConfigCache {
   const { loadConfig, projectsDir } = opts
+  const roots = typeof projectsDir === 'string' ? [projectsDir] : projectsDir
   const cache = new Map<string, SiteConfig | null>()
 
   return {
@@ -63,7 +67,13 @@ export function createSiteConfigCache(opts: SiteConfigCacheOptions): SiteConfigC
       if (cache.has(projectName)) {
         return cache.get(projectName) ?? null
       }
-      const projectPath = path.join(projectsDir, projectName)
+      // A lookup rather than a join, because with several roots the name may be
+      // qualified and may not live in the first one. Falling back to a join keeps
+      // the single-root path byte-identical to what it always did — the directory
+      // does not have to exist for `loadConfig` to be asked about it, and callers
+      // that stub `loadConfig` against paths on no filesystem still work.
+      const projectPath =
+        locateProject(roots, projectName, existsAsDir)?.dir ?? path.join(roots[0], projectName)
       try {
         const cfg = await loadConfig(projectPath)
         cache.set(projectName, cfg)
@@ -106,12 +116,28 @@ export function createSiteConfigCache(opts: SiteConfigCacheOptions): SiteConfigC
  */
 export function projectNameFromConfigPath(
   absPath: string,
-  projectsDir: string,
+  projectsDir: string | readonly string[],
 ): string | null {
   if (path.basename(absPath) !== CONFIG_FILENAME) return null
-  const rel = path.relative(projectsDir, path.dirname(absPath))
-  if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) return null
-  // Must be a direct child of projectsDir (single segment, no separators).
-  if (rel.includes(path.sep)) return null
-  return rel
+  const roots = typeof projectsDir === 'string' ? [projectsDir] : projectsDir
+
+  for (const root of roots) {
+    const rel = path.relative(root, path.dirname(absPath))
+    if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) continue
+    // Must be a direct child of a root (single segment, no separators).
+    if (rel.includes(path.sep)) return null
+    // Same naming as the project list, or the invalidation targets a key the
+    // cache never stored and the stale config survives.
+    return projectNameFor(roots, path.join(root, rel), existsAsDir)
+  }
+  return null
+}
+
+/** Sync existence probe for `projectNameFor`. */
+function existsAsDir(absPath: string): boolean {
+  try {
+    return statSync(absPath).isDirectory()
+  } catch {
+    return false
+  }
 }

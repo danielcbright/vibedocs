@@ -23,12 +23,13 @@
 import path from 'path'
 import { readFile } from 'fs/promises'
 import {
-  discoverProjects,
+  discoverAcrossRoots,
   filterProjects,
   toProjectRelativePath,
   type ProjectInfo,
 } from './discovery.js'
 import { createIndexStore, type IndexStore, type SearchResult } from './search.js'
+import { createCoalescingRunner } from './coalescing-runner.js'
 import { createSiteConfigCache, type SiteConfigCache } from './site-config-cache.js'
 import { loadSiteConfig } from './site-config.js'
 import type { SafePath } from './path-resolver.js'
@@ -46,9 +47,21 @@ import type { ClientChannel } from './ports/client-channel.js'
 
 const CONFIG_FILENAME = '.vibedocs.config.ts'
 
-export interface CreateAppStateOptions {
-  /** Absolute directory that holds every project as a subfolder. */
-  projectsDir: string
+export type CreateAppStateOptions = CreateAppStateBase &
+  (
+    | {
+        /** Absolute directory that holds every project as a subfolder. */
+        projectsDir: string
+        roots?: never
+      }
+    | {
+        /** Every configured root, in order (#113). */
+        roots: readonly string[]
+        projectsDir?: never
+      }
+  )
+
+interface CreateAppStateBase {
   /** Source of file-system events. Production wraps chokidar; tests use in-memory. */
   fsEventSource: FsEventSource
   /** Fan-out sink for WS messages. Production wraps `ws`; tests use in-memory. */
@@ -59,6 +72,13 @@ export interface CreateAppStateOptions {
   searchStore?: IndexStore
   /** Optional: inject a pre-built site-config cache (testability). */
   siteConfigCache?: SiteConfigCache
+  /**
+   * Debounce window for search-index rebuilds. Defaults to
+   * `DEFAULT_COALESCE_DELAY_MS`. Tests shorten it; there is no reason to tune it
+   * in production — the single-flight guarantee, not this number, is what bounds
+   * memory.
+   */
+  searchRebuildDelayMs?: number
 }
 
 export interface AppState {
@@ -70,6 +90,13 @@ export interface AppState {
   search(query: string, maxResults?: number): SearchResult[]
   /** Current search-index version (bumped on each successful rebuild). */
   readonly searchVersion: number
+  /**
+   * Test/diagnostics: resolves once no search-index rebuild is scheduled, in
+   * flight, or owed. Rebuilds are debounced and single-flighted, so callers that
+   * need to observe the settled index must await this rather than drain
+   * microtasks.
+   */
+  settleSearchIndex(): Promise<void>
   /** Broadcast a typed WS message to every connected client. */
   broadcast(message: WsMessage): void
   /** Upload-route policy. Routes read this to know which gate to apply. */
@@ -83,29 +110,61 @@ export interface AppState {
 }
 
 export function createAppState(opts: CreateAppStateOptions): AppState {
-  const { projectsDir, fsEventSource, clientChannel, uploadAuth } = opts
+  const { fsEventSource, clientChannel, uploadAuth } = opts
+  // One list from here down, so nothing below has to know which option was used.
+  const roots = opts.projectsDir !== undefined ? [opts.projectsDir] : opts.roots
 
   const searchStore =
-    opts.searchStore ?? createIndexStore({ projectsDir })
+    opts.searchStore ?? createIndexStore({ roots })
 
   const siteConfigCache =
     opts.siteConfigCache ??
-    createSiteConfigCache({ loadConfig: loadSiteConfig, projectsDir })
+    createSiteConfigCache({ loadConfig: loadSiteConfig, projectsDir: roots })
 
   function isSiteConfig(filePath: string): boolean {
     return path.basename(filePath) === CONFIG_FILENAME
   }
 
-  function rebuildSearchIndex(): void {
-    searchStore.rebuild().then((v) => {
+  /**
+   * Full re-walk. Coalesced and single-flighted, because each concurrent walk
+   * retains a full copy of every indexed file and an event burst would
+   * otherwise become an out-of-memory crash. Never call
+   * `searchStore.rebuild()` straight from an event handler. See
+   * `src/coalescing-runner.ts`.
+   *
+   * Reached only by directory-level events now — a single file's change is
+   * handled incrementally below.
+   */
+  const searchRebuilds = createCoalescingRunner({
+    delayMs: opts.searchRebuildDelayMs,
+    run: async () => {
+      const v = await searchStore.rebuild()
       console.log(`  🔍 Search index v${v}: rebuilt`)
-    }).catch((err) => {
+    },
+    onError: (err) => {
       console.error('Search rebuild failed:', err)
+    },
+  })
+
+  function scheduleSearchRebuild(): void {
+    searchRebuilds.schedule()
+  }
+
+  /**
+   * One file changed: patch its entry rather than re-walking every project.
+   * The store serialises these internally, so firing without awaiting is safe
+   * and preserves watcher order.
+   */
+  function patchSearchIndex(absPath: string, kind: 'upsert' | 'remove'): void {
+    const done =
+      kind === 'remove' ? searchStore.removeFile(absPath) : searchStore.updateFile(absPath)
+    void done.catch((err) => {
+      console.error(`Search index patch failed for ${absPath}:`, err)
     })
   }
 
   function handleFsEvent(ev: FsEvent): void {
-    const rel = toProjectRelativePath(ev.path, projectsDir)
+    const rel = toProjectRelativePath(ev.path, roots)
     switch (ev.kind) {
       case 'change': {
         console.log(`  ↺  changed: ${rel ?? ev.path}`)
@@ -114,7 +173,7 @@ export function createAppState(opts: CreateAppStateOptions): AppState {
           // Only broadcast project-relative paths. Absolute paths would leak
           // the host filesystem layout to every connected client.
           if (rel !== null) clientChannel.broadcast(reloadMessage(rel))
-          rebuildSearchIndex()
+          patchSearchIndex(ev.path, 'upsert')
         } else {
           clientChannel.broadcast(refreshTreeMessage())
         }
@@ -124,24 +183,31 @@ export function createAppState(opts: CreateAppStateOptions): AppState {
         console.log(`  +  added:   ${rel ?? ev.path}`)
         if (isSiteConfig(ev.path)) siteConfigCache.invalidateFromPath(ev.path)
         clientChannel.broadcast(refreshTreeMessage())
-        if (isMarkdownPath(ev.path)) rebuildSearchIndex()
+        if (isMarkdownPath(ev.path)) patchSearchIndex(ev.path, 'upsert')
         return
       }
       case 'unlink': {
         console.log(`  -  removed: ${rel ?? ev.path}`)
         if (isSiteConfig(ev.path)) siteConfigCache.invalidateFromPath(ev.path)
         clientChannel.broadcast(refreshTreeMessage())
-        if (isMarkdownPath(ev.path)) rebuildSearchIndex()
+        if (isMarkdownPath(ev.path)) patchSearchIndex(ev.path, 'remove')
         return
       }
+      // Directory events are the reconcile path. Chokidar does not promise a
+      // per-file event for every file inside a directory that appears or
+      // disappears in one operation (a git checkout, a worktree sweep), so a
+      // full re-walk is the only way to be sure. It is debounced and
+      // single-flighted, which is what makes it affordable to trigger here.
       case 'addDir': {
         console.log(`  +  dir:     ${rel ?? ev.path}`)
         clientChannel.broadcast(refreshTreeMessage())
+        scheduleSearchRebuild()
         return
       }
       case 'unlinkDir': {
         console.log(`  -  dir:     ${rel ?? ev.path}`)
         clientChannel.broadcast(refreshTreeMessage())
+        scheduleSearchRebuild()
         return
       }
     }
@@ -151,7 +217,7 @@ export function createAppState(opts: CreateAppStateOptions): AppState {
 
   return {
     async listProjects(fileType: 'all' | 'markdown' | 'assets' = 'all') {
-      const projects = await discoverProjects(projectsDir)
+      const projects = await discoverAcrossRoots(roots)
       const filtered = filterProjects(projects, fileType)
       return Promise.all(
         filtered.map(async (p) => ({
@@ -180,6 +246,13 @@ export function createAppState(opts: CreateAppStateOptions): AppState {
       return searchStore.version
     },
 
+    async settleSearchIndex() {
+      // Drain the coalesced rebuilds first — a rebuild queues itself on the
+      // store's mutation chain, so draining the store afterwards covers both.
+      await searchRebuilds.settled()
+      await searchStore.settled()
+    },
+
     broadcast(message) {
       clientChannel.broadcast(message)
     },
@@ -193,6 +266,9 @@ export function createAppState(opts: CreateAppStateOptions): AppState {
     },
 
     async shutdown() {
+      // Cancel first: closing the watcher can still deliver queued events, and a
+      // debounce timer left armed keeps the event loop alive after shutdown.
+      searchRebuilds.cancel()
       await fsEventSource.close()
       await clientChannel.close()
     },
@@ -206,13 +282,35 @@ export function createAppState(opts: CreateAppStateOptions): AppState {
 // ── Live boot one-liner ──────────────────────────────────────────────────────
 
 import { parseUploadAuthConfig } from './upload-auth.js'
+import { homedir } from 'os'
+import { parseAgentRunsEnv, loadAgentRunsClientConfig, type AgentRunsEnvConfig } from './agent-runs/config.js'
+import { createRunStore, type RunStore } from './agent-runs/store.js'
+import { createIngest, type Ingest } from './agent-runs/ingest.js'
+import { createTextRenderer, type TextRenderer } from './agent-runs/text-render.js'
+import type { AgentRunsClientConfig } from './shared/agent-runs-config-types.js'
 import { createChokidarFsEventSource } from './adapters/chokidar-fs-event-source.js'
 import { createInMemoryClientChannel } from './adapters/in-memory-client-channel.js'
-import { PROJECTS_DIR } from './discovery.js'
+import { PROJECT_ROOTS } from './discovery.js'
+
+/**
+ * Agent Runs runtime state. Lives inside AppState per ADR-0001: the store's
+ * callId index and ingest's adapter states are live runtime state, which is
+ * exactly what AppState owns.
+ */
+export interface AgentRunsRuntime {
+  readonly cfg: AgentRunsEnvConfig
+  readonly clientConfig: AgentRunsClientConfig
+  readonly store: RunStore
+  readonly ingest: Ingest
+  readonly renderer: TextRenderer
+}
 
 export interface LiveAppState extends AppState {
-  /** Projects-directory absolute path (snapshot of env at boot). */
+  /** Every configured root, absolute (snapshot of env at boot). */
+  readonly roots: readonly string[]
+  /** First configured root. Retained for callers that are inherently single-root. */
   readonly projectsDir: string
+  readonly agentRuns: AgentRunsRuntime
   /**
    * Swap the broadcast sink — used by server.ts after the HTTP server boots
    * to wire the real ws ClientChannel in. Pre-swap broadcasts go to the
@@ -232,14 +330,12 @@ export interface LiveAppState extends AppState {
  * chokidar or ws imports into it.
  */
 export async function runLive(env: NodeJS.ProcessEnv = process.env): Promise<LiveAppState> {
-  const projectsDir = PROJECTS_DIR
-  const fsEventSource = createChokidarFsEventSource({
-    watchGlob: `${projectsDir}/**/*`,
-  })
+  const roots = PROJECT_ROOTS
+  const fsEventSource = createChokidarFsEventSource({ roots })
   let clientChannel: ClientChannel = createInMemoryClientChannel()
 
   const inner = createAppState({
-    projectsDir,
+    roots,
     fsEventSource,
     // Pass a proxy that always delegates to the current clientChannel so the
     // server.ts swap takes effect for all subsequent broadcasts.
@@ -252,17 +348,34 @@ export async function runLive(env: NodeJS.ProcessEnv = process.env): Promise<Liv
 
   await inner.start()
 
+  const agentRunsCfg = parseAgentRunsEnv(env as Record<string, string | undefined>, homedir())
+  // ONE store instance, shared by reads and by ingest. Two instances would each
+  // hold their own in-memory callId index and their own per-run write chain, so
+  // tool patches would fail to correlate and concurrent batches could interleave
+  // seq assignment.
+  const runStore = createRunStore({ runsDir: agentRunsCfg.runsDir })
+  const agentRuns: AgentRunsRuntime = {
+    cfg: agentRunsCfg,
+    clientConfig: await loadAgentRunsClientConfig(agentRunsCfg.runsDir),
+    store: runStore,
+    ingest: createIngest({ store: runStore, broadcast: (msg) => clientChannel.broadcast(msg) }),
+    renderer: createTextRenderer(),
+  }
+
   return {
     listProjects: inner.listProjects.bind(inner),
     renderPage: inner.renderPage.bind(inner),
     search: inner.search.bind(inner),
     get searchVersion() { return inner.searchVersion },
+    settleSearchIndex: inner.settleSearchIndex.bind(inner),
     broadcast: inner.broadcast.bind(inner),
     get uploadAuth() { return inner.uploadAuth },
     start: inner.start.bind(inner),
     shutdown: inner.shutdown.bind(inner),
     siteConfigCacheHas: inner.siteConfigCacheHas.bind(inner),
-    projectsDir,
+    roots,
+    projectsDir: roots[0],
+    agentRuns,
     setClientChannel(channel) {
       clientChannel = channel
     },

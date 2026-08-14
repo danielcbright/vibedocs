@@ -1,10 +1,33 @@
 import { readdir, stat } from 'fs/promises'
+import { statSync } from 'fs'
 import path from 'path'
 import type { SiteConfig } from './site-config.js'
 import { EXCLUDED_DIRS } from './excluded-paths.js'
 import { isMarkdownPath } from './markdown-paths.js'
+import { parseRoots, projectNameFor } from './project-roots.js'
 
-export const PROJECTS_DIR = process.env.VIBEDOCS_ROOT || process.cwd()
+/**
+ * Configured roots, snapshotted from the environment at module load.
+ *
+ * The snapshot is load-bearing, not incidental: `src/cli/serve-live.ts` re-execs
+ * the server as a child process precisely because this is read once, so setting
+ * the variable after import would be ignored. See the note in that file.
+ *
+ * A broken configuration is not thrown here — a module-level throw during import
+ * produces a stack trace instead of an explanation. `PROJECT_ROOTS_ERROR` carries
+ * it to the composition root, which exits with the message.
+ */
+const rootsResult = parseRoots(process.env, process.cwd())
+export const PROJECT_ROOTS: readonly string[] = rootsResult.ok ? rootsResult.roots : []
+export const PROJECT_ROOTS_ERROR: string | null = rootsResult.ok ? null : rootsResult.error
+export const PROJECT_ROOTS_NOTES: readonly string[] = rootsResult.ok ? rootsResult.notes ?? [] : []
+
+/**
+ * The first configured root. Kept because plenty of call sites are inherently
+ * single-root (the build CLI resolves one project by name) and because it is the
+ * default every `projectsDir` parameter falls back to.
+ */
+export const PROJECTS_DIR = PROJECT_ROOTS[0] ?? process.cwd()
 
 export interface FileNode {
   name: string
@@ -109,6 +132,59 @@ export async function discoverProjects(
   return projects
 }
 
+/**
+ * Discover projects across every configured root (#113).
+ *
+ * The single-root walk above is unchanged and still does all the work — this runs
+ * it per root and merges. The only non-obvious part is naming, and that is not
+ * decided here: `projectNameFor` owns it, so discovery, the search index and the
+ * path resolver cannot drift into three different answers about what a project is
+ * called.
+ *
+ * Roots are visited in configured order, which fixes both the sidebar order and
+ * which of two same-named projects keeps the bare name.
+ */
+export async function discoverAcrossRoots(roots: readonly string[]): Promise<ProjectInfo[]> {
+  // One root is the installed base: skip the merge entirely so its behaviour is
+  // not merely equivalent but literally the same code path.
+  if (roots.length === 1) return discoverProjects(roots[0])
+
+  const merged: ProjectInfo[] = []
+  const taken = new Set<string>()
+
+  for (const root of roots) {
+    for (const project of await discoverProjects(root)) {
+      const name = projectNameFor(roots, path.join(root, project.name), existsAsDir)
+      // Null means the directory is not a direct child of a configured root, which
+      // cannot happen for something discoverProjects just returned.
+      if (name === null) continue
+      if (taken.has(name)) {
+        // Only reachable when a folder is literally named `<name>@<rootBasename>`
+        // in an earlier root. Rare enough to report rather than invent a second
+        // disambiguation scheme that would not survive the round-trip back to a
+        // directory.
+        console.warn(
+          `vibedocs: hiding ${path.join(root, project.name)} — the name "${name}" is already taken. Rename either directory.`,
+        )
+        continue
+      }
+      taken.add(name)
+      merged.push({ ...project, name })
+    }
+  }
+
+  return merged
+}
+
+/** Sync existence probe for `projectNameFor`, which must stay usable from sync callers. */
+function existsAsDir(absPath: string): boolean {
+  try {
+    return statSync(absPath).isDirectory()
+  } catch {
+    return false
+  }
+}
+
 export { buildTree as buildTreePublic }
 
 /**
@@ -123,15 +199,24 @@ export { buildTree as buildTreePublic }
  */
 export function toProjectRelativePath(
   absPath: string,
-  projectsDir: string,
+  projectsDir: string | readonly string[],
 ): string | null {
-  const rel = path.relative(projectsDir, absPath)
-  if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) {
-    return null
+  const roots = typeof projectsDir === 'string' ? [projectsDir] : projectsDir
+
+  for (const root of roots) {
+    const rel = path.relative(root, absPath)
+    if (rel === '' || rel.startsWith('..') || path.isAbsolute(rel)) continue
+
+    // Force POSIX separators so the wire format matches the frontend's
+    // hash-routing convention regardless of host platform.
+    const segments = rel.split(path.sep)
+    // The project name must be the one the project list used, or the frontend
+    // cannot match a reload against the document it has open.
+    const project = projectNameFor(roots, path.join(root, segments[0]), existsAsDir)
+    if (project === null) return null
+    return [project, ...segments.slice(1)].join('/')
   }
-  // Force POSIX separators so the wire format matches the frontend's
-  // hash-routing convention regardless of host platform.
-  return rel.split(path.sep).join('/')
+  return null
 }
 
 export type FileTypeFilter = 'all' | 'markdown' | 'assets'

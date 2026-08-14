@@ -50,11 +50,12 @@
     "prepare": "node scripts/prepare.mjs",
     "start": "tsx src/server.ts",
     "typecheck": "tsc -p tsconfig.cli.json --noEmit",
+    "typecheck:frontend": "cd frontend && npm run typecheck",
     "test": "npm run test:backend; backend=$?; npm run test:frontend; frontend=$?; exit $((backend || frontend))",
     "test:backend": "vitest run",
     "test:watch": "vitest",
     "test:frontend": "cd frontend && npx vitest run",
-    "verify": "npm run build:cli && npm run typecheck && npm run build && npm test",
+    "verify": "npm run build:cli && npm run typecheck && npm run build && npm run typecheck:frontend && npm test",
     "pack:inspect": "node scripts/pack-inspect.mjs",
     "release:check": "node scripts/release-check.mjs"
   },

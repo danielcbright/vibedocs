@@ -19,6 +19,7 @@ import path from 'path'
 import { spawn } from 'child_process'
 import { fileURLToPath } from 'url'
 import type { ParsedServeArgs } from './args.js'
+import { ROOTS_SEPARATOR } from '../project-roots.js'
 
 /**
  * Locate the server entry and the argv needed to run it.
@@ -40,13 +41,15 @@ function resolveServerEntry(): string[] | null {
 }
 
 export async function runLiveServer(args: ParsedServeArgs): Promise<number> {
-  if (!fs.existsSync(args.root)) {
-    process.stderr.write(`vibedocs serve: no such directory: ${args.root}\n`)
-    return 1
-  }
-  if (!fs.statSync(args.root).isDirectory()) {
-    process.stderr.write(`vibedocs serve: not a directory: ${args.root}\n`)
-    return 1
+  for (const root of args.roots) {
+    if (!fs.existsSync(root)) {
+      process.stderr.write(`vibedocs serve: no such directory: ${root}\n`)
+      return 1
+    }
+    if (!fs.statSync(root).isDirectory()) {
+      process.stderr.write(`vibedocs serve: not a directory: ${root}\n`)
+      return 1
+    }
   }
 
   const entryArgs = resolveServerEntry()
@@ -57,14 +60,18 @@ export async function runLiveServer(args: ParsedServeArgs): Promise<number> {
     return 1
   }
 
+  // Always the list form, even for one root, and with the inherited single-root
+  // variable REMOVED: the server reads VIBEDOCS_ROOTS first, so leaving an
+  // exported VIBEDOCS_ROOT in place would mean the child carries two answers to
+  // the same question and warns about the one the operator did not type.
+  const childEnv: NodeJS.ProcessEnv = { ...process.env, VIBEDOCS_PORT: String(args.port) }
+  delete childEnv.VIBEDOCS_ROOT
+  childEnv.VIBEDOCS_ROOTS = args.roots.join(ROOTS_SEPARATOR)
+
   return new Promise<number>((resolve) => {
     const child = spawn(process.execPath, entryArgs, {
       stdio: 'inherit',
-      env: {
-        ...process.env,
-        VIBEDOCS_ROOT: args.root,
-        VIBEDOCS_PORT: String(args.port),
-      },
+      env: childEnv,
     })
     child.on('exit', (code) => resolve(code ?? 0))
     child.on('error', (err) => {

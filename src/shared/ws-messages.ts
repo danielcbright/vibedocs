@@ -18,7 +18,39 @@ export interface RefreshTreeMessage {
   type: 'refresh-tree'
 }
 
-export type WsMessage = ReloadMessage | RefreshTreeMessage
+export interface RunUpdatedMessage {
+  type: 'run-updated'
+  runId: string
+}
+
+/**
+ * New records are available. Deliberately a nudge carrying a count, not the
+ * payload: the client fetches ?fromRec=<its own count>, so live updates and
+ * reconnect catch-up travel the same code path.
+ */
+export interface RunRecordsMessage {
+  type: 'run-records'
+  runId: string
+  recCount: number
+}
+
+/**
+ * A run is gone. Distinct from `run-updated` on purpose: the client must drop it
+ * from the rail and, if it happens to be the one on screen, stop asking for its
+ * records. Reusing `run-updated` would have the client refetch a 404 and leave
+ * "what do we show now?" to be inferred.
+ */
+export interface RunDeletedMessage {
+  type: 'run-deleted'
+  runId: string
+}
+
+export type WsMessage =
+  | ReloadMessage
+  | RefreshTreeMessage
+  | RunUpdatedMessage
+  | RunRecordsMessage
+  | RunDeletedMessage
 
 // ── Constructors (server-side) ────────────────────────────────────────────────
 
@@ -28,6 +60,18 @@ export function reloadMessage(path: string): ReloadMessage {
 
 export function refreshTreeMessage(): RefreshTreeMessage {
   return { type: 'refresh-tree' }
+}
+
+export function runUpdatedMessage(runId: string): RunUpdatedMessage {
+  return { type: 'run-updated', runId }
+}
+
+export function runRecordsMessage(runId: string, recCount: number): RunRecordsMessage {
+  return { type: 'run-records', runId, recCount }
+}
+
+export function runDeletedMessage(runId: string): RunDeletedMessage {
+  return { type: 'run-deleted', runId }
 }
 
 // ── Parser (client-side) ──────────────────────────────────────────────────────
@@ -57,6 +101,14 @@ export function parseWsMessage(raw: string): WsMessage | null {
         : null
     case 'refresh-tree':
       return { type: 'refresh-tree' }
+    case 'run-updated':
+      return typeof obj.runId === 'string' ? { type: 'run-updated', runId: obj.runId } : null
+    case 'run-records':
+      return typeof obj.runId === 'string' && typeof obj.recCount === 'number'
+        ? { type: 'run-records', runId: obj.runId, recCount: obj.recCount }
+        : null
+    case 'run-deleted':
+      return typeof obj.runId === 'string' ? { type: 'run-deleted', runId: obj.runId } : null
     default:
       return null
   }

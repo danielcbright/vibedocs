@@ -46,7 +46,21 @@ const hoisted = vi.hoisted(() => {
     start: async () => {},
     shutdown: async () => {},
     siteConfigCacheHas: () => false,
+    // Both, because LiveAppState exposes both: `roots` is what the boot log and
+    // the resolvers read, `projectsDir` is the first of them, kept for the
+    // inherently single-root callers.
+    roots: ['/fake/projects'],
     projectsDir: '/fake/projects',
+    // Agent Runs runtime. The feature is disabled here so the boot path is
+    // exercised without a runs directory; server.ts reads cfg at registration
+    // time, so this must be present even when disabled.
+    agentRuns: {
+      cfg: { enabled: false, runsDir: '/fake/runs', token: null },
+      clientConfig: { linkify: [], editorScheme: null },
+      store: {},
+      ingest: {},
+      renderer: {},
+    },
     setClientChannel: (channel: unknown) => {
       callLog.push('setClientChannel')
       setClientChannelLog.push(channel)

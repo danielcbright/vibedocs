@@ -153,6 +153,21 @@ export const sanitizeSchema: Schema = {
   },
 }
 
+/**
+ * Sanitize schema for agent-run transcript text.
+ *
+ * Identical to `sanitizeSchema` except that rehype-sanitize's id-clobbering is
+ * left ON. The page schema disables it so heading autolinks resolve, which is
+ * safe because one page is rendered per document. A transcript renders many
+ * untrusted blocks into ONE document, where a `id="summary"` minted by agent
+ * text could clobber a real element — so the prefix stays.
+ *
+ * Omitting the keys (rather than setting them to undefined) is what restores
+ * rehype-sanitize's own defaults.
+ */
+const { clobberPrefix: _clobberPrefix, clobber: _clobber, ...schemaWithoutClobberOverrides } = sanitizeSchema
+export const agentTextSanitizeSchema: Schema = schemaWithoutClobberOverrides
+
 // Extract headings for table of contents. Pure HTML scanner — operates on
 // the rendered output, so it lives alongside the other render-pipeline
 // helpers rather than inside the unified processor.

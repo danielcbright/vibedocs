@@ -4,6 +4,9 @@ import { parseWsMessage, type WsMessage } from "@shared/ws-messages"
 interface UseWebSocketOptions {
   onReload?: (path: string) => void
   onRefreshTree?: () => void
+  onRunUpdated?: (runId: string) => void
+  onRunRecords?: (runId: string, recCount: number) => void
+  onRunDeleted?: (runId: string) => void
 }
 
 type WsCallbacks = UseWebSocketOptions
@@ -22,6 +25,15 @@ export function handleWsMessage(msg: WsMessage, callbacks: WsCallbacks): void {
     case "refresh-tree":
       callbacks.onRefreshTree?.()
       break
+    case "run-updated":
+      callbacks.onRunUpdated?.(msg.runId)
+      break
+    case "run-records":
+      callbacks.onRunRecords?.(msg.runId, msg.recCount)
+      break
+    case "run-deleted":
+      callbacks.onRunDeleted?.(msg.runId)
+      break
     default: {
       const _exhaustive: never = msg
       void _exhaustive
@@ -29,16 +41,22 @@ export function handleWsMessage(msg: WsMessage, callbacks: WsCallbacks): void {
   }
 }
 
-export function useWebSocket({ onReload, onRefreshTree }: UseWebSocketOptions) {
+export function useWebSocket({ onReload, onRefreshTree, onRunUpdated, onRunRecords, onRunDeleted }: UseWebSocketOptions) {
   const [connected, setConnected] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
   const reconnectTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   const onReloadRef = useRef(onReload)
   const onRefreshTreeRef = useRef(onRefreshTree)
+  const onRunUpdatedRef = useRef(onRunUpdated)
+  const onRunRecordsRef = useRef(onRunRecords)
+  const onRunDeletedRef = useRef(onRunDeleted)
 
   // Keep refs current without triggering reconnects
   useEffect(() => { onReloadRef.current = onReload }, [onReload])
   useEffect(() => { onRefreshTreeRef.current = onRefreshTree }, [onRefreshTree])
+  useEffect(() => { onRunUpdatedRef.current = onRunUpdated }, [onRunUpdated])
+  useEffect(() => { onRunRecordsRef.current = onRunRecords }, [onRunRecords])
+  useEffect(() => { onRunDeletedRef.current = onRunDeleted }, [onRunDeleted])
 
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return
@@ -58,6 +76,9 @@ export function useWebSocket({ onReload, onRefreshTree }: UseWebSocketOptions) {
       handleWsMessage(msg, {
         onReload: onReloadRef.current,
         onRefreshTree: onRefreshTreeRef.current,
+        onRunUpdated: onRunUpdatedRef.current,
+        onRunRecords: onRunRecordsRef.current,
+        onRunDeleted: onRunDeletedRef.current,
       })
     }
 

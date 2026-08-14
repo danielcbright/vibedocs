@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react"
+import { useState, useCallback, useEffect, useRef } from "react"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
 import { usePanelRef } from "react-resizable-panels"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -20,6 +20,11 @@ import { useWebSocket } from "@/hooks/use-websocket"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useConfig } from "@/hooks/use-config"
 import { findFirstMarkdown } from "@/lib/find-first-markdown"
+import type { AppView } from "@/lib/app-view"
+import { RunsView } from "@/agent-runs/RunsView"
+import { RunRail } from "@/agent-runs/RunRail"
+import { useRuns } from "@/agent-runs/hooks/use-runs"
+import { activeRunCount } from "@/agent-runs/lib/run-status"
 
 function parseHash(): { project: string | null; path: string | null } {
   const hash = window.location.hash.slice(1)
@@ -63,7 +68,49 @@ function DocsApp() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const { projects, refresh: refreshProjects } = useProjects(VIEW_MODE_TO_FILE_TYPE[viewMode])
-  const { uploadEnabled } = useConfig()
+  const { uploadEnabled, runsEnabled } = useConfig()
+
+  // `#/runs` parses to project "" (parseHash splits on the first slash), and no
+  // project directory can be named "", so the namespace cannot collide.
+  const isRunsRoute = activeProject === "" && (activePath ?? "").startsWith("runs")
+  const activeRunId = isRunsRoute ? ((activePath ?? "").split("/")[1] || null) : null
+  const appView: AppView = isRunsRoute ? "runs" : "docs"
+
+  const { runs, loading: runsLoading, refresh: refreshRuns } = useRuns(runsEnabled)
+  const [runRecordsNonce, setRunRecordsNonce] = useState(0)
+
+  const selectRun = useCallback((id: string) => {
+    window.location.hash = `/runs/${encodeURIComponent(id)}`
+  }, [])
+
+  // Remember where the user was in Docs so the switch returns them there
+  // instead of dumping them at the root.
+  const lastDocsHash = useRef<string>("")
+  useEffect(() => {
+    // Guard on the hash itself rather than on derived state: state updates a
+    // tick after the hash changes, so a state-based check can capture a runs
+    // hash during the gap and then "return to docs" would go nowhere.
+    const hash = window.location.hash
+    if (!hash.startsWith("#/runs")) lastDocsHash.current = hash
+  }, [activeProject, activePath])
+
+  const handleAppViewChange = useCallback((next: AppView) => {
+    if (next === "runs") {
+      window.location.hash = "/runs"
+      return
+    }
+    const target = lastDocsHash.current.replace(/^#/, "")
+    // Assigning the same value fires no hashchange, so an empty target while
+    // already at an empty hash would silently do nothing. Drive state directly
+    // as well, which also covers "never visited a doc yet".
+    if (target && `#${target}` !== window.location.hash) {
+      window.location.hash = target
+      return
+    }
+    window.location.hash = ""
+    setActiveProject(null)
+    setActivePath(null)
+  }, [])
   const { html, toc, loading, error, refresh: refreshDoc } = useDocument(activeProject, activePath)
   const sidebarPanelRef = usePanelRef()
   const isMobile = useIsMobile()
@@ -158,6 +205,22 @@ function DocsApp() {
     onRefreshTree: useCallback(() => {
       refreshProjects()
     }, [refreshProjects]),
+    onRunUpdated: useCallback(() => {
+      refreshRuns()
+    }, [refreshRuns]),
+    onRunRecords: useCallback((incomingId: string) => {
+      refreshRuns()
+      // Only nudge the open run; every other run's tail can wait until opened.
+      if (incomingId === activeRunId) setRunRecordsNonce((n) => n + 1)
+    }, [refreshRuns, activeRunId]),
+    onRunDeleted: useCallback((incomingId: string) => {
+      refreshRuns()
+      // If the run on screen is the one that vanished, fall back to the runs
+      // route rather than sitting on a view whose every fetch now 404s. Set the
+      // hash directly, as selectRun does — `navigate` builds `project/path`,
+      // which is the docs shape, not `/runs/<id>`.
+      if (incomingId === activeRunId) window.location.hash = "/runs"
+    }, [refreshRuns, activeRunId]),
   })
 
   const hasToc = toc.length >= 2
@@ -210,6 +273,9 @@ function DocsApp() {
             <ThemeToggle />
           </header>
           <div className="flex-1 min-h-0 overflow-hidden">
+            {isRunsRoute ? (
+              <RunsView runs={runs} loading={runsLoading} activeRunId={activeRunId} onRunChanged={refreshRuns} recordsNonce={runRecordsNonce} />
+            ) : (
             <DocContent
               html={html}
               loading={loading}
@@ -223,6 +289,7 @@ function DocsApp() {
               onNavigate={navigateSmart}
               mobileSearchTrigger={() => setSearchOpen(true)}
             />
+            )}
           </div>
         </div>
         {hasToc ? <MobileToc toc={toc} /> : null}
@@ -245,6 +312,17 @@ function DocsApp() {
               onViewModeChange={setViewMode}
               onLogoClick={goHomeAndSearch}
               uploadEnabled={uploadEnabled}
+              appView={appView}
+              onAppViewChange={handleAppViewChange}
+              runsEnabled={runsEnabled}
+              activeRuns={activeRunCount(runs)}
+              runsRail={
+                <RunRail
+                  runs={runs}
+                  activeRunId={activeRunId}
+                  onSelect={(id) => { selectRun(id); setMobileSidebarOpen(false) }}
+                />
+              }
             />
           </SheetContent>
         </Sheet>
@@ -262,7 +340,7 @@ function DocsApp() {
   return (
     <>
       <div style={{ height: "100vh", overflow: "hidden" }}>
-        <ResizablePanelGroup direction="horizontal">
+        <ResizablePanelGroup orientation="horizontal">
           {/* Sidebar */}
           <ResizablePanel
             id="sidebar"
@@ -281,6 +359,11 @@ function DocsApp() {
               onViewModeChange={setViewMode}
               onLogoClick={goHomeAndSearch}
               uploadEnabled={uploadEnabled}
+              appView={appView}
+              onAppViewChange={handleAppViewChange}
+              runsEnabled={runsEnabled}
+              activeRuns={activeRunCount(runs)}
+              runsRail={<RunRail runs={runs} activeRunId={activeRunId} onSelect={selectRun} />}
             />
           </ResizablePanel>
           <ResizableHandle withHandle />
@@ -289,13 +372,20 @@ function DocsApp() {
           <ResizablePanel id="content" defaultSize="62%" minSize="30%">
             <div className="flex flex-col h-full min-w-0 overflow-hidden">
               <header className="flex h-12 items-center gap-2 border-b px-4 shrink-0">
-                <ProjectSwitcher
-                  projects={projects}
-                  activeProject={activeProject}
-                  onNavigate={navigateSmart}
-                  inline
-                />
+                {isRunsRoute ? (
+                  <span className="text-sm font-medium">Agent Runs</span>
+                ) : (
+                  <ProjectSwitcher
+                    projects={projects}
+                    activeProject={activeProject}
+                    onNavigate={navigateSmart}
+                    inline
+                  />
+                )}
               </header>
+              {isRunsRoute ? (
+                <RunsView runs={runs} loading={runsLoading} activeRunId={activeRunId} onRunChanged={refreshRuns} recordsNonce={runRecordsNonce} />
+              ) : (
               <DocContent
                 html={html}
                 loading={loading}
@@ -308,14 +398,17 @@ function DocsApp() {
                 reloadNonce={reloadNonce}
                 onNavigate={navigateSmart}
               />
+              )}
             </div>
           </ResizablePanel>
-          <ResizableHandle />
-
-          {/* TOC - always rendered, content conditional */}
-          <ResizablePanel id="toc" defaultSize="20%" minSize={120} maxSize="30%">
-            {hasToc ? <TocPanel toc={toc} /> : null}
-          </ResizablePanel>
+          {/* No TOC in Runs — the transcript takes the full width, and the
+              handle must go with the panel or it dangles. */}
+          {!isRunsRoute && <ResizableHandle />}
+          {!isRunsRoute && (
+            <ResizablePanel id="toc" defaultSize="20%" minSize={120} maxSize="30%">
+              {hasToc ? <TocPanel toc={toc} /> : null}
+            </ResizablePanel>
+          )}
         </ResizablePanelGroup>
       </div>
       <SearchDialog

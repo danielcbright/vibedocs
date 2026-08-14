@@ -1,0 +1,325 @@
+/**
+ * Agent Runs HTTP surface.
+ *
+ * Auth is split by path, not by method — see src/agent-runs/auth.ts:
+ *   POST /api/runs, POST /api/runs/:id/events   bearer token (dispatch client)
+ *   PATCH /api/runs/:id                          same-origin (browser UI)
+ *   GET  everything                              open on loopback
+ *
+ * Every 'disabled' outcome renders as 404 rather than 403, so a server with the
+ * feature off is indistinguishable from one that never had it.
+ */
+
+import type { Context, Hono } from 'hono'
+import { checkRunsControlAuth, checkRunsIngestAuth } from './auth.js'
+import type { AgentRunsEnvConfig } from './config.js'
+import type { Ingest } from './ingest.js'
+import type { RunStore } from './store.js'
+import { createCommandQueue, type CommandQueue } from './commands.js'
+import { createCodeHighlighter, enrichRecords, type TextRenderer } from './text-render.js'
+import { LINK_STATES, RUN_STATUSES, type LinkState, type RunCommandKind, type RunLink, type RunStatus } from '../shared/agent-run-types.js'
+import { isSafeUrlTemplate, type AgentRunsClientConfig } from '../shared/agent-runs-config-types.js'
+import { VibedocsError } from '../errors.js'
+
+export interface AgentRunsRouteDeps {
+  cfg: AgentRunsEnvConfig
+  clientConfig: AgentRunsClientConfig
+  store: RunStore
+  ingest: Ingest
+  renderer: TextRenderer
+  allowedOrigins: readonly string[]
+  /** Injectable for tests; defaults to a file-backed queue under cfg.runsDir. */
+  commands?: CommandQueue
+}
+
+const VALID_COMMAND_KINDS = new Set<RunCommandKind>(['stop'])
+
+function parseCommandKind(value: unknown): RunCommandKind {
+  if (typeof value !== 'string' || !VALID_COMMAND_KINDS.has(value as RunCommandKind)) {
+    throw new VibedocsError('invalid', 'kind must be: stop')
+  }
+  return value as RunCommandKind
+}
+
+function parseWaitMs(raw: string | undefined): number {
+  if (raw === undefined || raw === '') return 25000
+  const n = parseInt(raw, 10)
+  if (!Number.isFinite(n) || n < 0) return 25000
+  return Math.min(n, 60000)
+}
+
+const VALID_LINK_KINDS = new Set(['issue', 'pr', 'ci', 'other'])
+
+function parseLinks(value: unknown): RunLink[] {
+  if (!Array.isArray(value)) throw new VibedocsError('invalid', 'links must be an array')
+  return value.map((raw) => {
+    if (!raw || typeof raw !== 'object') throw new VibedocsError('invalid', 'link must be an object')
+    const l = raw as Record<string, unknown>
+    if (typeof l.label !== 'string' || typeof l.url !== 'string') {
+      throw new VibedocsError('invalid', 'link requires string label and url')
+    }
+    // A link goes straight into an href. Defense in depth: the frontend
+    // sanitizes too, but an executable scheme must not survive storage.
+    if (!isSafeUrlTemplate(l.url)) throw new VibedocsError('invalid', 'link url scheme not allowed')
+    const kind = typeof l.kind === 'string' && VALID_LINK_KINDS.has(l.kind) ? (l.kind as RunLink['kind']) : 'other'
+    // State is optional and dropped when unrecognised — an unknown value should
+    // render as "state unknown", not as a colour that asserts something false.
+    const state = typeof l.state === 'string' && LINK_STATES.includes(l.state as LinkState)
+      ? (l.state as LinkState)
+      : undefined
+    return { label: l.label, url: l.url, kind, ...(state ? { state } : {}) }
+  })
+}
+
+/**
+ * Language guess for a tool's output, from the path it touched or the tool kind.
+ * Mirrors the client's guess so the fallback render looks the same.
+ */
+function toolOutputLang(tool: { name: string; args: Record<string, unknown> }): string {
+  const p = String(tool.args?.path ?? tool.args?.file_path ?? '')
+  if (/\.tsx?$/.test(p)) return 'typescript'
+  if (/\.jsx?$/.test(p)) return 'javascript'
+  if (/\.go$/.test(p)) return 'go'
+  if (/\.py$/.test(p)) return 'python'
+  if (/\.sh$/.test(p)) return 'bash'
+  if (/\.ya?ml$/.test(p)) return 'yaml'
+  if (/\.json$/.test(p)) return 'json'
+  if (/\.md$/.test(p)) return 'markdown'
+  if (tool.name === 'shell') return 'bash'
+  return 'text'
+}
+
+function parseStatus(value: unknown): RunStatus {
+  if (typeof value !== 'string' || !RUN_STATUSES.includes(value as RunStatus)) {
+    throw new VibedocsError('invalid', `status must be one of: ${RUN_STATUSES.join(', ')}`)
+  }
+  return value as RunStatus
+}
+
+async function readJson(c: Context): Promise<Record<string, unknown>> {
+  try {
+    const body = await c.req.json()
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      throw new VibedocsError('invalid', 'Body must be a JSON object')
+    }
+    return body as Record<string, unknown>
+  } catch (err) {
+    if (err instanceof VibedocsError) throw err
+    throw new VibedocsError('invalid', 'Body must be valid JSON')
+  }
+}
+
+export function registerAgentRunsRoutes(app: Hono, deps: AgentRunsRouteDeps): void {
+  const { cfg, clientConfig, store, ingest, renderer, allowedOrigins } = deps
+  const commands = deps.commands ?? createCommandQueue({ runsDir: cfg.runsDir })
+  const highlighter = createCodeHighlighter()
+
+  /** Returns a Response to short-circuit with, or null to proceed. */
+  function ingestGate(c: Context): Response | null {
+    switch (checkRunsIngestAuth(cfg, c.req.header('Authorization'))) {
+      case 'disabled':
+      case 'no-token-configured':
+        return c.json({ error: 'Not Found' }, 404)
+      case 'unauthorized':
+        return c.json({ error: 'Unauthorized' }, 401)
+      case 'ok':
+        return null
+    }
+  }
+
+  function controlGate(c: Context): Response | null {
+    switch (
+      checkRunsControlAuth({
+        cfg,
+        origin: c.req.header('Origin'),
+        allowedOrigins,
+        authorization: c.req.header('Authorization'),
+      })
+    ) {
+      case 'disabled':
+        return c.json({ error: 'Not Found' }, 404)
+      case 'forbidden':
+        return c.json({ error: 'Forbidden' }, 403)
+      case 'ok':
+        return null
+    }
+  }
+
+  function readGate(c: Context): Response | null {
+    return cfg.enabled ? null : c.json({ error: 'Not Found' }, 404)
+  }
+
+  // ── Ingest ────────────────────────────────────────────────────────────────
+
+  app.post('/api/runs', async (c) => {
+    const denied = ingestGate(c)
+    if (denied) return denied
+
+    const body = await readJson(c)
+    if (typeof body.title !== 'string' || body.title.trim().length === 0) {
+      throw new VibedocsError('invalid', 'title is required')
+    }
+    if (typeof body.format !== 'string') throw new VibedocsError('invalid', 'format is required')
+
+    const meta = await ingest.registerRun({
+      id: typeof body.id === 'string' ? body.id : undefined,
+      title: body.title,
+      description: typeof body.description === 'string' ? body.description : undefined,
+      status: body.status !== undefined ? parseStatus(body.status) : undefined,
+      links: body.links !== undefined ? parseLinks(body.links) : undefined,
+      format: body.format,
+      agent: typeof body.agent === 'string' ? body.agent : undefined,
+      project: typeof body.project === 'string' ? body.project : undefined,
+      workdir: typeof body.workdir === 'string' ? body.workdir : undefined,
+    })
+    return c.json({ data: { id: meta.id, url: `/#/runs/${encodeURIComponent(meta.id)}` } })
+  })
+
+  app.post('/api/runs/:id/events', async (c) => {
+    const denied = ingestGate(c)
+    if (denied) return denied
+
+    const body = await readJson(c)
+    if (typeof body.format !== 'string') throw new VibedocsError('invalid', 'format is required')
+    if (!Array.isArray(body.events)) throw new VibedocsError('invalid', 'events must be an array')
+    const clientSeq = typeof body.clientSeq === 'number' ? body.clientSeq : undefined
+
+    return c.json({ data: await ingest.appendRaw(c.req.param('id'), body.format, body.events, clientSeq) })
+  })
+
+  // ── Control ───────────────────────────────────────────────────────────────
+
+  app.patch('/api/runs/:id', async (c) => {
+    const denied = controlGate(c)
+    if (denied) return denied
+
+    const body = await readJson(c)
+    const meta = await ingest.updateRun(c.req.param('id'), {
+      ...(typeof body.title === 'string' ? { title: body.title } : {}),
+      ...(typeof body.description === 'string' ? { description: body.description } : {}),
+      ...(body.status !== undefined ? { status: parseStatus(body.status) } : {}),
+      ...(body.links !== undefined ? { links: parseLinks(body.links) } : {}),
+    })
+    return c.json({ data: meta })
+  })
+
+  app.delete('/api/runs/:id', async (c) => {
+    const denied = controlGate(c)
+    if (denied) return denied
+
+    const id = c.req.param('id')
+    // ingest owns mutate-then-broadcast; the route stays a thin gate + shape check.
+    // Deleting a run used to be possible only out of band (removing its
+    // directory), which no connected client could ever learn about.
+    if (!(await ingest.deleteRun(id))) {
+      throw new VibedocsError('not-found', `Run not found: ${id}`)
+    }
+    return c.json({ data: { id, deleted: true } })
+  })
+
+  app.post('/api/runs/:id/commands', async (c) => {
+    const denied = controlGate(c)
+    if (denied) return denied
+
+    const id = c.req.param('id')
+    if (!(await store.getRun(id))) throw new VibedocsError('not-found', 'Run not found')
+
+    const body = await readJson(c)
+    const kind = parseCommandKind(body.kind)
+    const cmd = await commands.enqueueCommand(id, kind)
+    await store.patchRun(id, { stopRequested: true })
+    return c.json({ data: cmd })
+  })
+
+  app.get('/api/runs/:id/commands', async (c) => {
+    const denied = ingestGate(c)
+    if (denied) return denied
+
+    const id = c.req.param('id')
+    if (!(await store.getRun(id))) throw new VibedocsError('not-found', 'Run not found')
+
+    const pending = await commands.listPendingCommands(id, { waitMs: parseWaitMs(c.req.query('waitMs')) })
+    return c.json({ data: pending })
+  })
+
+  app.post('/api/runs/:id/commands/:cmdId/ack', async (c) => {
+    const denied = ingestGate(c)
+    if (denied) return denied
+
+    const id = c.req.param('id')
+    if (!(await store.getRun(id))) throw new VibedocsError('not-found', 'Run not found')
+
+    const body = await readJson(c)
+    const note = typeof body.note === 'string' ? body.note : undefined
+    const cmd = await commands.ackCommand(id, c.req.param('cmdId'), note)
+
+    const stillPending = await commands.listPendingCommands(id, { waitMs: 0 })
+    if (stillPending.length === 0) {
+      await store.patchRun(id, { stopRequested: false })
+    }
+    return c.json({ data: cmd })
+  })
+
+  // ── Reads ─────────────────────────────────────────────────────────────────
+  //
+  // NOTE: '/api/runs/config' MUST stay registered before '/api/runs/:id' —
+  // Hono matches in registration order, so the reverse resolves 'config' as a
+  // run id and 404s.
+
+  app.get('/api/runs', async (c) => {
+    const denied = readGate(c)
+    if (denied) return denied
+    return c.json({ data: await store.listRuns() })
+  })
+
+  app.get('/api/runs/config', (c) => {
+    const denied = readGate(c)
+    if (denied) return denied
+    return c.json({ data: clientConfig })
+  })
+
+  app.get('/api/runs/:id', async (c) => {
+    const denied = readGate(c)
+    if (denied) return denied
+    const meta = await store.getRun(c.req.param('id'))
+    if (!meta) throw new VibedocsError('not-found', 'Run not found')
+    return c.json({ data: meta })
+  })
+
+  /**
+   * Highlighted HTML for ONE tool event's output.
+   *
+   * Separate from the events page on purpose: output can be 256 KB and most
+   * rows are never expanded, so the timeline fetches this only on expand.
+   */
+  app.get('/api/runs/:id/events/:seq/output', async (c) => {
+    const denied = readGate(c)
+    if (denied) return denied
+    const id = c.req.param('id')
+    if (!(await store.getRun(id))) throw new VibedocsError('not-found', 'Run not found')
+
+    const seq = parseInt(c.req.param('seq'), 10)
+    if (!Number.isFinite(seq)) throw new VibedocsError('invalid', 'seq must be a number')
+
+    const event = (await store.readEvents(id)).find((e) => e.seq === seq)
+    if (!event) throw new VibedocsError('not-found', 'Event not found')
+    const output = event.tool?.output ?? ''
+    if (!output) return c.json({ data: { html: '' } })
+
+    return c.json({ data: { html: await highlighter.highlight(output, toolOutputLang(event.tool!)) } })
+  })
+
+  app.get('/api/runs/:id/events', async (c) => {
+    const denied = readGate(c)
+    if (denied) return denied
+    const id = c.req.param('id')
+    if (!(await store.getRun(id))) throw new VibedocsError('not-found', 'Run not found')
+
+    const raw = parseInt(c.req.query('fromRec') ?? '0', 10)
+    const fromRec = Number.isFinite(raw) && raw > 0 ? raw : 0
+    const page = await store.readRecords(id, fromRec)
+    return c.json({
+      data: { records: await enrichRecords(page.records, renderer), recCount: page.recCount },
+    })
+  })
+}

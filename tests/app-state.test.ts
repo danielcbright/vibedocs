@@ -3,6 +3,7 @@ import { mkdir, writeFile, rm, mkdtemp } from 'fs/promises'
 import path from 'path'
 import os from 'os'
 import { createAppState } from '../src/app-state.js'
+import type { IndexStore } from '../src/search.js'
 import { createInMemoryFsEventSource } from '../src/adapters/in-memory-fs-event-source.js'
 import { createInMemoryClientChannel } from '../src/adapters/in-memory-client-channel.js'
 import { parseUploadAuthConfig } from '../src/upload-auth.js'
@@ -101,6 +102,162 @@ describe('AppState — search index rebuild on markdown change', () => {
     expect(state.searchVersion).toBe(1)
 
     await state.shutdown()
+  })
+})
+
+describe('AppState — search rebuild is coalesced, never concurrent', () => {
+  /**
+   * Regression: rebuildSearchIndex() used to be fire-and-forget with no
+   * coalescing, so N markdown events put N full-tree walks in flight at once.
+   * Each in-flight walk retains its own IndexEntry[] of complete file contents
+   * (~86 MB against a real multi-project root), so a burst of ~48 events
+   * exhausted the 4 GB default heap and the process died with
+   * "FATAL ERROR: Reached heap limit". Measured: 1 rebuild = +82.5 MB,
+   * 10 concurrent = 867 MB peak, 60 concurrent = OOM. A worktree sweep emitted
+   * 2162 markdown events in one burst and killed the server before a single
+   * rebuild finished.
+   *
+   * The bound that matters is CONCURRENCY, not event count: at most one walk in
+   * flight caps peak heap at one live index plus the one being built.
+   */
+  function countingStore(rebuildMs = 5) {
+    let concurrent = 0
+    let version = 0
+    const stats = { maxConcurrent: 0, started: 0, completed: 0, patches: [] as string[] }
+    const store: IndexStore = {
+      get version() {
+        return version
+      },
+      search: () => [],
+      async rebuild() {
+        concurrent += 1
+        stats.started += 1
+        stats.maxConcurrent = Math.max(stats.maxConcurrent, concurrent)
+        await new Promise((r) => setTimeout(r, rebuildMs))
+        concurrent -= 1
+        stats.completed += 1
+        version += 1
+        return version
+      },
+      async updateFile(p) {
+        stats.patches.push(`upsert:${path.basename(p)}`)
+        return ++version
+      },
+      async removeFile(p) {
+        stats.patches.push(`remove:${path.basename(p)}`)
+        return ++version
+      },
+      async settled() {},
+    }
+    return { store, stats }
+  }
+
+  it('runs at most ONE rebuild at a time across a 50-event burst', async () => {
+    const projectDir = path.join(tmpDir, 'alpha')
+    await mkdir(projectDir, { recursive: true })
+
+    const { store, stats } = countingStore()
+    const { state, fsEvents } = buildState({ searchStore: store })
+    await state.start()
+
+    for (let i = 0; i < 50; i++) {
+      fsEvents.emit({ kind: 'unlinkDir', path: path.join(projectDir, `sub-${i}`) })
+    }
+
+    await state.settleSearchIndex()
+
+    expect(stats.maxConcurrent).toBe(1)
+    await state.shutdown()
+  })
+
+  it('coalesces a burst into far fewer rebuilds than events', async () => {
+    const projectDir = path.join(tmpDir, 'alpha')
+    await mkdir(projectDir, { recursive: true })
+
+    const { store, stats } = countingStore()
+    const { state, fsEvents } = buildState({ searchStore: store })
+    await state.start()
+    const before = stats.started
+
+    for (let i = 0; i < 50; i++) {
+      fsEvents.emit({ kind: 'addDir', path: path.join(projectDir, `sub-${i}`) })
+    }
+
+    await state.settleSearchIndex()
+
+    // 50 events must not mean 50 walks. They arrive inside one debounce window,
+    // so they collapse to a single rebuild.
+    expect(stats.started - before).toBeLessThanOrEqual(2)
+    await state.shutdown()
+  })
+
+  it('patches the index per file instead of re-walking on file events', async () => {
+    const projectDir = path.join(tmpDir, 'alpha')
+    await mkdir(projectDir, { recursive: true })
+
+    const { store, stats } = countingStore()
+    const { state, fsEvents } = buildState({ searchStore: store })
+    await state.start()
+    const before = stats.started
+
+    fsEvents.emit({ kind: 'add', path: path.join(projectDir, 'a.md') })
+    fsEvents.emit({ kind: 'change', path: path.join(projectDir, 'b.md') })
+    fsEvents.emit({ kind: 'unlink', path: path.join(projectDir, 'c.md') })
+    fsEvents.emit({ kind: 'change', path: path.join(projectDir, 'logo.png') })
+
+    await state.settleSearchIndex()
+
+    expect(stats.patches).toEqual(['upsert:a.md', 'upsert:b.md', 'remove:c.md'])
+    // A single file's change must never cost a full walk — that is the whole
+    // point of the incremental path.
+    expect(stats.started - before).toBe(0)
+    await state.shutdown()
+  })
+
+  it('still rebuilds once more for events that arrive DURING a rebuild', async () => {
+    // The trailing run is a correctness requirement, not an optimisation: a walk
+    // already underway may have passed the changed file before it changed.
+    const projectDir = path.join(tmpDir, 'alpha')
+    await mkdir(projectDir, { recursive: true })
+
+    const { store, stats } = countingStore(30)
+    const { state, fsEvents } = buildState({ searchStore: store, searchRebuildDelayMs: 1 })
+    await state.start()
+    // start() awaits searchStore.rebuild() directly (it wants to block), so one
+    // run has already started AND completed by here — count deltas, not totals.
+    const before = stats.started
+    const completedBefore = stats.completed
+
+    fsEvents.emit({ kind: 'unlinkDir', path: path.join(projectDir, 'first') })
+    // Wait past the debounce so the first rebuild is genuinely in flight.
+    await new Promise((r) => setTimeout(r, 10))
+    expect(stats.started - before).toBe(1)
+    expect(stats.completed - completedBefore).toBe(0)
+
+    fsEvents.emit({ kind: 'unlinkDir', path: path.join(projectDir, 'second') })
+    await state.settleSearchIndex()
+
+    expect(stats.started - before).toBe(2)
+    expect(stats.maxConcurrent).toBe(1)
+    await state.shutdown()
+  })
+
+  it('cancels a pending rebuild on shutdown', async () => {
+    const projectDir = path.join(tmpDir, 'alpha')
+    await mkdir(projectDir, { recursive: true })
+
+    const { store, stats } = countingStore()
+    const { state, fsEvents } = buildState({ searchStore: store, searchRebuildDelayMs: 50 })
+    await state.start()
+    const before = stats.started
+
+    // Must be a directory event: file events take the incremental path and
+    // would make this assertion pass without exercising cancel at all.
+    fsEvents.emit({ kind: 'addDir', path: path.join(projectDir, 'sub') })
+    await state.shutdown()
+
+    await new Promise((r) => setTimeout(r, 80))
+    expect(stats.started - before).toBe(0)
   })
 })
 

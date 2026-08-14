@@ -1,0 +1,265 @@
+#!/usr/bin/env bash
+#
+# Install VibeDocs as a macOS LaunchAgent that starts at login.
+#
+# Which folders get indexed is a question, not an assumption: this script asks,
+# because the right answer is personal. A home directory typically holds
+# ~/Library (thousands of directories of application state) and often
+# employer-synced folders, and neither belongs in a documentation browser.
+#
+# Selected folders are symlinked into a roots directory and VIBEDOCS_ROOT points
+# at that. Discovery follows symlinks, so each one appears as a project, and
+# changing the selection later is adding or removing a link — no reindexing, no
+# config migration.
+#
+# Interactive:
+#   ./scripts/install-macos.sh
+#
+# Non-interactive (an agent installing on someone's behalf):
+#   ./scripts/install-macos.sh --folders Development,Operations,Documents --yes
+#
+# Options:
+#   --folders a,b,c   Folder names under $HOME (or absolute paths) to index.
+#   --root <dir>      Where to keep the symlink roots. Default ~/.vibedocs/roots
+#   --port <n>        Port to serve on. Default 8080.
+#   --runs            Enable the Agent Runs viewer and mint an ingest token.
+#   --yes             Do not prompt; requires --folders.
+#   --uninstall       Unload and remove the LaunchAgent. Leaves your data alone.
+set -euo pipefail
+
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+LABEL="com.vibedocs.server"
+PLIST="$HOME/Library/LaunchAgents/${LABEL}.plist"
+VIBEDOCS_HOME="$HOME/.vibedocs"
+ROOTS_DIR="$VIBEDOCS_HOME/roots"
+PORT=8080
+FOLDERS=""
+ASSUME_YES=0
+ENABLE_RUNS=0
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --folders)   FOLDERS="${2:-}"; shift 2 ;;
+    --root)      ROOTS_DIR="${2:-}"; shift 2 ;;
+    --port)      PORT="${2:-}"; shift 2 ;;
+    --runs)      ENABLE_RUNS=1; shift ;;
+    --yes|-y)    ASSUME_YES=1; shift ;;
+    --uninstall) UNINSTALL=1; shift ;;
+    -h|--help)   sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+
+if [ "${UNINSTALL:-0}" = "1" ]; then
+  if [ -f "$PLIST" ]; then
+    launchctl unload -w "$PLIST" 2>/dev/null || true
+    rm -f "$PLIST"
+    echo "Removed $PLIST. Your documents and run data were not touched."
+  else
+    echo "Not installed — nothing to remove."
+  fi
+  exit 0
+fi
+
+# ── Which folders? ───────────────────────────────────────────────────────────
+
+if [ -z "$FOLDERS" ]; then
+  if [ "$ASSUME_YES" = "1" ]; then
+    echo "--yes requires --folders." >&2
+    exit 2
+  fi
+
+  echo "VibeDocs indexes the folders you choose. Nothing else is scanned."
+  echo
+  echo "Folders in $HOME that contain markdown:"
+  echo
+
+  candidates=()
+  i=0
+  tcc_seen=0
+  while IFS= read -r dir; do
+    name="$(basename "$dir")"
+    case "$name" in
+      Library|Applications|Movies|Music|Pictures|.*) continue ;;
+    esac
+    count=$(find "$dir" -maxdepth 4 -name '*.md' \
+      -not -path '*/node_modules/*' -not -path '*/.git/*' 2>/dev/null | wc -l | tr -d ' ')
+    [ "$count" -eq 0 ] && continue
+    i=$((i + 1))
+    candidates+=("$name")
+    noun="markdown files"; [ "$count" -eq 1 ] && noun="markdown file"
+    # Documents / Desktop / Downloads are TCC-protected on macOS. A LaunchAgent
+    # without Full Disk Access blocks on them at startup and never binds its
+    # port, with an empty log — so warn rather than let someone pick a silent hang.
+    tcc=""
+    case "$name" in
+      Documents|Desktop|Downloads) tcc="  ← needs Full Disk Access"; tcc_seen=1 ;;
+    esac
+    printf "  %2d) %-34s %s %s%s\n" "$i" "$name" "$count" "$noun" "$tcc"
+  done < <(find "$HOME" -maxdepth 1 -type d ! -path "$HOME" | sort)
+
+  if [ ${#candidates[@]} -eq 0 ]; then
+    echo "  (none found)"
+    echo
+    echo "Pass folders explicitly: --folders path/one,path/two"
+    exit 1
+  fi
+
+  if [ "$tcc_seen" = "1" ]; then
+    echo
+    echo "  Note: folders marked above are protected by macOS privacy controls."
+    echo "  A background service cannot read them until you grant Full Disk Access"
+    echo "  to node (System Settings > Privacy & Security > Full Disk Access)."
+    echo "  Without it the service starts but never answers, and logs nothing."
+  fi
+
+  echo
+  echo "Enter numbers to index, separated by spaces (or 'all'):"
+  read -r -p "> " picks
+
+  selected=()
+  if [ "$picks" = "all" ]; then
+    selected=("${candidates[@]}")
+  else
+    for n in $picks; do
+      idx=$((n - 1))
+      [ "$idx" -ge 0 ] && [ "$idx" -lt ${#candidates[@]} ] && selected+=("${candidates[$idx]}")
+    done
+  fi
+  # `set -u` makes an unset array expansion fatal, and an empty selection is a
+  # normal outcome (someone typing nothing to back out), not an error.
+  if [ ${#selected[@]} -eq 0 ]; then
+    echo
+    echo "Nothing selected — no changes made."
+    exit 0
+  fi
+  FOLDERS="$(IFS=,; echo "${selected[*]}")"
+fi
+
+if [ -z "$FOLDERS" ]; then
+  echo "No folders selected — nothing to do." >&2
+  exit 1
+fi
+
+# ── Link the selection ───────────────────────────────────────────────────────
+
+mkdir -p "$ROOTS_DIR"
+# Clear only symlinks, so a stray real directory is never deleted by this script.
+find "$ROOTS_DIR" -maxdepth 1 -type l -delete 2>/dev/null || true
+
+echo
+echo "Indexing:"
+IFS=',' read -ra parts <<< "$FOLDERS"
+for raw in "${parts[@]}"; do
+  folder="$(echo "$raw" | sed 's/^ *//; s/ *$//')"
+  [ -z "$folder" ] && continue
+  case "$folder" in
+    /*) target="$folder" ;;
+     *) target="$HOME/$folder" ;;
+  esac
+  if [ ! -d "$target" ]; then
+    echo "  ! $folder — not a directory, skipped"
+    continue
+  fi
+  # Symlink names become project names, and a slash would not survive.
+  link="$ROOTS_DIR/$(basename "$target" | tr '/' '-')"
+  ln -sfn "$target" "$link"
+  echo "  ✓ $target"
+done
+
+# ── Agent Runs ───────────────────────────────────────────────────────────────
+
+RUNS_ENV=""
+if [ "$ENABLE_RUNS" = "1" ]; then
+  TOKEN_FILE="$VIBEDOCS_HOME/runs-token"
+  if [ ! -f "$TOKEN_FILE" ]; then
+    mkdir -p "$VIBEDOCS_HOME"
+    openssl rand -hex 16 > "$TOKEN_FILE"
+    chmod 600 "$TOKEN_FILE"
+  fi
+  # Point at the token file rather than embedding the token. A LaunchAgent
+  # plist is world-readable (0644 under the default umask), so a secret pasted
+  # into one is readable by every local user; the file it names is 0600.
+  RUNS_ENV="
+    <key>VIBEDOCS_RUNS_ENABLED</key><string>true</string>
+    <key>VIBEDOCS_RUNS_TOKEN_FILE</key><string>${TOKEN_FILE}</string>"
+fi
+
+# ── LaunchAgent ──────────────────────────────────────────────────────────────
+
+mkdir -p "$HOME/Library/LaunchAgents" "$VIBEDOCS_HOME"
+[ -f "$PLIST" ] && launchctl unload -w "$PLIST" 2>/dev/null || true
+
+NODE_BIN="$(command -v node)"
+
+cat > "$PLIST" <<PLIST_EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>${LABEL}</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${NODE_BIN}</string>
+    <string>${REPO_DIR}/dist-cli/server.js</string>
+  </array>
+  <key>WorkingDirectory</key><string>${REPO_DIR}</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>VIBEDOCS_ROOT</key><string>${ROOTS_DIR}</string>
+    <key>VIBEDOCS_PORT</key><string>${PORT}</string>
+    <key>PATH</key><string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>${RUNS_ENV}
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>${VIBEDOCS_HOME}/vibedocs.log</string>
+  <key>StandardErrorPath</key><string>${VIBEDOCS_HOME}/vibedocs.error.log</string>
+</dict>
+</plist>
+PLIST_EOF
+
+# Defense in depth: the plist names no secret, but it does describe how this
+# service is wired, and there is no reason for it to be world-readable.
+chmod 600 "$PLIST"
+
+echo
+echo "Building…"
+( cd "$REPO_DIR" && npm run build:cli >/dev/null && npm run build >/dev/null )
+
+launchctl load -w "$PLIST"
+
+# Do not report success without checking. The failure this catches is a
+# TCC-protected folder in the roots: the process starts, blocks before binding,
+# and writes nothing to its log, so "installed" would otherwise be a lie.
+printf "\nStarting"
+up=""
+for _ in $(seq 1 30); do
+  if curl -fsS -o /dev/null "http://localhost:${PORT}/api/projects" 2>/dev/null; then up="yes"; break; fi
+  printf "."
+  sleep 1
+done
+echo
+
+if [ -z "$up" ]; then
+  echo "The service was installed but is not answering on port ${PORT}." >&2
+  echo >&2
+  echo "The usual cause is a folder protected by macOS privacy controls" >&2
+  echo "(Documents, Desktop, Downloads). A background service blocks on those" >&2
+  echo "at startup and logs nothing. Either:" >&2
+  echo "  - grant Full Disk Access to $(command -v node)" >&2
+  echo "    (System Settings > Privacy & Security > Full Disk Access), or" >&2
+  echo "  - re-run without those folders." >&2
+  echo >&2
+  echo "Currently indexing: $(ls "$ROOTS_DIR" | tr '\n' ' ')" >&2
+  exit 1
+fi
+
+echo "VibeDocs is running at http://localhost:${PORT}"
+echo "  roots:  $ROOTS_DIR"
+echo "  logs:   $VIBEDOCS_HOME/vibedocs.log"
+if [ "$ENABLE_RUNS" = "1" ]; then
+  echo "  runs:   enabled — ingest token in $VIBEDOCS_HOME/runs-token"
+fi
+echo
+echo "Stop it with:   ./scripts/install-macos.sh --uninstall"
+echo "Change folders: re-run this script, or add/remove links in $ROOTS_DIR"
