@@ -1,6 +1,6 @@
 import chokidar from 'chokidar'
 import path from 'path'
-import { readdirSync, realpathSync, statSync } from 'fs'
+import { lstatSync, readdirSync, realpathSync, statSync } from 'fs'
 import { EXCLUDED_DIRS } from '../excluded-paths.js'
 import type { FsEvent, FsEventListener, FsEventSource } from '../ports/fs-event-source.js'
 
@@ -178,6 +178,8 @@ export function createChokidarFsEventSource(
   const listeners: FsEventListener[] = []
   const roots = opts.rootDir !== undefined ? [opts.rootDir] : opts.roots
 
+  // Mutable, because a symlink appearing under a root adds a realpath prefix that
+  // was unknowable at boot. `ignored` closes over the array, so pushing is enough.
   const ignorePrefixes = resolveIgnorePrefixes(roots)
 
   const watcher = chokidar.watch(roots.map((root) => `${root}/**/*`), {
@@ -198,11 +200,55 @@ export function createChokidarFsEventSource(
     for (const l of listeners) l(event)
   }
 
+  /**
+   * A directory symlinked into a root after the watcher started needs telling
+   * about explicitly (#194).
+   *
+   * Chokidar reports its *appearance* through the parent directory's watch, so the
+   * project is listed and indexed — and then never establishes a file watcher
+   * inside it, so every later edit is lost. Measured against a live server: the
+   * link showed up, its docs were searchable, and editing one produced no event of
+   * any kind. A tree that silently freezes reads as a vibedocs bug, and looks
+   * identical to a healthy one.
+   *
+   * Two things are needed, and the second is easy to miss:
+   *
+   * 1. Watch it, via the SYMLINK path. Adding the realpath instead would make
+   *    events arrive spelled outside every root, and `toProjectRelativePath` maps
+   *    those to null — the edit would be seen and then dropped for naming reasons.
+   * 2. Register the realpath as an ignore prefix. Chokidar also reports resolved
+   *    paths for these, and a path under no known prefix falls back to matching
+   *    every segment — so a target that merely lives under `/tmp` or a `build`
+   *    directory would be ignored wholesale. That is not hypothetical: it is why
+   *    the first attempt at this looked fine on macOS and would have failed on
+   *    Linux, whose temp dir is `/tmp`.
+   */
+  function watchSymlinkedChild(dir: string): void {
+    if (!roots.some((root) => path.dirname(dir) === root)) return
+    try {
+      if (!lstatSync(dir).isSymbolicLink()) return
+    } catch {
+      return // vanished between the event and now
+    }
+
+    try {
+      const real = realpathSync(dir)
+      if (!ignorePrefixes.includes(real)) ignorePrefixes.push(real)
+    } catch {
+      // Broken link — nothing to resolve, and nothing to watch either.
+      return
+    }
+    watcher.add(`${dir}/**/*`)
+  }
+
   watcher
     .on('change', (p: string) => fanout({ kind: 'change', path: p }))
     .on('add', (p: string) => fanout({ kind: 'add', path: p }))
     .on('unlink', (p: string) => fanout({ kind: 'unlink', path: p }))
-    .on('addDir', (p: string) => fanout({ kind: 'addDir', path: p }))
+    .on('addDir', (p: string) => {
+      watchSymlinkedChild(p)
+      fanout({ kind: 'addDir', path: p })
+    })
     .on('unlinkDir', (p: string) => fanout({ kind: 'unlinkDir', path: p }))
 
   return {
