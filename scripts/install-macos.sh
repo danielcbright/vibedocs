@@ -169,6 +169,16 @@ for raw in "${parts[@]}"; do
     echo "  ! $folder — not a directory, skipped"
     continue
   fi
+  # VIBEDOCS_ROOTS is colon-separated, POSIX-style, exactly like PATH — so a path
+  # containing a colon cannot be expressed, and APFS does allow one. Joining it
+  # anyway yields two roots that are each half a path, and the server then reports
+  # directories the operator never named. Refuse instead of splitting it silently.
+  case "$target" in
+    *:*)
+      echo "  ! $folder — contains a colon, which separates roots. Rename the folder." >&2
+      exit 2
+      ;;
+  esac
   ROOTS+=("$target")
   echo "  ✓ $target"
 done
@@ -259,22 +269,27 @@ echo
 echo "Building…"
 ( cd "$REPO_DIR" && npm run build:cli >/dev/null && npm run build >/dev/null )
 
-launchctl load -w "$PLIST"
-
-# Do not report success without checking. The failure this catches is a
-# TCC-protected folder in the roots: the process starts, blocks before binding,
-# and writes nothing to its log, so "installed" would otherwise be a lie.
-# The server prints its refusal on stderr, which the plist routes to the error log
-# — not the same file as its normal output. Reading only one of them is how a
-# specific, actionable message gets replaced by a guess about Full Disk Access.
+# Do not report success without checking. Two failures hide here, and they need
+# different messages: a root configuration the server refuses outright, and a
+# TCC-protected folder, where the process starts, blocks before binding, and writes
+# nothing at all.
+#
+# The refusal goes to stderr, which the plist routes to the error log — a different
+# file from its normal output. Reading only one of them is how a specific,
+# actionable message gets replaced by a guess about Full Disk Access.
 LOG_OUT="$VIBEDOCS_HOME/vibedocs.log"
 LOG_ERR="$VIBEDOCS_HOME/vibedocs.error.log"
 
-# Only bytes appended after this point belong to the install being performed now.
-# Comparing the last refusal LINE instead does not work: re-running with the same
-# bad selection appends an identical message, which then looks unchanged and gets
-# skipped — leaving the operator with the generic guess for a problem the server
-# had already named.
+# Snapshot the log sizes BEFORE loading, so only bytes this install produced are
+# read. Both halves of that are load-bearing:
+#
+# - Taken *after* `launchctl load`, the refusal can be written in the gap and land
+#   below the offset, and would then be invisible. It only appeared to work because
+#   KeepAlive restarts the server and appends the message again — i.e. the feature
+#   depended on launchd's retry cadence rather than on anything here.
+# - Comparing the last refusal LINE instead of a byte offset does not work either:
+#   re-running with the same bad selection appends an identical message, which then
+#   looks unchanged and gets skipped.
 log_size() {
   if [ -f "$1" ]; then wc -c < "$1" | tr -d ' '; else echo 0; fi
 }
@@ -287,6 +302,8 @@ refusal_line() {
     tail -c "+$((OUT_OFFSET + 1))" "$LOG_OUT" 2>/dev/null || true
   } | grep '✖ VibeDocs cannot start' | tail -1 || true
 }
+
+launchctl load -w "$PLIST"
 
 printf "\nStarting"
 up=""

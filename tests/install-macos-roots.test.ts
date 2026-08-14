@@ -95,3 +95,24 @@ describe('install-macos.sh --help', () => {
     expect(out.trimEnd().split('\n').at(-1)).toMatch(/--uninstall/)
   })
 })
+
+/**
+ * A colon in a selected folder's path.
+ *
+ * `VIBEDOCS_ROOTS` is colon-separated, POSIX-style, exactly like `PATH` — so a
+ * path containing a literal colon cannot be expressed, and APFS does allow one.
+ * The separator is not going to change, so the installer has to refuse such a
+ * folder: joining it silently produces two roots that are each half a path, and
+ * the server then reports missing directories the operator never named.
+ */
+describe('install-macos.sh with a colon in a folder path', () => {
+  it('refuses rather than silently splitting the path in two', () => {
+    // Matched on the guard itself, not on the word appearing somewhere in a
+    // comment — the first version of this test passed against a script with no
+    // guard at all, because a comment above happened to say "colon-separated".
+    // The installer is not executed here: it writes a LaunchAgent plist, so
+    // running it from the suite would clobber a developer's own service.
+    expect(SCRIPT).toMatch(/case "\$target" in\s*\n\s*\*:\*\)/)
+    expect(SCRIPT).toMatch(/contains a colon[\s\S]{0,80}exit 2/)
+  })
+})
