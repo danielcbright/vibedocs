@@ -49,7 +49,18 @@ function vibedocsServiceWorker(): Plugin {
   }
 }
 
-export default defineConfig({
+/**
+ * Where the backend is during `npm run dev`.
+ *
+ * One value, read by the `/api` proxy AND injected for the WebSocket client, so the
+ * two cannot disagree about which port the server is on. Honours the same variables
+ * the server itself reads, so `VIBEDOCS_PORT=9000 npm run dev` moves both.
+ */
+const DEV_BACKEND =
+  process.env.VIBEDOCS_DEV_BACKEND ??
+  `http://localhost:${process.env.VIBEDOCS_PORT ?? process.env.PORT ?? 8080}`
+
+export default defineConfig(({ command }) => ({
   plugins: [react(), tailwindcss(), vibedocsServiceWorker()],
   resolve: {
     alias: {
@@ -81,15 +92,25 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:8080',
+        target: DEV_BACKEND,
         changeOrigin: true,
       },
     },
     // NOTE: `server.ws` is typed `false | undefined` — it exists only to switch
-    // Vite's own HMR socket OFF. A `ws: true` here did nothing (Vite creates the
-    // socket unless the value is exactly `false`), and it read as if it were
-    // proxying the app's WebSocket to the backend, which it never was: the client
-    // dials `window.location.host`, so in dev that is Vite, not :8080. Proxying
-    // that would need a `'/'` entry with `ws: true`, which is a separate decision.
+    // Vite's own HMR socket OFF, so a `ws: true` here did nothing. The app's own
+    // socket is not proxied at all: the client is told where the backend is via
+    // __VIBEDOCS_DEV_BACKEND__ below and dials it directly, which keeps it off the
+    // path Vite's HMR socket uses (#195).
   },
-})
+
+  define: {
+    // Serving only, so no dev host can be read out of a production bundle — and
+    // `import.meta.env.DEV` is false there anyway, making the branch unreachable.
+    // Keyed on import.meta.env rather than a bare global: a global cannot be read
+    // safely without a `typeof` guard, and that guard is what stops the value being
+    // substituted at all.
+    ...(command === 'serve'
+      ? { 'import.meta.env.VITE_DEV_BACKEND': JSON.stringify(DEV_BACKEND) }
+      : {}),
+  },
+}))
