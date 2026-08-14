@@ -243,7 +243,7 @@ Adding `src/server.ts` to `tsconfig.cli.json` pulled the whole server into a typ
 - **Mobile tap-targets:** `frontend/src/index.css` `@media (hover: none) and (pointer: coarse)` block exposes `.tap-target` (44×44), `.tap-row` (44px min-height), `.tap-visible-on-touch` (overrides hover-revealed UI), `.tap-active-feedback` (visible :active background). Prefer these on new mobile-facing controls over bespoke responsive sizing.
 - **Navigation:** `frontend/src/App.tsx` `navigateSmart(project, path)` — file paths navigate directly; empty/folder paths resolve to the first markdown file under that scope via depth-first tree walk. Used by `DocContent` (so breadcrumb folder/project clicks land on a real doc). Sidebar uses plain `navigate` since its clicks always have full file paths.
 - **Discovery:** `buildTree()` includes all file types; non-markdown files get `isAsset: true` flag. Root-level discovery stays markdown-only.
-- **File watcher:** Scope is `EXCLUDED_DIRS` + dot-directories, so it declines to watch anything the other three layers would refuse to index or serve (99,335 watched entries → 76,683 on a real set of roots; RSS 210 MB → 149 MB). Two traps live in that predicate, both silent: the default root `~/.vibedocs/roots` is itself a dot-directory, so a naive "ignore any dot segment" rule ignores *everything*; and because roots are **symlinks**, chokidar reports symlink-resolved paths (`/Users/x/Development/…`), so a purely root-relative predicate sees them as outside the root and ignores *nothing* — that mistake grew the watcher to 866,194 entries. `resolveIgnorePrefixes` resolves each root's realpath up front and the dot rule only applies below a known prefix. Also note macOS chokidar is fsevents-backed: it notifies recursively at the OS level and filters by full path, so the predicate must reject a dot-directory **ancestor**, not just the last segment. Markdown file events patch one index entry; directory events schedule a coalesced full re-walk (chokidar does not promise a per-file event for every file in a directory that appears or disappears in one operation, so the walk is the only way to be sure). Non-markdown file events only broadcast `refresh-tree`.
+- **File watcher:** Scope is `EXCLUDED_DIRS` + dot-directories, so it declines to watch anything the other three layers would refuse to index or serve (99,335 watched entries → 76,683 on a real set of roots; RSS 210 MB → 149 MB). Two traps live in that predicate, both silent, and both still reachable even though the macOS installer stopped creating the arrangement that first exposed them (#193 — it used to stage symlinks under `~/.vibedocs/roots` and point a single root at that; a root can still be a symlink or live under a dot-directory if configured by hand). First: a root that is *itself* under a dot-directory, e.g. `~/.vibedocs/roots`, means a naive "ignore any dot segment" rule matches the prefix and ignores *everything*. Second: when a root **is** a symlink, chokidar reports symlink-resolved paths (`/Users/x/Development/…`), so a purely root-relative predicate sees them as outside the root and ignores *nothing* — that mistake grew the watcher to 866,194 entries. `resolveIgnorePrefixes` resolves each root's realpath up front and the dot rule only applies below a known prefix. Also note macOS chokidar is fsevents-backed: it notifies recursively at the OS level and filters by full path, so the predicate must reject a dot-directory **ancestor**, not just the last segment. Markdown file events patch one index entry; directory events schedule a coalesced full re-walk (chokidar does not promise a per-file event for every file in a directory that appears or disappears in one operation, so the walk is the only way to be sure). Non-markdown file events only broadcast `refresh-tree`.
 - **Several roots (`VIBEDOCS_ROOTS`):** `src/project-roots.ts` owns the whole feature and is pure — filesystem questions come in as an injected `dirExists`. Three facts about it are load-bearing:
   - **`projectNameFor` and `locateProject` are inverses, and four seams depend on them agreeing**: discovery names projects, the search index names them again while walking, `toProjectRelativePath` puts a name on the WebSocket, and `PathResolver` turns a name from a URL back into a directory. A disagreement surfaces as a search hit that 404s when clicked, with nothing in any log explaining why. That is why both live in one file with a round-trip test.
   - **A shadowed project's name is `<name>~<rootBasename>`, and the first root keeps the bare name.** Deliberately asymmetric: appending a root must never rename an existing project, because a project name is the routing key every saved link contains. `~` is the qualifier for three reasons at once — it is not `/` (the hash router splits the project at the first one), no browser percent-encodes it, and **`encodeURIComponent` does not escape it either**, so the verbatim and encoded spellings are the same string. `@` failed that last one and walked straight into a real bug in `extractProjectPath`; a counter suffix (`docs (2)`) would fail a different requirement, being un-invertible and so forcing a live name→directory registry that `PathResolver` must stay free of (ADR-0001).
@@ -313,11 +313,33 @@ This is the vibedocs-side capstone of the publishable-static-site engine (#45 sp
 login. It *asks which folders to index* rather than assuming a root — a home
 directory typically contains `~/Library` (thousands of directories of
 application state) and often employer-synced folders, and neither belongs in a
-documentation browser. Selected folders are symlinked into `~/.vibedocs/roots`
-and `VIBEDOCS_ROOT` points there; discovery uses `stat`, not `lstat`, so each
-symlink resolves to a project. Changing the selection later is adding or
-removing a link. The script is also drivable non-interactively
+documentation browser. Selected folders are named directly in `VIBEDOCS_ROOTS`,
+so the watcher sees real paths. The script is also drivable non-interactively
 (`--folders a,b,c --yes`) for an agent installing on someone's behalf.
+
+**Two things about that changed in #193, and the second one is breaking.**
+
+It used to symlink the selection into `~/.vibedocs/roots` and point
+`VIBEDOCS_ROOT` there, telling the operator they could change folders by adding
+or removing a link. That only half worked: a link added while the service ran was
+listed and indexed once and then **silently stopped receiving file events** (see
+#194), so a restart was already required and nobody was told. The farm was also
+the reason the watcher predicate had to reason about symlink-resolved paths — the
+mistake that grew it to 866,194 entries.
+
+And because each symlink was a *child* of the single root, each selected folder
+appeared as **one project**. As a root, a selected folder's children are the
+projects instead: picking `~/Development` used to give one `Development` entry
+containing everything, and now gives one entry per repo under it. That is the
+documented model (a root *contains* project directories) and it navigates better,
+but it renames every path — **hash links saved against the old shape break.**
+Re-running the installer is what migrates an existing install.
+
+Selection errors now fail at boot rather than silently: the server refuses to
+start on two roots sharing a basename or one nested inside another, and the
+installer reprints that refusal instead of guessing. Note it reads **both** logs
+to find it — the refusal goes to stderr, which the plist routes to
+`vibedocs.error.log`, not `vibedocs.log`.
 
 **macOS privacy controls are the trap here.** `~/Documents`, `~/Desktop` and
 `~/Downloads` are TCC-protected. A LaunchAgent whose roots include one of them
