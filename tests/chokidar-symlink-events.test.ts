@@ -84,27 +84,48 @@ async function linkedRoot() {
   )
   events.length = 0
 
+  const viaLink = path.join(link, 'doc.md')
+  const viaReal = path.join(external, 'doc.md')
+
   return {
     events,
     /** The file, by both spellings — chokidar may report either. */
-    viaLink: path.join(link, 'doc.md'),
-    viaReal: path.join(external, 'doc.md'),
+    viaLink,
+    viaReal,
+    /**
+     * Only `change` events for that file.
+     *
+     * Filtering on kind is load-bearing, not tidiness: re-watching the directory
+     * makes chokidar scan it and emit `add` for what it finds, so an assertion that
+     * matched on path alone could pick up that `add` and fail on its kind. It did —
+     * on macOS CI only, where the ordering differs from Linux.
+     */
+    changes: () => events.filter((e) => e.kind === 'change' && (e.path === viaLink || e.path === viaReal)),
   }
+}
+
+/**
+ * Edit the file until a change event for it lands, and return those events.
+ *
+ * Throws if none arrives, which is the real assertion — before the fix this is
+ * exactly where it hung, with nothing delivered by either spelling.
+ */
+async function editUntilChange(linked: Awaited<ReturnType<typeof linkedRoot>>): Promise<FsEvent[]> {
+  await until(
+    'edit inside the symlinked directory',
+    () => appendFile(linked.viaReal, '\nmore'),
+    () => linked.changes().length > 0,
+  )
+  return linked.changes()
 }
 
 describe('a directory symlinked into a root after the watcher started', () => {
   it(
     'delivers change events for files inside it',
     async () => {
-      const { events, viaLink, viaReal } = await linkedRoot()
-
-      await until(
-        'edit inside the symlinked directory',
-        () => appendFile(viaReal, '\nmore'),
-        () => events.some((e) => e.path === viaLink || e.path === viaReal),
-      )
-      const event = events.find((e) => e.path === viaLink || e.path === viaReal)!
-      expect(event.kind).toBe('change')
+      // Asserting on the count rather than re-checking `kind`, which the filter
+      // already selected on — that would pass by construction.
+      expect(await editUntilChange(await linkedRoot())).not.toHaveLength(0)
     },
     60_000,
   )
@@ -116,14 +137,9 @@ describe('a directory symlinked into a root after the watcher started', () => {
       // into `<project>/<rel>` for the reload broadcast, and it can only do that
       // for a path under a configured root — a realpath outside every root yields
       // null, and the edit would be seen and then dropped for naming reasons.
-      const { events, viaLink, viaReal } = await linkedRoot()
-
-      await until(
-        'edit inside the symlinked directory',
-        () => appendFile(viaReal, '\nmore'),
-        () => events.some((e) => e.path === viaLink || e.path === viaReal),
-      )
-      expect(events.find((e) => e.path === viaLink || e.path === viaReal)!.path).toBe(viaLink)
+      const linked = await linkedRoot()
+      const changes = await editUntilChange(linked)
+      expect(changes[0].path).toBe(linked.viaLink)
     },
     60_000,
   )
