@@ -176,7 +176,7 @@ Colon is the separator on Linux and macOS, which are the supported platforms.
 npm run dev   # Backend (8080) + Vite dev server (5173) with HMR
 ```
 
-The Vite dev server proxies `/api/*` to the backend, giving you hot module reload for frontend changes and auto-restart for backend changes.
+The Vite dev server proxies `/api/*` to the backend, giving you hot module reload for frontend changes and auto-restart for backend changes. The app's own WebSocket is **not** proxied — it dials the backend directly, because a plain WebSocket to a Vite dev server hangs (Vite's socket expects its HMR subprotocol). `VIBEDOCS_PORT=9000 npm run dev` moves both the proxy and that socket.
 
 ```bash
 npm run dev:server    # Backend only
