@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react"
 import { parseWsMessage, type WsMessage } from "@shared/ws-messages"
+import { devWsTarget, resolveWsUrl } from "@/lib/ws-url"
 
 interface UseWebSocketOptions {
   onReload?: (path: string) => void
@@ -61,9 +62,9 @@ export function useWebSocket({ onReload, onRefreshTree, onRunUpdated, onRunRecor
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) return
 
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
-    const host = window.location.host
-    const ws = new WebSocket(`${protocol}//${host}`)
+    // Not `window.location` directly: under `npm run dev` that is Vite, where a
+    // plain WebSocket hangs rather than failing. See resolveWsUrl (#195).
+    const ws = new WebSocket(resolveWsUrl(window.location, devWsTarget()))
 
     ws.onopen = () => setConnected(true)
 
