@@ -16,10 +16,6 @@
  */
 
 /**
- * Injected by Vite's `define` — the dev backend's origin while serving, and the
- * literal `null` in a build. Declared here beside the only function that reads it.
- */
-/**
  * The dev backend's origin, or null outside dev.
  *
  * Read from `import.meta.env` rather than a bare `define`d global. A global works

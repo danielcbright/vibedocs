@@ -99,8 +99,8 @@ export default defineConfig(({ command }) => ({
     // NOTE: `server.ws` is typed `false | undefined` — it exists only to switch
     // Vite's own HMR socket OFF, so a `ws: true` here did nothing. The app's own
     // socket is not proxied at all: the client is told where the backend is via
-    // __VIBEDOCS_DEV_BACKEND__ below and dials it directly, which keeps it off the
-    // path Vite's HMR socket uses (#195).
+    // `import.meta.env.VITE_DEV_BACKEND` below and dials it directly, which keeps
+    // it off the path Vite's HMR socket uses (#195).
   },
 
   define: {
