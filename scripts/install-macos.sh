@@ -7,10 +7,15 @@
 # ~/Library (thousands of directories of application state) and often
 # employer-synced folders, and neither belongs in a documentation browser.
 #
-# Selected folders are symlinked into a roots directory and VIBEDOCS_ROOT points
-# at that. Discovery follows symlinks, so each one appears as a project, and
-# changing the selection later is adding or removing a link — no reindexing, no
-# config migration.
+# Selected folders are named directly in VIBEDOCS_ROOTS, so the watcher sees real
+# paths. Changing the selection is re-running this script.
+#
+# This used to stage symlinks under ~/.vibedocs/roots instead, and claim you could
+# change the selection by adding or removing a link. That only half worked — a link
+# added while the service ran was listed and indexed once and then silently stopped
+# receiving file events, so a restart was already required and you simply were not
+# told. The farm was also why the watcher had to reason about symlink-resolved
+# paths, which grew it to 866,194 entries once.
 #
 # Interactive:
 #   ./scripts/install-macos.sh
@@ -20,7 +25,6 @@
 #
 # Options:
 #   --folders a,b,c   Folder names under $HOME (or absolute paths) to index.
-#   --root <dir>      Where to keep the symlink roots. Default ~/.vibedocs/roots
 #   --port <n>        Port to serve on. Default 8080.
 #   --runs            Enable the Agent Runs viewer and mint an ingest token.
 #   --yes             Do not prompt; requires --folders.
@@ -31,7 +35,8 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LABEL="com.vibedocs.server"
 PLIST="$HOME/Library/LaunchAgents/${LABEL}.plist"
 VIBEDOCS_HOME="$HOME/.vibedocs"
-ROOTS_DIR="$VIBEDOCS_HOME/roots"
+# Only referenced to clean up after a previous install that staged symlinks here.
+LEGACY_ROOTS_DIR="$VIBEDOCS_HOME/roots"
 PORT=8080
 FOLDERS=""
 ASSUME_YES=0
@@ -40,12 +45,18 @@ ENABLE_RUNS=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --folders)   FOLDERS="${2:-}"; shift 2 ;;
-    --root)      ROOTS_DIR="${2:-}"; shift 2 ;;
+    # Retired with the symlink farm. Named explicitly rather than left to the
+    # catch-all, because "unknown option" would read as a typo to anyone with the
+    # old invocation in their shell history.
+    --root)      echo "--root is gone: folders are now named directly, with no staging directory. Use --folders." >&2; exit 2 ;;
     --port)      PORT="${2:-}"; shift 2 ;;
     --runs)      ENABLE_RUNS=1; shift ;;
     --yes|-y)    ASSUME_YES=1; shift ;;
     --uninstall) UNINSTALL=1; shift ;;
-    -h|--help)   sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    # Print the header comment, however long it happens to be. A hard-coded line
+    # range silently truncated this the first time the header grew — the options
+    # list vanished while --help still exited 0.
+    -h|--help)   awk 'NR>1 && /^#/ { sub(/^# ?/, ""); print; next } NR>1 { exit }' "$0"; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
 done
@@ -141,14 +152,11 @@ if [ -z "$FOLDERS" ]; then
   exit 1
 fi
 
-# ── Link the selection ───────────────────────────────────────────────────────
-
-mkdir -p "$ROOTS_DIR"
-# Clear only symlinks, so a stray real directory is never deleted by this script.
-find "$ROOTS_DIR" -maxdepth 1 -type l -delete 2>/dev/null || true
+# ── Resolve the selection ────────────────────────────────────────────────────
 
 echo
 echo "Indexing:"
+ROOTS=()
 IFS=',' read -ra parts <<< "$FOLDERS"
 for raw in "${parts[@]}"; do
   folder="$(echo "$raw" | sed 's/^ *//; s/ *$//')"
@@ -161,11 +169,46 @@ for raw in "${parts[@]}"; do
     echo "  ! $folder — not a directory, skipped"
     continue
   fi
-  # Symlink names become project names, and a slash would not survive.
-  link="$ROOTS_DIR/$(basename "$target" | tr '/' '-')"
-  ln -sfn "$target" "$link"
+  # VIBEDOCS_ROOTS is colon-separated, POSIX-style, exactly like PATH — so a path
+  # containing a colon cannot be expressed, and APFS does allow one. Joining it
+  # anyway yields two roots that are each half a path, and the server then reports
+  # directories the operator never named. Refuse instead of splitting it silently.
+  case "$target" in
+    *:*)
+      echo "  ! $folder — contains a colon, which separates roots. Rename the folder." >&2
+      exit 2
+      ;;
+  esac
+  ROOTS+=("$target")
   echo "  ✓ $target"
 done
+
+if [ ${#ROOTS[@]} -eq 0 ]; then
+  echo
+  echo "None of those folders exist — nothing to install." >&2
+  exit 1
+fi
+
+# Colon-separated, which is what VIBEDOCS_ROOTS takes. The server rejects two
+# roots sharing a basename, or one nested inside another, and says which — those
+# rules are NOT restated here, or they would drift from the ones in the code. The
+# health check below reprints whatever the server refuses on.
+ROOTS_JOINED="$(IFS=:; echo "${ROOTS[*]}")"
+
+# A folder name containing &, < or > would otherwise produce a plist that is not
+# valid XML, and launchd's complaint about that names neither the file nor the
+# character.
+ROOTS_XML="$(printf '%s' "$ROOTS_JOINED" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g')"
+
+# Tidy up after an install that staged symlinks here. Only links, and only if the
+# directory is then empty, so anything an operator put there by hand survives.
+if [ -d "$LEGACY_ROOTS_DIR" ]; then
+  find "$LEGACY_ROOTS_DIR" -maxdepth 1 -type l -delete 2>/dev/null || true
+  if rmdir "$LEGACY_ROOTS_DIR" 2>/dev/null; then
+    echo
+    echo "Removed $LEGACY_ROOTS_DIR (a previous install staged symlinks there; roots are named directly now)."
+  fi
+fi
 
 # ── Agent Runs ───────────────────────────────────────────────────────────────
 
@@ -206,7 +249,7 @@ cat > "$PLIST" <<PLIST_EOF
   <key>WorkingDirectory</key><string>${REPO_DIR}</string>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>VIBEDOCS_ROOT</key><string>${ROOTS_DIR}</string>
+    <key>VIBEDOCS_ROOTS</key><string>${ROOTS_XML}</string>
     <key>VIBEDOCS_PORT</key><string>${PORT}</string>
     <key>PATH</key><string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>${RUNS_ENV}
   </dict>
@@ -226,15 +269,52 @@ echo
 echo "Building…"
 ( cd "$REPO_DIR" && npm run build:cli >/dev/null && npm run build >/dev/null )
 
+# Do not report success without checking. Two failures hide here, and they need
+# different messages: a root configuration the server refuses outright, and a
+# TCC-protected folder, where the process starts, blocks before binding, and writes
+# nothing at all.
+#
+# The refusal goes to stderr, which the plist routes to the error log — a different
+# file from its normal output. Reading only one of them is how a specific,
+# actionable message gets replaced by a guess about Full Disk Access.
+LOG_OUT="$VIBEDOCS_HOME/vibedocs.log"
+LOG_ERR="$VIBEDOCS_HOME/vibedocs.error.log"
+
+# Snapshot the log sizes BEFORE loading, so only bytes this install produced are
+# read. Both halves of that are load-bearing:
+#
+# - Taken *after* `launchctl load`, the refusal can be written in the gap and land
+#   below the offset, and would then be invisible. It only appeared to work because
+#   KeepAlive restarts the server and appends the message again — i.e. the feature
+#   depended on launchd's retry cadence rather than on anything here.
+# - Comparing the last refusal LINE instead of a byte offset does not work either:
+#   re-running with the same bad selection appends an identical message, which then
+#   looks unchanged and gets skipped.
+log_size() {
+  if [ -f "$1" ]; then wc -c < "$1" | tr -d ' '; else echo 0; fi
+}
+ERR_OFFSET="$(log_size "$LOG_ERR")"
+OUT_OFFSET="$(log_size "$LOG_OUT")"
+
+refusal_line() {
+  {
+    tail -c "+$((ERR_OFFSET + 1))" "$LOG_ERR" 2>/dev/null || true
+    tail -c "+$((OUT_OFFSET + 1))" "$LOG_OUT" 2>/dev/null || true
+  } | grep '✖ VibeDocs cannot start' | tail -1 || true
+}
+
 launchctl load -w "$PLIST"
 
-# Do not report success without checking. The failure this catches is a
-# TCC-protected folder in the roots: the process starts, blocks before binding,
-# and writes nothing to its log, so "installed" would otherwise be a lie.
 printf "\nStarting"
 up=""
+refusal=""
 for _ in $(seq 1 30); do
   if curl -fsS -o /dev/null "http://localhost:${PORT}/api/projects" 2>/dev/null; then up="yes"; break; fi
+  # Stop waiting the moment the server says why it will not start. KeepAlive
+  # restarts it on a loop, so without this the operator watches 30 dots for a
+  # verdict that was available after one.
+  refusal="$(refusal_line)"
+  [ -n "$refusal" ] && break
   printf "."
   sleep 1
 done
@@ -243,23 +323,44 @@ echo
 if [ -z "$up" ]; then
   echo "The service was installed but is not answering on port ${PORT}." >&2
   echo >&2
-  echo "The usual cause is a folder protected by macOS privacy controls" >&2
-  echo "(Documents, Desktop, Downloads). A background service blocks on those" >&2
-  echo "at startup and logs nothing. Either:" >&2
-  echo "  - grant Full Disk Access to $(command -v node)" >&2
-  echo "    (System Settings > Privacy & Security > Full Disk Access), or" >&2
-  echo "  - re-run without those folders." >&2
+
+  # The server refuses to start on a root configuration that cannot work — two
+  # roots sharing a basename, or one nested inside another — and prints why. If it
+  # did, that is the answer, and it is more specific than anything this script
+  # could guess. Checked first for exactly that reason.
+  if [ -n "$refusal" ]; then
+    echo "The server refused to start:" >&2
+    echo >&2
+    echo "  ${refusal}" >&2
+    echo >&2
+    echo "Re-run with a folder selection that avoids it." >&2
+  else
+    # Nothing in the log at all is itself the signal: a TCC-protected folder makes
+    # the process block before it binds, writing neither output nor an error.
+    echo "The usual cause is a folder protected by macOS privacy controls" >&2
+    echo "(Documents, Desktop, Downloads). A background service blocks on those" >&2
+    echo "at startup and logs nothing. Either:" >&2
+    echo "  - grant Full Disk Access to $(command -v node)" >&2
+    echo "    (System Settings > Privacy & Security > Full Disk Access), or" >&2
+    echo "  - re-run without those folders." >&2
+  fi
+
   echo >&2
-  echo "Currently indexing: $(ls "$ROOTS_DIR" | tr '\n' ' ')" >&2
+  echo "Roots it was given: ${ROOTS_JOINED}" >&2
+  echo "Logs:               $LOG_OUT" >&2
+  echo "                    $LOG_ERR" >&2
   exit 1
 fi
 
 echo "VibeDocs is running at http://localhost:${PORT}"
-echo "  roots:  $ROOTS_DIR"
+for root in "${ROOTS[@]}"; do
+  echo "  root:   $root"
+done
 echo "  logs:   $VIBEDOCS_HOME/vibedocs.log"
 if [ "$ENABLE_RUNS" = "1" ]; then
   echo "  runs:   enabled — ingest token in $VIBEDOCS_HOME/runs-token"
 fi
 echo
 echo "Stop it with:   ./scripts/install-macos.sh --uninstall"
-echo "Change folders: re-run this script, or add/remove links in $ROOTS_DIR"
+echo "Change folders: re-run this script. The roots are in the plist, so a change"
+echo "                needs the service restarted — which re-running does for you."

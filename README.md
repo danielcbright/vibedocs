@@ -196,7 +196,18 @@ npm run build         # Build the frontend bundle
 
 ## Deployment
 
-VibeDocs is designed to run as a persistent service. A systemd unit file is included in `systemd/vibedocs.service` — edit the paths and run `scripts/setup-service.sh` to install it.
+VibeDocs is designed to run as a persistent service.
+
+**macOS.** `scripts/install-macos.sh` installs a LaunchAgent that starts at login.
+It asks which folders to index rather than assuming — a home directory usually
+holds `~/Library` and often employer-synced folders, and neither belongs in a
+documentation browser. The folders you pick are written into `VIBEDOCS_ROOTS`, so
+each one is a root and the projects are the directories inside it. Change the
+selection by re-running the script; it restarts the service for you.
+
+It is also drivable non-interactively: `--folders Development,Notes --yes`.
+
+**Linux.** A systemd unit file is included in `systemd/vibedocs.service` — edit the paths and run `scripts/setup-service.sh` to install it.
 
 See `scripts/promote.sh` for a build-validate-restart workflow.
 
