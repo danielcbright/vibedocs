@@ -375,3 +375,20 @@ Without this, cross-origin pages cannot establish WebSocket connections — whic
 - Path alias `@/` resolves to `frontend/src/` in the frontend code
 - The `files:` array in `package.json` is an enforceable public surface — changes to it require updating `tests/package-shape.test.ts` to match
 - The `prepare` lifecycle script is `scripts/prepare.mjs`. `prepare` fires on every `npm install`, including local self-installs where the ~13s Vite frontend build is pure waste. The script skips that build when `INIT_CWD === <package dir>` (npm's signal for a self-install in the source repo) and runs it otherwise (consumer git-dep installs, where `frontend/dist/` genuinely must materialize). `build:cli` (cheap `tsc`) and husky hook setup run in both paths; husky is best-effort so a consumer's prod-deps install (no husky devDep, no git repo) doesn't break.
+
+## Where research, plans and specs live
+
+Research notes, plans and specs for this repo live in the private
+[engineering-docs](https://github.com/danielcbright/engineering-docs) repo,
+cloned beside this one as `../engineering-docs`. Nothing under `docs/` here
+holds them any more:
+
+- research notes (`/research`): `../engineering-docs/vibedocs/research/`
+- superpowers specs and plans (brainstorming, writing-plans):
+  `../engineering-docs/vibedocs/superpowers/specs/` and
+  `../engineering-docs/vibedocs/superpowers/plans/`, not `docs/superpowers/`
+- other plans and specs: `../engineering-docs/vibedocs/plans/` and
+  `../engineering-docs/vibedocs/specs/`
+
+Write new ones there. `CONTEXT.md` and `docs/adr/` stay in this repo: the
+domain-modeling skill writes them at these paths and a clone must see them.
