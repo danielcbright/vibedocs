@@ -57,6 +57,17 @@ describe('install-macos.sh root staging (#193)', () => {
     expect(SCRIPT).toMatch(/legacy|previous install/i)
   })
 
+  it('keeps the roots file apart from the legacy symlink directory', () => {
+    // An upgraded machine can still have ~/.vibedocs/roots as a directory holding
+    // what an operator put there by hand; a file of the same name could not be
+    // written over it.
+    const file = /^ROOTS_FILE="([^"]+)"$/m.exec(SCRIPT)?.[1]
+    const legacy = /^LEGACY_ROOTS_DIR="([^"]+)"$/m.exec(SCRIPT)?.[1]
+    expect(file).toBeDefined()
+    expect(legacy).toBeDefined()
+    expect(file).not.toBe(legacy)
+  })
+
   it('no longer offers --root, since there is no staging directory', () => {
     expect(SCRIPT).not.toMatch(/^ {2}--root </m)
   })
@@ -131,10 +142,10 @@ describe('install-macos.sh --dry-run --folders', () => {
 
   it('takes a nested folder below the top level of home', () => {
     const out = run('--folders', 'src/work,ops', '--yes')
-    const rootsSection = out.slice(out.indexOf(`${home}/.vibedocs/roots:`), out.indexOf('.plist:'))
+    const rootsSection = out.slice(out.indexOf(`${home}/.vibedocs/roots.txt:`), out.indexOf('.plist:'))
     expect(rootsSection).toContain(`  ${home}/src/work\n`)
     expect(rootsSection).toContain(`  ${home}/ops\n`)
-    expect(out).toContain(`<key>VIBEDOCS_ROOTS_FILE</key><string>${home}/.vibedocs/roots</string>`)
+    expect(out).toContain(`<key>VIBEDOCS_ROOTS_FILE</key><string>${home}/.vibedocs/roots.txt</string>`)
   })
 
   it('keeps --folders as it was: names under home, absolute paths, missing ones skipped', () => {

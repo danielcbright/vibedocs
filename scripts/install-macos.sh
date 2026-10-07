@@ -10,7 +10,7 @@
 # Run without --folders, it opens a folder picker in your browser (`vibedocs
 # pick-roots`), where any folder can be ticked, not just the top level of your home
 # folder: ~/src/work rather than all of ~/src. The choice is written to
-# ~/.vibedocs/roots, one path per line, and the LaunchAgent names that file
+# ~/.vibedocs/roots.txt, one path per line, and the LaunchAgent names that file
 # (VIBEDOCS_ROOTS_FILE). The Settings page inside VibeDocs edits the same file and
 # restarts the service to apply it; re-running this script works too.
 #
@@ -40,7 +40,9 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LABEL="com.vibedocs.server"
 PLIST="$HOME/Library/LaunchAgents/${LABEL}.plist"
 VIBEDOCS_HOME="$HOME/.vibedocs"
-ROOTS_FILE="$VIBEDOCS_HOME/roots"
+# Not "$VIBEDOCS_HOME/roots": that is the legacy symlink DIRECTORY below, which an
+# upgrade may still have, holding whatever an operator put there by hand.
+ROOTS_FILE="$VIBEDOCS_HOME/roots.txt"
 # Only referenced to clean up after a previous install that staged symlinks here.
 LEGACY_ROOTS_DIR="$VIBEDOCS_HOME/roots"
 PORT=8080
