@@ -104,6 +104,7 @@ vi.mock('../src/server-routes.js', () => ({
   registerSearchRoute: () => { hoisted.callLog.push('registerSearchRoute') },
   registerFileRoute: () => { hoisted.callLog.push('registerFileRoute') },
   registerProjectTreeRoute: () => { hoisted.callLog.push('registerProjectTreeRoute') },
+  registerProjectsRoute: () => { hoisted.callLog.push('registerProjectsRoute') },
 }))
 
 vi.mock('../src/upload-route.js', () => ({

@@ -37,6 +37,13 @@ still change in a minor release.
 
 ### Changed
 
+- **The sidebar tree is kept in memory.** File changes patch it in place, and
+  folder changes rebuild only the project they are in. `refresh-tree` is sent
+  only after the tree has changed, and `/api/projects` answers a tab that is
+  already current with a 304, so a change no longer costs a full walk of every
+  root for each open tab.
+- **A full search re-walk re-reads only files whose modification time or size
+  changed**, instead of holding a second copy of every document while it runs.
 - **macOS installer**: without `--folders` it opens the browser picker instead of
   listing only the top level of `~`, starting from the roots an existing install
   already has. Roots go to `~/.vibedocs/roots.txt`, and the

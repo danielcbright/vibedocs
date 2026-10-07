@@ -276,40 +276,73 @@ describe('AppState — broadcast on tree change', () => {
     await state.shutdown()
   })
 
-  it('emits refresh-tree (NOT reload) when a non-markdown file changes', async () => {
+  it('emits refresh-tree (NOT reload) when a non-markdown file appears, carrying the new tree version', async () => {
     const projectDir = path.join(tmpDir, 'alpha')
     await mkdir(projectDir, { recursive: true })
+    await writeFile(path.join(projectDir, 'README.md'), '# a')
 
-    const { state, fsEvents, channel } = buildState()
+    const { state, fsEvents, channel } = buildState({ searchRebuildDelayMs: 5 })
     await state.start()
 
-    fsEvents.emit({ kind: 'change', path: path.join(projectDir, 'logo.png') })
+    await writeFile(path.join(projectDir, 'logo.png'), 'png')
+    fsEvents.emit({ kind: 'add', path: path.join(projectDir, 'logo.png') })
+    await state.settleProjectTree()
+    expect(channel.sent).toEqual([{ type: 'refresh-tree', version: 1 }])
 
-    expect(channel.sent).toEqual([{ type: 'refresh-tree' }])
+    // Changing its content changes nothing the tree shows, so nothing is pushed.
+    await writeFile(path.join(projectDir, 'logo.png'), 'png2')
+    fsEvents.emit({ kind: 'change', path: path.join(projectDir, 'logo.png') })
+    await state.settleProjectTree()
+    expect(channel.sent).toEqual([{ type: 'refresh-tree', version: 1 }])
     await state.shutdown()
   })
 
-  it('emits refresh-tree on add/unlink/addDir/unlinkDir', async () => {
+  it('emits refresh-tree once the tree has changed, for files and directories alike', async () => {
     const projectDir = path.join(tmpDir, 'alpha')
     await mkdir(projectDir, { recursive: true })
+    await writeFile(path.join(projectDir, 'old.md'), '# old')
 
-    const { state, fsEvents, channel } = buildState()
+    const { state, fsEvents, channel } = buildState({ searchRebuildDelayMs: 5 })
     await state.start()
 
+    await writeFile(path.join(projectDir, 'new.md'), '# new')
     fsEvents.emit({ kind: 'add', path: path.join(projectDir, 'new.md') })
+    await state.settleProjectTree()
+    await rm(path.join(projectDir, 'old.md'))
     fsEvents.emit({ kind: 'unlink', path: path.join(projectDir, 'old.md') })
+    await state.settleProjectTree()
+    await mkdir(path.join(projectDir, 'sub'))
+    await writeFile(path.join(projectDir, 'sub', 'x.md'), '# x')
     fsEvents.emit({ kind: 'addDir', path: path.join(projectDir, 'sub') })
-    fsEvents.emit({ kind: 'unlinkDir', path: path.join(projectDir, 'gone') })
+    await state.settleProjectTree()
+    await rm(path.join(projectDir, 'sub'), { recursive: true })
+    fsEvents.emit({ kind: 'unlinkDir', path: path.join(projectDir, 'sub') })
+    await state.settleProjectTree()
 
-    // Each event triggers refresh-tree (and only refresh-tree, regardless of
-    // markdown-ness of the path — markdown adds/unlinks rebuild search but
-    // still broadcast as tree changes).
+    // Sent after the cache changed, never straight from the event, so a client
+    // that re-fetches on it is guaranteed to see the change.
     expect(channel.sent).toEqual([
-      { type: 'refresh-tree' },
-      { type: 'refresh-tree' },
-      { type: 'refresh-tree' },
-      { type: 'refresh-tree' },
+      { type: 'refresh-tree', version: 1 },
+      { type: 'refresh-tree', version: 2 },
+      { type: 'refresh-tree', version: 3 },
+      { type: 'refresh-tree', version: 4 },
     ])
+    expect(state.projectsVersion).toBe(4)
+    expect((await state.listProjects())[0].tree.map((n) => n.name)).toEqual(['new.md'])
+    await state.shutdown()
+  })
+
+  it('pushes nothing for an event that changes nothing the tree shows', async () => {
+    const projectDir = path.join(tmpDir, 'alpha')
+    await mkdir(projectDir, { recursive: true })
+    await writeFile(path.join(projectDir, 'README.md'), '# a')
+
+    const { state, fsEvents, channel } = buildState({ searchRebuildDelayMs: 5 })
+    await state.start()
+    fsEvents.emit({ kind: 'unlink', path: path.join(projectDir, 'never-existed.md') })
+    fsEvents.emit({ kind: 'add', path: path.join(projectDir, '.env') })
+    await state.settleProjectTree()
+    expect(channel.sent).toEqual([])
     await state.shutdown()
   })
 

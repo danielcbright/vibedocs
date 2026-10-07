@@ -1,11 +1,18 @@
 import type { Hono } from 'hono'
 import { readFile, stat } from 'fs/promises'
+import { randomBytes } from 'crypto'
 import path from 'path'
 import type { SearchResult } from './search.js'
 import type { PathResolver } from './path-resolver.js'
 import { VibedocsError } from './errors.js'
 import { resolveProjectPath } from './route-path.js'
-import { buildTreePublic, filterTreeByType, parseFileTypeFilter, type ProjectInfo } from './discovery.js'
+import {
+  buildTreePublic,
+  filterTreeByType,
+  parseFileTypeFilter,
+  type FileTypeFilter,
+  type ProjectInfo,
+} from './discovery.js'
 
 /**
  * Minimal contract the search route needs from its data source — a search
@@ -149,5 +156,51 @@ export function registerProjectTreeRoute(
     const tree = filterTreeByType(await buildTreePublic(dir, dir), parseFileTypeFilter(c.req.query('fileType')))
     const data: ProjectInfo & { hidden: boolean } = { name: project, hasDocsFolder, tree, hidden: deps.isHidden(dir) }
     return c.json({ data })
+  })
+}
+
+export interface ProjectsEndpoint {
+  /** The project-tree version right now; cheap. */
+  version(): number
+  /** The list for one file type, with the version it is at. */
+  listVersioned(fileType: FileTypeFilter): Promise<{ projects: ProjectInfo[]; version: number }>
+}
+
+/**
+ * `GET /api/projects` — served from the in-memory tree (src/project-tree-cache.ts).
+ *
+ * The ETag is this run's id, the tree version and the file type, and `Cache-Control: no-cache`
+ * makes the browser revalidate every time, so a tab that is already current gets
+ * a bodiless 304 without the server filtering or serialising anything. A changed
+ * tree is serialised once per file type and shared by every tab that asks.
+ */
+export function registerProjectsRoute(app: Hono, deps: ProjectsEndpoint): void {
+  const bodies = new Map<FileTypeFilter, { version: number; body: string }>()
+  // The version restarts at 0 on every boot, and a roots change in Settings is a
+  // restart — so a version alone names different lists across runs, and a browser
+  // holding the old one was told 304. One id per run keeps the tags apart.
+  const run = randomBytes(6).toString('base64url').toLowerCase().replace(/[^0-9a-z]/g, '') || 'run'
+
+  app.get('/api/projects', async (c) => {
+    const fileType = parseFileTypeFilter(c.req.query('fileType'))
+    const etagFor = (version: number) => `"${run}-${version}-${fileType}"`
+    const headers = { 'Cache-Control': 'no-cache' }
+
+    const current = deps.version()
+    if (c.req.header('if-none-match') === etagFor(current)) {
+      return c.body(null, 304, { ...headers, ETag: etagFor(current) })
+    }
+
+    let hit = bodies.get(fileType)
+    if (hit === undefined || hit.version !== current) {
+      const { projects, version } = await deps.listVersioned(fileType)
+      hit = { version, body: JSON.stringify({ data: projects, version }) }
+      bodies.set(fileType, hit)
+    }
+    return c.body(hit.body, 200, {
+      ...headers,
+      ETag: etagFor(hit.version),
+      'Content-Type': 'application/json; charset=utf-8',
+    })
   })
 }

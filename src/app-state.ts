@@ -23,13 +23,13 @@
 import path from 'path'
 import { readFile } from 'fs/promises'
 import {
-  discoverAcrossRoots,
   filterProjects,
   toProjectRelativePath,
   type ProjectInfo,
 } from './discovery.js'
 import { createIndexStore, type IndexStore, type SearchResult } from './search.js'
 import { createCoalescingRunner } from './coalescing-runner.js'
+import { createProjectTreeCache } from './project-tree-cache.js'
 import { createSiteConfigCache, type SiteConfigCache } from './site-config-cache.js'
 import { loadSiteConfig } from './site-config.js'
 import type { SafePath } from './path-resolver.js'
@@ -87,6 +87,12 @@ interface CreateAppStateBase {
 export interface AppState {
   /** Discover projects + attach per-project siteConfig. */
   listProjects(fileType?: 'all' | 'markdown' | 'assets'): Promise<ProjectInfo[]>
+  /** `listProjects` plus the tree version it is at, taken together. */
+  listProjectsVersioned(fileType?: 'all' | 'markdown' | 'assets'): Promise<{ projects: ProjectInfo[]; version: number }>
+  /** Test/diagnostics: resolves once every queued project-tree patch and rebuild has landed. */
+  settleProjectTree(): Promise<void>
+  /** The project-tree version: bumped each time the list `listProjects` returns changes. */
+  readonly projectsVersion: number
   /** Render one markdown page in live mode. `safePath` must come from a PathResolver. */
   renderPage(safePath: SafePath, project: string, docPath: string): Promise<HtmlPage>
   /** Run a full-text search query against the in-memory index. */
@@ -155,6 +161,21 @@ export function createAppState(opts: CreateAppStateOptions): AppState {
   }
 
   /**
+   * The project list and trees, held in memory and patched from the events below
+   * (see src/project-tree-cache.ts). `refresh-tree` goes out from here, once the
+   * cache has actually changed, carrying its version — never straight from an
+   * event, or a client could re-fetch before the change has landed.
+   */
+  const treeCache = createProjectTreeCache({
+    roots,
+    isHidden,
+    forgetVisibility: opts.visibility?.forget,
+    onChange: (version) => clientChannel.broadcast(refreshTreeMessage(version)),
+    rebuildDelayMs: opts.searchRebuildDelayMs,
+    onError: (err) => console.error('Project tree update failed:', err),
+  })
+
+  /**
    * One file changed: patch its entry rather than re-walking every project.
    * The store serialises these internally, so firing without awaiting is safe
    * and preserves watcher order.
@@ -172,28 +193,28 @@ export function createAppState(opts: CreateAppStateOptions): AppState {
     switch (ev.kind) {
       case 'change': {
         console.log(`  ↺  changed: ${rel ?? ev.path}`)
-        if (isSiteConfig(ev.path)) siteConfigCache.invalidateFromPath(ev.path)
+        siteConfigChanged(ev.path)
         if (isMarkdownPath(ev.path)) {
           // Only broadcast project-relative paths. Absolute paths would leak
           // the host filesystem layout to every connected client.
           if (rel !== null) clientChannel.broadcast(reloadMessage(rel))
           patchSearchIndex(ev.path, 'upsert')
-        } else {
-          clientChannel.broadcast(refreshTreeMessage())
         }
+        // A file emptied or filled changes whether the tree lists it.
+        treeCache.apply(ev)
         return
       }
       case 'add': {
         console.log(`  +  added:   ${rel ?? ev.path}`)
-        if (isSiteConfig(ev.path)) siteConfigCache.invalidateFromPath(ev.path)
-        clientChannel.broadcast(refreshTreeMessage())
+        siteConfigChanged(ev.path)
+        treeCache.apply(ev)
         if (isMarkdownPath(ev.path)) patchSearchIndex(ev.path, 'upsert')
         return
       }
       case 'unlink': {
         console.log(`  -  removed: ${rel ?? ev.path}`)
-        if (isSiteConfig(ev.path)) siteConfigCache.invalidateFromPath(ev.path)
-        clientChannel.broadcast(refreshTreeMessage())
+        siteConfigChanged(ev.path)
+        treeCache.apply(ev)
         if (isMarkdownPath(ev.path)) patchSearchIndex(ev.path, 'remove')
         return
       }
@@ -204,16 +225,37 @@ export function createAppState(opts: CreateAppStateOptions): AppState {
       // single-flighted, which is what makes it affordable to trigger here.
       case 'addDir': {
         console.log(`  +  dir:     ${rel ?? ev.path}`)
-        clientChannel.broadcast(refreshTreeMessage())
+        treeCache.apply(ev)
         scheduleSearchRebuild()
         return
       }
       case 'unlinkDir': {
         console.log(`  -  dir:     ${rel ?? ev.path}`)
-        clientChannel.broadcast(refreshTreeMessage())
+        treeCache.apply(ev)
         scheduleSearchRebuild()
         return
       }
+    }
+  }
+
+  /** The list carries each project's site config, so a config edit is a new version. */
+  function siteConfigChanged(filePath: string): void {
+    if (!isSiteConfig(filePath)) return
+    siteConfigCache.invalidateFromPath(filePath)
+    treeCache.bump()
+  }
+
+  async function listVersioned(fileType: 'all' | 'markdown' | 'assets') {
+    const { projects, version } = await treeCache.get()
+    const filtered = filterProjects(projects, fileType)
+    return {
+      version,
+      projects: await Promise.all(
+        filtered.map(async (p) => ({
+          ...p,
+          siteConfig: await siteConfigCache.get(p.name),
+        })),
+      ),
     }
   }
 
@@ -221,14 +263,19 @@ export function createAppState(opts: CreateAppStateOptions): AppState {
 
   return {
     async listProjects(fileType: 'all' | 'markdown' | 'assets' = 'all') {
-      const projects = await discoverAcrossRoots(roots, isHidden)
-      const filtered = filterProjects(projects, fileType)
-      return Promise.all(
-        filtered.map(async (p) => ({
-          ...p,
-          siteConfig: await siteConfigCache.get(p.name),
-        })),
-      )
+      return (await listVersioned(fileType)).projects
+    },
+
+    listProjectsVersioned(fileType: 'all' | 'markdown' | 'assets' = 'all') {
+      return listVersioned(fileType)
+    },
+
+    settleProjectTree() {
+      return treeCache.settled()
+    },
+
+    get projectsVersion() {
+      return treeCache.version
     },
 
     async renderPage(safePath, project, docPath) {
@@ -265,14 +312,16 @@ export function createAppState(opts: CreateAppStateOptions): AppState {
 
     async start() {
       // Block on the initial search-index build so callers (and tests) can
-      // assume `searchVersion >= 1` after `start()` resolves.
-      await searchStore.rebuild()
+      // assume `searchVersion >= 1` after `start()` resolves. The project tree is
+      // built alongside, so the first `/api/projects` does not pay for the walk.
+      await Promise.all([searchStore.rebuild(), treeCache.get()])
     },
 
     async shutdown() {
       // Cancel first: closing the watcher can still deliver queued events, and a
       // debounce timer left armed keeps the event loop alive after shutdown.
       searchRebuilds.cancel()
+      treeCache.cancel()
       await fsEventSource.close()
       await clientChannel.close()
     },
@@ -375,6 +424,9 @@ export async function runLive(env: NodeJS.ProcessEnv = process.env): Promise<Liv
 
   return {
     listProjects: inner.listProjects.bind(inner),
+    listProjectsVersioned: inner.listProjectsVersioned.bind(inner),
+    settleProjectTree: inner.settleProjectTree.bind(inner),
+    get projectsVersion() { return inner.projectsVersion },
     renderPage: inner.renderPage.bind(inner),
     search: inner.search.bind(inner),
     get searchVersion() { return inner.searchVersion },
