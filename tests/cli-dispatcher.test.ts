@@ -91,11 +91,18 @@ describe('CLI dispatcher — unknown subcommand', () => {
     expect(err).toMatch(/Usage:/)
   })
 
-  it('lists both real subcommands in the usage banner', async () => {
+  it('lists every real subcommand in the usage banner', async () => {
     await main(['publish'])
     const err = stderrString()
     expect(err).toMatch(/vibedocs serve/)
+    expect(err).toMatch(/vibedocs open/)
     expect(err).toMatch(/vibedocs build/)
+  })
+
+  it('routes `open` to its own parser, so a bad invocation names the subcommand', async () => {
+    const code = await main(['open'])
+    expect(code).toBe(1)
+    expect(stderrString()).toMatch(/vibedocs open: a path to a markdown file is required/)
   })
 })
 

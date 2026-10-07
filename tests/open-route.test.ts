@@ -212,6 +212,27 @@ describe('GET /open — everything else is a readable page that says why', () =>
     expect(body).toContain('&lt;script&gt;')
   })
 
+  it('answers JSON instead of a page when the caller asks for it, as `vibedocs open` does', async () => {
+    const res = await appFor([one, two]).request(
+      `/open?path=${encodeURIComponent(path.join(one, 'alpha', 'diagram.png'))}`,
+      { headers: { Accept: 'application/json' } },
+    )
+    expect(res.status).toBe(404)
+    expect(res.headers.get('content-type')).toMatch(/^application\/json/)
+    expect(await res.json()).toEqual({
+      error: expect.stringMatching(/is not a markdown file/),
+    })
+  })
+
+  it('still redirects when the caller asks for JSON', async () => {
+    const res = await appFor([one, two]).request(
+      `/open?path=${encodeURIComponent(path.join(one, 'alpha', 'docs', 'guide.md'))}`,
+      { headers: { Accept: 'application/json' } },
+    )
+    expect(res.status).toBe(302)
+    expect(res.headers.get('location')).toBe('/#alpha/docs/guide.md')
+  })
+
   it('serves the page with a CSP that allows no script, and nosniff', async () => {
     const res = await open(appFor([one, two]), path.join(outside, 'secret.md'))
     expect(res.headers.get('content-security-policy')).toMatch(/default-src 'none'/)

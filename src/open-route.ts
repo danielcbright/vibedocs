@@ -42,6 +42,11 @@ export function registerOpenRoute(app: Hono, deps: OpenRouteDeps): void {
   app.get('/open', async (c) => {
     const outcome = await resolveOpen(c.req.query('path'), deps)
     if (outcome.kind === 'redirect') return c.redirect(outcome.location, 302)
+    // `vibedocs open` asks for JSON so it can print the reason and exit non-zero
+    // instead of opening a browser tab onto an error page.
+    if (c.req.header('accept')?.includes('application/json')) {
+      return c.json({ error: outcome.detail }, outcome.status)
+    }
     return new Response(refusalPage(outcome.title, outcome.detail), {
       status: outcome.status,
       headers: {

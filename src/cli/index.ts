@@ -20,6 +20,7 @@ import { parseBuildArgs, parseServeArgs } from './args.js'
 import { runBuild } from './build.js'
 import { indexWithPagefind, isPagefindAvailable } from './pagefind.js'
 import { runLiveServer } from './serve-live.js'
+import { parseOpenArgs, runOpen, launchInBrowser } from './open.js'
 import { PROJECT_ROOTS } from '../discovery.js'
 import { resolveBuildRoot } from '../project-roots.js'
 
@@ -34,6 +35,7 @@ function isDirectory(absPath: string): boolean {
 
 const USAGE = `Usage:
   vibedocs serve [--root <dir>]... [--port <n>]   # --root repeatable
+  vibedocs open <path> [--port <n>]
   vibedocs build --project <name> --out <dir> [--base-url <url>] [--frontend-dist <path>] [--hydration full|minimal]
   vibedocs build --project <name> --serve [--port <n>] [--frontend-dist <path>] [--hydration full|minimal]
 
@@ -41,6 +43,8 @@ Commands:
   serve   Browse a directory of markdown projects in the live app (search,
           live reload, theme toggle, diagrams). Defaults to the current
           directory on port 8080.
+  open    Open a markdown file, by its path on disk, in the running live
+          server. The file must be inside one of the server's roots.
   build   Render a project to a static site you can host anywhere.
 `
 
@@ -92,6 +96,22 @@ export async function main(argv: string[]): Promise<number> {
       return 1
     }
     return runLiveServer(serveArgs)
+  }
+
+  if (subcommand === 'open') {
+    let openArgs: ReturnType<typeof parseOpenArgs>
+    try {
+      openArgs = parseOpenArgs(rest)
+    } catch (err) {
+      process.stderr.write(`vibedocs open: ${(err as Error).message}\n\n${USAGE}`)
+      return 1
+    }
+    return runOpen(openArgs, {
+      fetch: (url, init) => fetch(url, init),
+      launch: launchInBrowser,
+      stdout: (s) => process.stdout.write(s),
+      stderr: (s) => process.stderr.write(s),
+    })
   }
 
   if (subcommand !== 'build') {
