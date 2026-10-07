@@ -51,6 +51,7 @@ const hoisted = vi.hoisted(() => {
     // inherently single-root callers.
     roots: ['/fake/projects'],
     projectsDir: '/fake/projects',
+    hiddenProjects: [],
     // Agent Runs runtime. The feature is disabled here so the boot path is
     // exercised without a runs directory; server.ts reads cfg at registration
     // time, so this must be present even when disabled.
@@ -102,6 +103,7 @@ vi.mock('../src/errors.js', async (importOriginal) => {
 vi.mock('../src/server-routes.js', () => ({
   registerSearchRoute: () => { hoisted.callLog.push('registerSearchRoute') },
   registerFileRoute: () => { hoisted.callLog.push('registerFileRoute') },
+  registerProjectTreeRoute: () => { hoisted.callLog.push('registerProjectTreeRoute') },
 }))
 
 vi.mock('../src/upload-route.js', () => ({

@@ -6,7 +6,7 @@ import os from 'os'
 import type { Server } from 'net'
 import { getConnInfo } from '@hono/node-server/conninfo'
 import { PROJECT_ROOTS, PROJECT_ROOTS_ERROR, PROJECT_ROOTS_NOTES } from './discovery.js'
-import { registerSearchRoute, registerFileRoute } from './server-routes.js'
+import { registerSearchRoute, registerFileRoute, registerProjectTreeRoute } from './server-routes.js'
 import { registerUploadRoute, registerConfigRoute } from './upload-route.js'
 import { PathResolver } from './path-resolver.js'
 import { refreshTreeMessage } from './shared/ws-messages.js'
@@ -71,6 +71,7 @@ const settings = parseSettingsConfig(process.env, state.uploadAuth.readOnly)
 registerConfigRoute(app, state.uploadAuth, state.agentRuns.cfg.enabled, settings.enabled)
 registerUploadRoute(app, assetResolver, state.uploadAuth, () => state.broadcast(refreshTreeMessage()))
 registerFileRoute(app, assetResolver)
+registerProjectTreeRoute(app, { assetResolver, isHidden: (dir) => state.visibility.isHidden(dir) })
 // Must precede registerStaticRoutes too — see the MUST note below.
 registerOpenRoute(app, { roots: PROJECT_ROOTS, docResolver })
 
@@ -130,6 +131,10 @@ const server = serve({ fetch: app.fetch, port: PORT }, () => {
 // Origin allowlist — see src/ws-auth.ts). Pre-swap broadcasts route through
 // runLive's placeholder in-memory channel.
 console.log(`  📁 Roots (${state.roots.length}): ${state.roots.join(', ')}`)
+if (state.hiddenProjects.length > 0) {
+  const worktrees = state.hiddenProjects.filter((h) => h.reason === 'worktree').length
+  console.log(`  🙈 Hidden projects: ${state.hiddenProjects.length} (${worktrees} git worktrees) — not listed, watched or searched; still open by path`)
+}
 console.log(`  🔒 WS origin allowlist: ${allowedOrigins.join(', ')}`)
 if (allowNoOrigin) console.log('  🔒 WS allows handshakes with no Origin header')
 const upMode = state.uploadAuth.readOnly ? 'READ-ONLY' : state.uploadAuth.token === null ? 'DISABLED' : 'TOKEN'

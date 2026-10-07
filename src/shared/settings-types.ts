@@ -2,6 +2,7 @@
  * Wire types for `/api/settings/*` — the roots picker shared by the Settings view
  * and the one-shot install page. Both sides import from here.
  */
+import type { VisibilityRules } from './project-visibility.js'
 
 /** One folder row in the picker. */
 export interface FolderEntry {
@@ -14,6 +15,8 @@ export interface FolderEntry {
   capped: boolean
   /** macOS privacy-protected (Documents, Desktop, Downloads): a background service needs Full Disk Access. */
   protected: boolean
+  /** A linked git worktree, hidden by default when it is a project (ADR-0003). */
+  worktree: boolean
 }
 
 export interface FolderListing {
@@ -29,6 +32,8 @@ export interface RootsSettings {
   roots: string[]
   /** Roots the roots file lists now, or null when roots do not come from a file. */
   saved: string[] | null
+  /** Hide/show rules the roots file holds now; none when roots do not come from a file. */
+  rules: VisibilityRules
   /** Whether this page may change them. */
   editable: boolean
   /** Why not, when `editable` is false. */
@@ -49,11 +54,14 @@ export type AfterSave = 'restart' | 'manual' | 'done'
 /** Body of `POST /api/settings/roots/check` and `PUT /api/settings/roots`. */
 export interface RootsSelection {
   roots: string[]
+  rules?: VisibilityRules
 }
 
-export type RootsCheck = { ok: true; roots: string[] } | { ok: false; error: string }
+/** On success, `rules` keeps only the rules that apply to these roots. */
+export type RootsCheck = { ok: true; roots: string[]; rules: VisibilityRules } | { ok: false; error: string }
 
 export interface RootsSaved {
   roots: string[]
+  rules: VisibilityRules
   afterSave: AfterSave
 }

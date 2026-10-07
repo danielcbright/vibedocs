@@ -94,10 +94,10 @@ describe('runPickRoots', () => {
     const chosen = [path.join(home, 'src', 'work'), path.join(home, 'ops')]
     const put = await api('/api/settings/roots', { method: 'PUT', body: JSON.stringify({ roots: chosen }) })
     expect(put.status).toBe(200)
-    expect((await put.json()).data).toEqual({ roots: chosen, afterSave: 'done' })
+    expect((await put.json()).data).toMatchObject({ roots: chosen, afterSave: 'done' })
 
     expect(await run.done).toBe(0)
-    expect(parseRootsFile(await readFile(rootsFile, 'utf-8'))).toEqual({ ok: true, roots: chosen })
+    expect(parseRootsFile(await readFile(rootsFile, 'utf-8'))).toMatchObject({ ok: true, roots: chosen })
     expect(run.output().out).toMatch(/Saved 2 roots to/)
     // And the server is gone, so a stale tab cannot change anything later.
     await expect(fetch(`${origin}/api/settings/roots`)).rejects.toThrow()

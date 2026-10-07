@@ -1,10 +1,11 @@
 import type { Hono } from 'hono'
-import { readFile } from 'fs/promises'
+import { readFile, stat } from 'fs/promises'
 import path from 'path'
 import type { SearchResult } from './search.js'
 import type { PathResolver } from './path-resolver.js'
 import { VibedocsError } from './errors.js'
 import { resolveProjectPath } from './route-path.js'
+import { buildTreePublic, filterTreeByType, parseFileTypeFilter, type ProjectInfo } from './discovery.js'
 
 /**
  * Minimal contract the search route needs from its data source — a search
@@ -118,5 +119,35 @@ export function registerFileRoute(app: Hono, assetResolver: PathResolver): void 
       if (err?.code === 'ENOENT') throw new VibedocsError('not-found', 'File not found', { cause: err })
       throw new VibedocsError('io', 'Failed to read file', { cause: err })
     }
+  })
+}
+
+/**
+ * `GET /api/projects/:project/tree` — one project's tree, hidden or not.
+ *
+ * `/api/projects` leaves hidden projects out (ADR-0003), but a doc in one can still
+ * be opened by path, and the sidebar then needs that project's tree to show where
+ * you are. The project is located through the asset resolver, so it is exactly as
+ * reachable as its files are: any project in a root, never a dot or excluded one.
+ */
+export function registerProjectTreeRoute(
+  app: Hono,
+  deps: { assetResolver: PathResolver; isHidden: (projectDir: string) => boolean },
+): void {
+  app.get('/api/projects/:project/tree', async (c) => {
+    const project = c.req.param('project')
+    const dir = deps.assetResolver.resolve(project, '')
+    try {
+      if (!(await stat(dir)).isDirectory()) throw new Error('not a directory')
+    } catch (err) {
+      throw new VibedocsError('not-found', `Project not found: ${project}`, { cause: err })
+    }
+    let hasDocsFolder = false
+    try {
+      hasDocsFolder = (await stat(path.join(dir, 'docs'))).isDirectory()
+    } catch {}
+    const tree = filterTreeByType(await buildTreePublic(dir, dir), parseFileTypeFilter(c.req.query('fileType')))
+    const data: ProjectInfo & { hidden: boolean } = { name: project, hasDocsFolder, tree, hidden: deps.isHidden(dir) }
+    return c.json({ data })
   })
 }

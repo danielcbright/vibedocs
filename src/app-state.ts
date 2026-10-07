@@ -44,6 +44,7 @@ import { isMarkdownPath } from './markdown-paths.js'
 import type { UploadAuthConfig } from './upload-auth.js'
 import type { FsEvent, FsEventSource } from './ports/fs-event-source.js'
 import type { ClientChannel } from './ports/client-channel.js'
+import type { ProjectVisibility } from './project-visibility.js'
 
 const CONFIG_FILENAME = '.vibedocs.config.ts'
 
@@ -68,6 +69,8 @@ interface CreateAppStateBase {
   clientChannel: ClientChannel
   /** Upload-route policy snapshot — read by registerUploadRoute / registerConfigRoute. */
   uploadAuth: UploadAuthConfig
+  /** Which projects are hidden from the list and the index (ADR-0003). Defaults to none. */
+  visibility?: ProjectVisibility
   /** Optional: inject a pre-built search index store (testability). */
   searchStore?: IndexStore
   /** Optional: inject a pre-built site-config cache (testability). */
@@ -113,9 +116,10 @@ export function createAppState(opts: CreateAppStateOptions): AppState {
   const { fsEventSource, clientChannel, uploadAuth } = opts
   // One list from here down, so nothing below has to know which option was used.
   const roots = opts.projectsDir !== undefined ? [opts.projectsDir] : opts.roots
+  const isHidden = opts.visibility?.isHidden ?? (() => false)
 
   const searchStore =
-    opts.searchStore ?? createIndexStore({ roots })
+    opts.searchStore ?? createIndexStore({ roots, isHidden })
 
   const siteConfigCache =
     opts.siteConfigCache ??
@@ -217,7 +221,7 @@ export function createAppState(opts: CreateAppStateOptions): AppState {
 
   return {
     async listProjects(fileType: 'all' | 'markdown' | 'assets' = 'all') {
-      const projects = await discoverAcrossRoots(roots)
+      const projects = await discoverAcrossRoots(roots, isHidden)
       const filtered = filterProjects(projects, fileType)
       return Promise.all(
         filtered.map(async (p) => ({
@@ -290,7 +294,8 @@ import { createTextRenderer, type TextRenderer } from './agent-runs/text-render.
 import type { AgentRunsClientConfig } from './shared/agent-runs-config-types.js'
 import { createChokidarFsEventSource } from './adapters/chokidar-fs-event-source.js'
 import { createInMemoryClientChannel } from './adapters/in-memory-client-channel.js'
-import { PROJECT_ROOTS } from './discovery.js'
+import { PROJECT_ROOTS, PROJECT_VISIBILITY } from './discovery.js'
+import { hiddenProjectDirs } from './project-visibility.js'
 
 /**
  * Agent Runs runtime state. Lives inside AppState per ADR-0001: the store's
@@ -310,6 +315,9 @@ export interface LiveAppState extends AppState {
   readonly roots: readonly string[]
   /** First configured root. Retained for callers that are inherently single-root. */
   readonly projectsDir: string
+  /** Projects hidden at boot, and why — the watcher skips these (ADR-0003). */
+  readonly hiddenProjects: readonly { dir: string; reason: 'manual' | 'worktree' }[]
+  readonly visibility: ProjectVisibility
   readonly agentRuns: AgentRunsRuntime
   /**
    * Swap the broadcast sink — used by server.ts after the HTTP server boots
@@ -331,7 +339,9 @@ export interface LiveAppState extends AppState {
  */
 export async function runLive(env: NodeJS.ProcessEnv = process.env): Promise<LiveAppState> {
   const roots = PROJECT_ROOTS
-  const fsEventSource = createChokidarFsEventSource({ roots })
+  const visibility = PROJECT_VISIBILITY
+  const hiddenDirs = hiddenProjectDirs(roots, visibility)
+  const fsEventSource = createChokidarFsEventSource({ roots, hiddenDirs })
   let clientChannel: ClientChannel = createInMemoryClientChannel()
 
   const inner = createAppState({
@@ -344,6 +354,7 @@ export async function runLive(env: NodeJS.ProcessEnv = process.env): Promise<Liv
       close: () => clientChannel.close(),
     },
     uploadAuth: parseUploadAuthConfig(env),
+    visibility,
   })
 
   await inner.start()
@@ -375,6 +386,8 @@ export async function runLive(env: NodeJS.ProcessEnv = process.env): Promise<Liv
     siteConfigCacheHas: inner.siteConfigCacheHas.bind(inner),
     roots,
     projectsDir: roots[0],
+    hiddenProjects: hiddenDirs.map((dir) => ({ dir, reason: visibility.visibility(dir).reason ?? 'manual' })),
+    visibility,
     agentRuns,
     setClientChannel(channel) {
       clientChannel = channel

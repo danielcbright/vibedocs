@@ -10,6 +10,7 @@ import {
   formatRootsFile,
   checkRootSelection,
 } from '../src/project-roots.js'
+import { NO_RULES } from '../src/shared/project-visibility.js'
 
 /**
  * Where projects are looked for. One root today, a colon-separated list with
@@ -198,12 +199,51 @@ describe('rootsSource — the one place precedence is decided', () => {
 describe('roots file format', () => {
   it('round-trips what it writes', () => {
     const roots = ['/home/me/src/work', '/Volumes/Work: Archive']
-    expect(parseRootsFile(formatRootsFile(roots))).toEqual({ ok: true, roots })
+    expect(parseRootsFile(formatRootsFile(roots))).toEqual({ ok: true, roots, rules: NO_RULES })
+  })
+
+  it('round-trips visibility rules (ADR-0003)', () => {
+    const roots = ['/home/me/src/work', '/home/me/ops']
+    const rules = {
+      hide: ['/home/me/ops/old notes'],
+      show: ['/home/me/src/work/repo-worktree-keep'],
+      showWorktrees: ['/home/me/ops'],
+    }
+    const text = formatRootsFile(roots, rules)
+    expect(text).toContain('hide /home/me/ops/old notes\n')
+    expect(text).toContain('show-worktrees /home/me/ops\n')
+    expect(parseRootsFile(text)).toEqual({ ok: true, roots, rules })
+  })
+
+  it('refuses an unknown directive or a relative directive path, naming the line', () => {
+    expect(parseRootsFile('/a\nhidden /a/x\n')).toEqual({ ok: false, error: expect.stringMatching(/line 2: unknown directive "hidden"/) })
+    expect(parseRootsFile('/a\nhide a/x\n')).toEqual({ ok: false, error: expect.stringMatching(/line 2: .*not an absolute path/) })
   })
 
   it('writes a header a hand-editor will see', () => {
     expect(formatRootsFile(['/a'])).toMatch(/^# /)
     expect(formatRootsFile(['/a']).endsWith('/a\n')).toBe(true)
+  })
+})
+
+describe('parseRoots — visibility rules from the roots file', () => {
+  const files: Record<string, string> = {
+    '/cfg/rules': '/r/one\n/r/two\nhide /r/one/old\nshow /r/two/keep-wt\nshow-worktrees /r/two\nhide /elsewhere/x\nshow-worktrees /r/gone\n',
+    '/cfg/plain': '/r/one\n',
+  }
+  const read = (p: string) => files[p] ?? null
+
+  it('passes the rules on, and drops the ones that name no project or root, saying so', () => {
+    const r = parseRoots({ VIBEDOCS_ROOTS_FILE: '/cfg/rules' }, '/', read)
+    expect(r.ok).toBe(true)
+    if (!r.ok) return
+    expect(r.rules).toEqual({ hide: ['/r/one/old'], show: ['/r/two/keep-wt'], showWorktrees: ['/r/two'] })
+    expect(r.notes?.join(' ')).toMatch(/hide \/elsewhere\/x/)
+    expect(r.notes?.join(' ')).toMatch(/show-worktrees \/r\/gone/)
+  })
+
+  it('carries no rules for a file without any, so the defaults apply', () => {
+    expect(parseRoots({ VIBEDOCS_ROOTS_FILE: '/cfg/plain' }, '/', read)).toEqual({ ok: true, roots: ['/r/one'] })
   })
 })
 

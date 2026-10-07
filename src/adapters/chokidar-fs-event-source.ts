@@ -126,7 +126,12 @@ export function isIgnoredWatchPath(
   absPath: string,
   isDirectory: boolean | undefined,
   prefixes: readonly string[],
+  hiddenDirs: readonly string[] = [],
 ): boolean {
+  // Hidden projects (ADR-0003) are not watched at all: they are mostly worktrees,
+  // copies of trees already watched, and holding them is the memory hiding saves.
+  if (hiddenDirs.some((d) => absPath === d || absPath.startsWith(d + path.sep))) return true
+
   const below = segmentsBelowRoot(absPath, prefixes)
 
   // Both rules apply only to segments BELOW a watched root. Testing the whole
@@ -160,7 +165,13 @@ export function isIgnoredWatchPath(
   return false
 }
 
-export type ChokidarFsEventSourceOptions =
+export type ChokidarFsEventSourceOptions = {
+  /**
+   * Hidden project directories, taken at boot. A worktree created later is left
+   * out of the list and the index at once, but watched until the next restart.
+   */
+  hiddenDirs?: readonly string[]
+} & (
   | {
       /** Absolute path of the directory holding every project. Watched recursively. */
       rootDir: string
@@ -171,6 +182,7 @@ export type ChokidarFsEventSourceOptions =
       roots: readonly string[]
       rootDir?: never
     }
+)
 
 export function createChokidarFsEventSource(
   opts: ChokidarFsEventSourceOptions,
@@ -181,6 +193,15 @@ export function createChokidarFsEventSource(
   // Mutable, because a symlink appearing under a root adds a realpath prefix that
   // was unknowable at boot. `ignored` closes over the array, so pushing is enough.
   const ignorePrefixes = resolveIgnorePrefixes(roots)
+  // Both spellings: chokidar reports symlink-resolved paths for a symlinked root.
+  const hiddenDirs = (opts.hiddenDirs ?? []).flatMap((d) => {
+    try {
+      const real = realpathSync(d)
+      return real === d ? [d] : [d, real]
+    } catch {
+      return [d]
+    }
+  })
 
   const watcher = chokidar.watch(roots.map((root) => `${root}/**/*`), {
     ignoreInitial: true,
@@ -193,6 +214,7 @@ export function createChokidarFsEventSource(
         p,
         stats ? stats.isDirectory() : isDirectorySync(p),
         ignorePrefixes,
+        hiddenDirs,
       ),
   })
 

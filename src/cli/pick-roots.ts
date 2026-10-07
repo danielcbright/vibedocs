@@ -73,7 +73,7 @@ export async function runPickRoots(args: ParsedPickRootsArgs, deps: PickRootsDep
   }
 
   const token = randomBytes(16).toString('hex')
-  const current = (await readRootsFile(args.write)) ?? []
+  const current = (await readRootsFile(args.write))?.roots ?? []
   let port = 0
   let resolveSaved!: (roots: string[]) => void
   const saved = new Promise<string[]>((r) => (resolveSaved = r))
