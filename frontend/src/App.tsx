@@ -71,7 +71,13 @@ function DocsApp() {
   const [searchOpen, setSearchOpen] = useState(false)
   const { projects: listedProjects, loading: projectsLoading, refresh: refreshProjects } = useProjects(VIEW_MODE_TO_FILE_TYPE[viewMode])
   // A hidden project (ADR-0003) joins the list only while you are on one of its docs.
-  const hiddenProject = useHiddenProject(activeProject, listedProjects, projectsLoading, VIEW_MODE_TO_FILE_TYPE[viewMode])
+  const hiddenProject = useHiddenProject({
+    activeProject,
+    activePath,
+    projects: listedProjects,
+    loading: projectsLoading,
+    fileType: VIEW_MODE_TO_FILE_TYPE[viewMode],
+  })
   const projects = hiddenProject ? [...listedProjects, hiddenProject] : listedProjects
   const { uploadEnabled, runsEnabled, settingsEnabled } = useConfig()
 

@@ -55,16 +55,44 @@ export function useProjects(
  * needs that project's tree to show where you are. Null whenever the active
  * project is listed — including while the list is still loading, so a listed
  * project is never fetched twice.
+ *
+ * Nothing watches a hidden project, so no `refresh-tree` ever arrives for it.
+ * Instead the tree is fetched again on every doc opened in it and whenever the
+ * window regains focus — one project's walk, not every root's. The previous tree
+ * stays on screen while that happens, so the sidebar does not flicker.
  */
 export function useHiddenProject(
-  activeProject: string | null,
-  projects: ProjectInfo[],
-  loading: boolean,
-  fileType: FileTypeFilter = "all",
+  {
+    activeProject,
+    activePath,
+    projects,
+    loading,
+    fileType = "all",
+  }: {
+    activeProject: string | null
+    activePath: string | null
+    projects: ProjectInfo[]
+    loading: boolean
+    fileType?: FileTypeFilter
+  },
   client: ApiClient = apiClient,
 ): ProjectInfo | null {
   const [hidden, setHidden] = useState<ProjectInfo | null>(null)
+  const [focusNonce, setFocusNonce] = useState(0)
   const unlisted = !loading && !!activeProject && !projects.some((p) => p.name === activeProject)
+
+  useEffect(() => {
+    if (!unlisted) return
+    const bump = () => {
+      if (document.visibilityState !== "hidden") setFocusNonce((n) => n + 1)
+    }
+    window.addEventListener("focus", bump)
+    document.addEventListener("visibilitychange", bump)
+    return () => {
+      window.removeEventListener("focus", bump)
+      document.removeEventListener("visibilitychange", bump)
+    }
+  }, [unlisted])
 
   useEffect(() => {
     if (!unlisted || !activeProject) {
@@ -79,7 +107,7 @@ export function useHiddenProject(
     return () => {
       cancelled = true
     }
-  }, [unlisted, activeProject, fileType, client])
+  }, [unlisted, activeProject, activePath, focusNonce, fileType, client])
 
   return hidden
 }
