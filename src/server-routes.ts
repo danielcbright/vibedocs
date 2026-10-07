@@ -1,5 +1,6 @@
 import type { Hono } from 'hono'
 import { readFile, stat } from 'fs/promises'
+import { randomBytes } from 'crypto'
 import path from 'path'
 import type { SearchResult } from './search.js'
 import type { PathResolver } from './path-resolver.js'
@@ -168,17 +169,21 @@ export interface ProjectsEndpoint {
 /**
  * `GET /api/projects` — served from the in-memory tree (src/project-tree-cache.ts).
  *
- * The ETag is the tree version plus the file type, and `Cache-Control: no-cache`
+ * The ETag is this run's id, the tree version and the file type, and `Cache-Control: no-cache`
  * makes the browser revalidate every time, so a tab that is already current gets
  * a bodiless 304 without the server filtering or serialising anything. A changed
  * tree is serialised once per file type and shared by every tab that asks.
  */
 export function registerProjectsRoute(app: Hono, deps: ProjectsEndpoint): void {
   const bodies = new Map<FileTypeFilter, { version: number; body: string }>()
+  // The version restarts at 0 on every boot, and a roots change in Settings is a
+  // restart — so a version alone names different lists across runs, and a browser
+  // holding the old one was told 304. One id per run keeps the tags apart.
+  const run = randomBytes(6).toString('base64url').toLowerCase().replace(/[^0-9a-z]/g, '') || 'run'
 
   app.get('/api/projects', async (c) => {
     const fileType = parseFileTypeFilter(c.req.query('fileType'))
-    const etagFor = (version: number) => `"${version}-${fileType}"`
+    const etagFor = (version: number) => `"${run}-${version}-${fileType}"`
     const headers = { 'Cache-Control': 'no-cache' }
 
     const current = deps.version()

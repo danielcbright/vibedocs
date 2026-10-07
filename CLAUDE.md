@@ -269,7 +269,7 @@ Adding `src/server.ts` to `tsconfig.cli.json` pulled the whole server into a typ
 
 ## API Routes
 
-- `GET /api/projects` - Project list with file trees (includes `isAsset` flag for non-markdown files), as `{ data, version }`, served from the in-memory tree. ETag `"<version>-<fileType>"` with `Cache-Control: no-cache`, so a current tab gets a bodiless 304.
+- `GET /api/projects` - Project list with file trees (includes `isAsset` flag for non-markdown files), as `{ data, version }`, served from the in-memory tree. ETag `"<run>-<version>-<fileType>"` with `Cache-Control: no-cache`, so a current tab gets a bodiless 304. The run id is load-bearing: the version restarts at 0 every boot, and without it a browser that cached the list before a Settings roots change was told 304 and kept the old projects.
 - `GET /api/render/:project/*` - Render markdown to HTML + TOC
 - `GET /api/raw/:project/*` - Raw markdown content
 - `GET /api/search?q=` - Full-text search

@@ -38,7 +38,7 @@ describe('GET /api/projects', () => {
     const { app } = setup()
     const res = await app.request('/api/projects?fileType=markdown')
     expect(res.status).toBe(200)
-    expect(res.headers.get('etag')).toBe('"1-markdown"')
+    expect(res.headers.get('etag')).toMatch(/^"[0-9a-z]+-1-markdown"$/)
     expect(res.headers.get('cache-control')).toBe('no-cache')
     expect(res.headers.get('content-type')).toMatch(/^application\/json/)
     const body = await res.json()
@@ -48,9 +48,9 @@ describe('GET /api/projects', () => {
 
   it('answers a current tab with a bodiless 304, without listing anything', async () => {
     const { app, lists } = setup()
-    await app.request('/api/projects')
+    const etag = (await app.request('/api/projects')).headers.get('etag')!
     const before = lists()
-    const res = await app.request('/api/projects', { headers: { 'If-None-Match': '"1-all"' } })
+    const res = await app.request('/api/projects', { headers: { 'If-None-Match': etag } })
     expect(res.status).toBe(304)
     expect(await res.text()).toBe('')
     expect(lists()).toBe(before)
@@ -58,14 +58,25 @@ describe('GET /api/projects', () => {
 
   it('sends the new list once the version moves, and serialises it once for every tab', async () => {
     const { app, bump, lists } = setup()
-    await app.request('/api/projects')
+    const old = (await app.request('/api/projects')).headers.get('etag')!
     bump()
-    const stale = await app.request('/api/projects', { headers: { 'If-None-Match': '"1-all"' } })
+    const stale = await app.request('/api/projects', { headers: { 'If-None-Match': old } })
     expect(stale.status).toBe(200)
-    expect(stale.headers.get('etag')).toBe('"2-all"')
+    expect(stale.headers.get('etag')).toMatch(/-2-all"$/)
     const listsAfterFirstTab = lists()
-    await app.request('/api/projects', { headers: { 'If-None-Match': '"1-all"' } })
+    await app.request('/api/projects', { headers: { 'If-None-Match': old } })
     expect(lists()).toBe(listsAfterFirstTab)
+  })
+
+  it('never matches an ETag from an earlier server run, whose version also started at 0', async () => {
+    // The version restarts on every boot, so "0-markdown" from before a restart —
+    // a roots change in Settings restarts the server — named a different list.
+    // Answering it 304 kept the browser on the old projects.
+    const first = setup()
+    const etag = (await first.app.request('/api/projects')).headers.get('etag')!
+    const restarted = setup()
+    const res = await restarted.app.request('/api/projects', { headers: { 'If-None-Match': etag } })
+    expect(res.status).toBe(200)
   })
 
   it('keeps one ETag per file type, since the bodies differ', async () => {
