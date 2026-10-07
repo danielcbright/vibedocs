@@ -1,6 +1,7 @@
 import { readFile, readdir, stat } from 'fs/promises'
 import { statSync } from 'fs'
 import path from 'path'
+import type { Stats } from 'fs'
 import { PROJECTS_DIR } from './discovery.js'
 import { EXCLUDED_DIRS } from './excluded-paths.js'
 import { isMarkdownPath } from './markdown-paths.js'
@@ -24,6 +25,9 @@ interface IndexEntry {
   path: string
   filename: string
   content: string // lowercase for matching
+  /** The stat it was read at. A rebuild carries an entry over when both still match. */
+  mtimeMs: number
+  size: number
 }
 
 export interface SearchResult {
@@ -130,10 +134,14 @@ type IndexMap = Map<string, IndexEntry>
  * Read one file into an entry, or null if it should not be indexed (missing,
  * not a regular file, or empty — a rebuild skips size-0 files).
  */
-async function readEntry(absPath: string, key: IndexKey): Promise<IndexEntry | null> {
-  let s: Awaited<ReturnType<typeof stat>>
+async function readEntry(
+  absPath: string,
+  key: IndexKey,
+  known?: Stats,
+): Promise<IndexEntry | null> {
+  let s: Stats
   try {
-    s = await stat(absPath)
+    s = known ?? (await stat(absPath))
   } catch {
     return null
   }
@@ -146,6 +154,8 @@ async function readEntry(absPath: string, key: IndexKey): Promise<IndexEntry | n
       path: key.relPath,
       filename: path.basename(absPath),
       content: content.toLowerCase(),
+      mtimeMs: s.mtimeMs,
+      size: s.size,
     }
   } catch {
     return null // unreadable
@@ -157,6 +167,7 @@ async function collectInto(
   dir: string,
   roots: readonly string[],
   isHidden: (projectDir: string) => boolean,
+  previous: IndexMap,
 ): Promise<void> {
   let names: string[]
   try {
@@ -169,7 +180,7 @@ async function collectInto(
     if (name.startsWith('.')) continue
     const fullPath = path.join(dir, name)
 
-    let s: Awaited<ReturnType<typeof stat>>
+    let s: Stats
     try {
       s = await stat(fullPath)
     } catch {
@@ -178,7 +189,7 @@ async function collectInto(
 
     if (s.isDirectory()) {
       if (EXCLUDED_DIRS.has(name)) continue
-      await collectInto(map, fullPath, roots, isHidden)
+      await collectInto(map, fullPath, roots, isHidden, previous)
       continue
     }
 
@@ -186,7 +197,23 @@ async function collectInto(
     // updates cannot drift apart.
     const key = resolveIndexKey(roots, fullPath, isHidden)
     if (key === null) continue
-    const entry = await readEntry(fullPath, key)
+
+    // Carry over what has not changed: same object, so the walk holds no second
+    // copy of its text, and no read. This is what made a rebuild cost a full
+    // second corpus (+82.5 MB) and 3.2 s. A same-size edit inside one mtime tick
+    // would be missed here, which is why single-file events re-read regardless.
+    const prev = previous.get(fullPath)
+    if (
+      prev !== undefined &&
+      prev.mtimeMs === s.mtimeMs &&
+      prev.size === s.size &&
+      prev.project === key.project &&
+      prev.path === key.relPath
+    ) {
+      map.set(fullPath, prev)
+      continue
+    }
+    const entry = await readEntry(fullPath, key, s)
     if (entry !== null) map.set(fullPath, entry)
   }
 }
@@ -194,6 +221,7 @@ async function collectInto(
 async function collectAll(
   roots: readonly string[],
   isHidden: (projectDir: string) => boolean,
+  previous: IndexMap = new Map(),
 ): Promise<IndexMap> {
   const map: IndexMap = new Map()
 
@@ -220,7 +248,7 @@ async function collectAll(
       // Skipped whole rather than file by file: a hidden worktree is a copy of a
       // repository, and walking it is the cost hiding exists to avoid.
       if (isHidden(projectDir)) continue
-      await collectInto(map, projectDir, roots, isHidden)
+      await collectInto(map, projectDir, roots, isHidden, previous)
     }
   }
 
@@ -286,7 +314,7 @@ export function createIndexStore(options: IndexStoreOptions = {}): IndexStore {
 
     rebuild(): Promise<number> {
       return serial(async () => {
-        entries = await collectAll(roots, isHidden)
+        entries = await collectAll(roots, isHidden, entries)
         version += 1
         return version
       })
