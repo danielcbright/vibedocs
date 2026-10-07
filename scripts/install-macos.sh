@@ -112,8 +112,21 @@ if [ -z "$FOLDERS" ]; then
     trap 'rm -f "$PICK_FILE"' EXIT
     [ -f "$ROOTS_FILE" ] && cp "$ROOTS_FILE" "$PICK_FILE"
   fi
+  # An install from before the roots file kept its roots in the plist. Start the
+  # picker from those rather than from nothing, and take the seed back out if the
+  # operator cancels, so a cancelled run really changes nothing.
+  SEEDED=0
+  if [ ! -s "$PICK_FILE" ] && [ -f "$PLIST" ]; then
+    old_roots="$(plutil -extract EnvironmentVariables.VIBEDOCS_ROOTS raw -o - "$PLIST" 2>/dev/null || true)"
+    if [ -n "$old_roots" ]; then
+      mkdir -p "$(dirname "$PICK_FILE")"
+      tr ':' '\n' <<< "$old_roots" > "$PICK_FILE"
+      SEEDED=1
+    fi
+  fi
   # Non-zero is Ctrl-C (or a picker that could not start, which says why itself).
   if ! node "$REPO_DIR/dist-cli/cli/index.js" pick-roots --write "$PICK_FILE"; then
+    [ "$SEEDED" = "1" ] && rm -f "$PICK_FILE"
     echo
     echo "Nothing selected — no changes made."
     exit 0

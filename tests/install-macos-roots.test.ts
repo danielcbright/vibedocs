@@ -68,6 +68,12 @@ describe('install-macos.sh root staging (#193)', () => {
     expect(file).not.toBe(legacy)
   })
 
+  it('starts the picker from the roots a pre-roots-file plist named, and removes that seed on cancel', () => {
+    // Without it, upgrading meant re-ticking every folder from an empty tree.
+    expect(SCRIPT).toMatch(/plutil -extract EnvironmentVariables\.VIBEDOCS_ROOTS raw/)
+    expect(SCRIPT).toMatch(/\[ "\$SEEDED" = "1" \] && rm -f "\$PICK_FILE"/)
+  })
+
   it('no longer offers --root, since there is no staging directory', () => {
     expect(SCRIPT).not.toMatch(/^ {2}--root </m)
   })
