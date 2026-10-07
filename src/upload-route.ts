@@ -26,10 +26,11 @@ export function registerConfigRoute(
   app: Hono,
   cfg: UploadAuthConfig,
   runsEnabled = false,
+  settingsEnabled = false,
 ): void {
   app.get('/api/config', (c) => {
     const uploadEnabled = !cfg.readOnly && cfg.token !== null
-    return c.json({ uploadEnabled, runsEnabled })
+    return c.json({ uploadEnabled, runsEnabled, settingsEnabled })
   })
 }
 

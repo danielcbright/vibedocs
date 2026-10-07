@@ -40,7 +40,7 @@ export interface UploadAuthConfig {
 
 const TRUTHY = new Set(['true', '1', 'yes', 'on'])
 
-function isTruthy(value: string | undefined): boolean {
+export function isTruthy(value: string | undefined): boolean {
   if (!value) return false
   return TRUTHY.has(value.toLowerCase().trim())
 }

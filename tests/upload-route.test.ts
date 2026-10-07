@@ -187,6 +187,14 @@ describe('GET /api/config', () => {
     const json = await res.json()
     expect(json.uploadEnabled).toBe(true)
   })
+
+  it('reports settingsEnabled, off unless the composition root says otherwise', async () => {
+    const off = createApp({ readOnly: false, token: null, maxBytes: DEFAULT_MAX_UPLOAD_BYTES })
+    expect((await (await off.request('/api/config')).json()).settingsEnabled).toBe(false)
+    const app = new Hono()
+    registerConfigRoute(app, { readOnly: false, token: null, maxBytes: DEFAULT_MAX_UPLOAD_BYTES }, false, true)
+    expect((await (await app.request('/api/config')).json()).settingsEnabled).toBe(true)
+  })
 })
 
 // ── Composition rule (precedence) ────────────────────────────────────────────

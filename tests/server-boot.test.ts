@@ -113,6 +113,10 @@ vi.mock('../src/open-route.js', () => ({
   registerOpenRoute: () => { hoisted.callLog.push('registerOpenRoute') },
 }))
 
+vi.mock('../src/settings/routes.js', () => ({
+  registerSettingsRoutes: () => { hoisted.callLog.push('registerSettingsRoutes') },
+}))
+
 vi.mock('../src/static-files.js', () => ({
   registerStaticRoutes: () => { hoisted.callLog.push('registerStaticRoutes') },
 }))
@@ -164,6 +168,12 @@ describe('server boot orchestration', () => {
     const open = callLog.indexOf('registerOpenRoute')
     expect(open).toBeGreaterThanOrEqual(0)
     expect(open).toBeLessThan(callLog.indexOf('registerStaticRoutes'))
+  })
+
+  it('registers the settings routes before the SPA fallback', () => {
+    const settings = callLog.indexOf('registerSettingsRoutes')
+    expect(settings).toBeGreaterThanOrEqual(0)
+    expect(settings).toBeLessThan(callLog.indexOf('registerStaticRoutes'))
   })
 
   it('calls serve AFTER all route registration', () => {
