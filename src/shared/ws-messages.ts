@@ -16,6 +16,11 @@ export interface ReloadMessage {
 
 export interface RefreshTreeMessage {
   type: 'refresh-tree'
+  /**
+   * The project-tree version this change produced. A client already holding it
+   * skips the re-fetch. Absent from senders that do not know it (an upload).
+   */
+  version?: number
 }
 
 export interface RunUpdatedMessage {
@@ -58,8 +63,8 @@ export function reloadMessage(path: string): ReloadMessage {
   return { type: 'reload', path }
 }
 
-export function refreshTreeMessage(): RefreshTreeMessage {
-  return { type: 'refresh-tree' }
+export function refreshTreeMessage(version?: number): RefreshTreeMessage {
+  return version === undefined ? { type: 'refresh-tree' } : { type: 'refresh-tree', version }
 }
 
 export function runUpdatedMessage(runId: string): RunUpdatedMessage {
@@ -100,7 +105,9 @@ export function parseWsMessage(raw: string): WsMessage | null {
         ? { type: 'reload', path: obj.path }
         : null
     case 'refresh-tree':
-      return { type: 'refresh-tree' }
+      return typeof obj.version === 'number'
+        ? { type: 'refresh-tree', version: obj.version }
+        : { type: 'refresh-tree' }
     case 'run-updated':
       return typeof obj.runId === 'string' ? { type: 'run-updated', runId: obj.runId } : null
     case 'run-records':

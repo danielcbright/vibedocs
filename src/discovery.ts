@@ -165,11 +165,27 @@ export async function discoverAcrossRoots(
   roots: readonly string[],
   isHidden: (projectDir: string) => boolean = () => false,
 ): Promise<ProjectInfo[]> {
+  return (await discoverProjectDirs(roots, isHidden)).map((p) => p.project)
+}
+
+/**
+ * `discoverAcrossRoots`, keeping each project's directory alongside it — the
+ * project tree cache needs the directory to patch a project from watcher events.
+ */
+export async function discoverProjectDirs(
+  roots: readonly string[],
+  isHidden: (projectDir: string) => boolean = () => false,
+): Promise<Array<{ dir: string; project: ProjectInfo }>> {
   // One root is the installed base: skip the merge entirely so its behaviour is
   // not merely equivalent but literally the same code path.
-  if (roots.length === 1) return discoverProjects(roots[0], isHidden)
+  if (roots.length === 1) {
+    return (await discoverProjects(roots[0], isHidden)).map((project) => ({
+      dir: path.join(roots[0], project.name),
+      project,
+    }))
+  }
 
-  const merged: ProjectInfo[] = []
+  const merged: Array<{ dir: string; project: ProjectInfo }> = []
   const taken = new Set<string>()
 
   for (const root of roots) {
@@ -181,7 +197,7 @@ export async function discoverAcrossRoots(
       // cannot happen for something discoverProjects just returned.
       if (name === null) continue
       if (taken.has(name)) {
-        // Only reachable when a folder is literally named `<name>@<rootBasename>`
+        // Only reachable when a folder is literally named `<name>~<rootBasename>`
         // in an earlier root. Rare enough to report rather than invent a second
         // disambiguation scheme that would not survive the round-trip back to a
         // directory.
@@ -191,7 +207,7 @@ export async function discoverAcrossRoots(
         continue
       }
       taken.add(name)
-      merged.push({ ...project, name })
+      merged.push({ dir: path.join(root, project.name), project: { ...project, name } })
     }
   }
 

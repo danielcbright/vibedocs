@@ -5,7 +5,13 @@ import type { SearchResult } from './search.js'
 import type { PathResolver } from './path-resolver.js'
 import { VibedocsError } from './errors.js'
 import { resolveProjectPath } from './route-path.js'
-import { buildTreePublic, filterTreeByType, parseFileTypeFilter, type ProjectInfo } from './discovery.js'
+import {
+  buildTreePublic,
+  filterTreeByType,
+  parseFileTypeFilter,
+  type FileTypeFilter,
+  type ProjectInfo,
+} from './discovery.js'
 
 /**
  * Minimal contract the search route needs from its data source — a search
@@ -149,5 +155,47 @@ export function registerProjectTreeRoute(
     const tree = filterTreeByType(await buildTreePublic(dir, dir), parseFileTypeFilter(c.req.query('fileType')))
     const data: ProjectInfo & { hidden: boolean } = { name: project, hasDocsFolder, tree, hidden: deps.isHidden(dir) }
     return c.json({ data })
+  })
+}
+
+export interface ProjectsEndpoint {
+  /** The project-tree version right now; cheap. */
+  version(): number
+  /** The list for one file type, with the version it is at. */
+  listVersioned(fileType: FileTypeFilter): Promise<{ projects: ProjectInfo[]; version: number }>
+}
+
+/**
+ * `GET /api/projects` — served from the in-memory tree (src/project-tree-cache.ts).
+ *
+ * The ETag is the tree version plus the file type, and `Cache-Control: no-cache`
+ * makes the browser revalidate every time, so a tab that is already current gets
+ * a bodiless 304 without the server filtering or serialising anything. A changed
+ * tree is serialised once per file type and shared by every tab that asks.
+ */
+export function registerProjectsRoute(app: Hono, deps: ProjectsEndpoint): void {
+  const bodies = new Map<FileTypeFilter, { version: number; body: string }>()
+
+  app.get('/api/projects', async (c) => {
+    const fileType = parseFileTypeFilter(c.req.query('fileType'))
+    const etagFor = (version: number) => `"${version}-${fileType}"`
+    const headers = { 'Cache-Control': 'no-cache' }
+
+    const current = deps.version()
+    if (c.req.header('if-none-match') === etagFor(current)) {
+      return c.body(null, 304, { ...headers, ETag: etagFor(current) })
+    }
+
+    let hit = bodies.get(fileType)
+    if (hit === undefined || hit.version !== current) {
+      const { projects, version } = await deps.listVersioned(fileType)
+      hit = { version, body: JSON.stringify({ data: projects, version }) }
+      bodies.set(fileType, hit)
+    }
+    return c.body(hit.body, 200, {
+      ...headers,
+      ETag: etagFor(hit.version),
+      'Content-Type': 'application/json; charset=utf-8',
+    })
   })
 }

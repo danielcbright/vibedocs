@@ -6,7 +6,7 @@ import os from 'os'
 import type { Server } from 'net'
 import { getConnInfo } from '@hono/node-server/conninfo'
 import { PROJECT_ROOTS, PROJECT_ROOTS_ERROR, PROJECT_ROOTS_NOTES } from './discovery.js'
-import { registerSearchRoute, registerFileRoute, registerProjectTreeRoute } from './server-routes.js'
+import { registerSearchRoute, registerFileRoute, registerProjectTreeRoute, registerProjectsRoute } from './server-routes.js'
 import { registerUploadRoute, registerConfigRoute } from './upload-route.js'
 import { PathResolver } from './path-resolver.js'
 import { refreshTreeMessage } from './shared/ws-messages.js'
@@ -49,9 +49,9 @@ const state = await runLive(process.env)
 const app = new Hono()
 registerErrorHandler(app)
 
-app.get('/api/projects', async (c) => {
-  const fileType = (c.req.query('fileType') ?? 'all') as 'all' | 'markdown' | 'assets'
-  return c.json({ data: await state.listProjects(fileType) })
+registerProjectsRoute(app, {
+  version: () => state.projectsVersion,
+  listVersioned: (fileType) => state.listProjectsVersioned(fileType),
 })
 
 app.get('/api/render/:project/*', async (c) => {

@@ -31,6 +31,8 @@ export interface ProjectVisibility {
   /** True for a hidden project. False for a shown one, or anything that is not a project. */
   isHidden(projectDir: string): boolean
   visibility(projectDir: string): Visibility
+  /** Ask the filesystem again next time — the project's `.git` just changed. */
+  forget(projectDir: string): void
 }
 
 export interface CreateProjectVisibilityOptions {
@@ -64,7 +66,13 @@ export function createProjectVisibility(opts: CreateProjectVisibilityOptions): P
     return projectVisibility(projectDir, root, worktree(projectDir), rules)
   }
 
-  return { visibility, isHidden: (projectDir) => visibility(projectDir).hidden }
+  return {
+    visibility,
+    isHidden: (projectDir) => visibility(projectDir).hidden,
+    forget: (projectDir) => {
+      cache.delete(projectDir)
+    },
+  }
 }
 
 /** Every hidden project under the roots right now. The watcher takes this at boot. */
