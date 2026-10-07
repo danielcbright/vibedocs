@@ -84,19 +84,16 @@ export class PathResolver {
     }
 
     // Layer 3: reject dotfiles / dot-directories and EXCLUDED_DIRS at any path
-    // segment under the project root. Discovery hides these (see discovery.ts),
-    // and the file-serving routes must not become a backdoor that re-exposes
-    // them (e.g. `.env`, `.git/config`, `node_modules/foo`).
-    if (target !== projectDir) {
-      const relUnderProject = path.relative(projectDir, target)
-      const segments = relUnderProject.split(path.sep)
-      for (const segment of segments) {
-        if (segment.startsWith('.')) {
-          throw new VibedocsError('forbidden', 'Forbidden path')
-        }
-        if (EXCLUDED_DIRS.has(segment)) {
-          throw new VibedocsError('forbidden', 'Forbidden path')
-        }
+    // segment under the ROOT — the project segment included. Discovery hides these
+    // (see discovery.ts), and the file-serving routes must not become a backdoor
+    // that re-exposes them (e.g. `.env`, `.git/config`, `node_modules/foo`).
+    // Measured from the project directory instead, a project NAME of `.git` passed:
+    // a root that is a git checkout served its own `.git/config`, and a root of ~
+    // served `.ssh/id_rsa`. The root's own segments are not checked; a root under a
+    // dot-directory is the operator's choice.
+    for (const segment of path.relative(root, target).split(path.sep)) {
+      if (segment.startsWith('.') || EXCLUDED_DIRS.has(segment)) {
+        throw new VibedocsError('forbidden', 'Forbidden path')
       }
     }
 

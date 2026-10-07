@@ -227,6 +227,19 @@ describe('GET /api/file/:project/*', () => {
     expect(res.status).toBe(400)
   })
 
+  it('refuses a dot-directory named as the project segment', async () => {
+    // A root that is itself a git checkout has `.git` as a direct child, which the
+    // route reads as a project name. Discovery never lists it; serving it anyway
+    // would hand out `.git/config`, and with a root of ~, `.ssh/id_rsa`.
+    await mkdir(path.join(tmpDir, '.git'), { recursive: true })
+    await writeFile(path.join(tmpDir, '.git', 'config'), '[remote] url = https://token@example')
+    const app = createTestApp(tmpDir)
+
+    const res = await app.request('/api/file/.git/config')
+    expect(res.status).toBe(403)
+    expect(await res.text()).not.toContain('token@example')
+  })
+
   it('uses fallback content-type for unknown extensions with attachment disposition + nosniff', async () => {
     await writeFile(path.join(tmpDir, 'myproject', 'docs', 'data.xyz'), 'binary-stuff')
     const app = createTestApp(tmpDir)

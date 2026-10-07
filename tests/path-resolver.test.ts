@@ -148,6 +148,39 @@ describe('PathResolver.resolve — dotfile / dot-directory rejection', () => {
   })
 })
 
+describe('PathResolver.resolve — the project segment itself', () => {
+  // Layer 3 used to check only the segments below the project directory, so a
+  // project NAME could be a dot-directory or an excluded one: `resolve('.git',
+  // 'config')` returned `<root>/.git/config`. Discovery never lists such a
+  // directory as a project, so nothing legitimate asks for one.
+  const expectForbidden = (project: string, rel: string) => {
+    const resolver = new PathResolver({ projectsDir: tmpDir })
+    try {
+      resolver.resolve(project, rel)
+      throw new Error('expected throw')
+    } catch (err) {
+      expect(err).toBeInstanceOf(VibedocsError)
+      expect((err as VibedocsError).code).toBe('forbidden')
+    }
+  }
+
+  it('throws VibedocsError(forbidden) for a dot-directory project like .git', () => {
+    expectForbidden('.git', 'config')
+  })
+
+  it('throws VibedocsError(forbidden) for a dot-directory project like .ssh', () => {
+    expectForbidden('.ssh', 'id_rsa')
+  })
+
+  it('throws VibedocsError(forbidden) for an excluded directory as the project', () => {
+    expectForbidden('node_modules', 'pkg/README.md')
+  })
+
+  it('throws VibedocsError(forbidden) for a dot-directory project with an empty path', () => {
+    expectForbidden('.git', '')
+  })
+})
+
 describe('PathResolver.resolve — EXCLUDED_DIRS rejection', () => {
   it('throws VibedocsError(forbidden) for a file inside node_modules', () => {
     const resolver = new PathResolver({ projectsDir: tmpDir })
