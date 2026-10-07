@@ -16,6 +16,11 @@ TimeoutStopSec=10
 Environment=NODE_ENV=production
 # CONFIGURE: Set to the directory containing your project folders
 Environment=VIBEDOCS_ROOT=/path/to/your/projects
+# Optional: choose roots in the app (Settings) instead. Roots then live in a file,
+# and a save exits 75, which Restart=on-failure turns into a restart.
+#Environment=VIBEDOCS_ROOTS_FILE=/path/to/roots.txt
+#Environment=VIBEDOCS_SETTINGS_ENABLED=true
+#Environment=VIBEDOCS_SUPERVISED=true
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=vibedocs

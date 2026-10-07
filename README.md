@@ -114,7 +114,10 @@ The demo content is entirely fictional (`stratus-key-DEMO-12345`, `https://api.c
 | Variable | Default | Description |
 |---|---|---|
 | `VIBEDOCS_ROOT` | current working directory | Root directory to scan for projects |
-| `VIBEDOCS_ROOTS` | _(unset)_ | Several roots, colon-separated (POSIX). Wins over `VIBEDOCS_ROOT` when both are set. See "Several roots" below. |
+| `VIBEDOCS_ROOTS` | _(unset)_ | Several roots, colon-separated (POSIX). Wins over `VIBEDOCS_ROOTS_FILE` and `VIBEDOCS_ROOT`. See "Several roots" below. |
+| `VIBEDOCS_ROOTS_FILE` | _(unset)_ | A file of roots, one absolute path per line (`#` comments allowed). Wins over `VIBEDOCS_ROOT`. A file that cannot be read, or lists nothing, stops the server at startup. The macOS installer and Settings write it. |
+| `VIBEDOCS_SETTINGS_ENABLED` | `false` | Turns on Settings, where roots are chosen in a folder tree. Editable only when roots come from `VIBEDOCS_ROOTS_FILE`, and only from this machine. `VIBEDOCS_READ_ONLY` turns it off. |
+| `VIBEDOCS_SUPERVISED` | `false` | Declares that a supervisor (launchd `KeepAlive`, systemd `Restart=`) restarts the server, so saving roots in Settings exits with status 75 to apply them. Without it, Settings saves and asks you to restart. |
 | `VIBEDOCS_PORT` or `PORT` | `8080` | Port to listen on |
 | `VIBEDOCS_WS_ALLOWED_ORIGINS` | _(unset)_ | Comma-separated extra Origin allowlist for the WebSocket handshake. Defaults cover `localhost`. |
 | `VIBEDOCS_WS_ALLOW_NO_ORIGIN` | `false` | Accept WS handshakes with no `Origin` header (non-browser clients) |
@@ -170,6 +173,24 @@ silently wrong rather than merely unusual:
 
 Colon is the separator on Linux and macOS, which are the supported platforms.
 
+To keep the list in a file instead, set `VIBEDOCS_ROOTS_FILE`. The file takes one
+absolute path per line, so a path containing a colon works there. That is what the
+macOS installer sets up, and with `VIBEDOCS_SETTINGS_ENABLED` you can edit the list
+from **Settings** (the gear in the sidebar): a folder tree from your home folder
+down, with a checkbox per folder. The same two configurations are refused there,
+before you save.
+
+### Open a file by its path
+
+```bash
+vibedocs open ~/Development/my-project/docs/guide.md   # --port <n> if not 8080
+```
+
+This opens the file in the running server. Underneath it is
+`GET /open?path=<url-encoded absolute path>`, which redirects to the document and
+is what a Finder "Open With" handler can call. A path outside every root, a
+missing file or a non-markdown file gets a page saying which.
+
 ## Development
 
 ```bash
@@ -201,11 +222,14 @@ VibeDocs is designed to run as a persistent service.
 **macOS.** `scripts/install-macos.sh` installs a LaunchAgent that starts at login.
 It asks which folders to index rather than assuming — a home directory usually
 holds `~/Library` and often employer-synced folders, and neither belongs in a
-documentation browser. The folders you pick are written into `VIBEDOCS_ROOTS`, so
-each one is a root and the projects are the directories inside it. Change the
-selection by re-running the script; it restarts the service for you.
+documentation browser. It opens a folder picker in your browser, where you tick
+folders at any depth, for example `~/src/work` rather than all of `~/src`. Each
+folder you tick is a root, and the directories inside it are its projects. The
+choice goes to `~/.vibedocs/roots.txt`. To change it later, use Settings in VibeDocs,
+which restarts the service for you, or re-run the script.
 
-It is also drivable non-interactively: `--folders Development,Notes --yes`.
+It is also drivable non-interactively: `--folders Development,src/work --yes`.
+`--dry-run` prints the roots and the LaunchAgent plist without writing either.
 
 **Linux.** A systemd unit file is included in `systemd/vibedocs.service` — edit the paths and run `scripts/setup-service.sh` to install it.
 
