@@ -30,6 +30,8 @@
 # Options:
 #   --folders a,b,c   Folders to index: paths under $HOME (nested is fine) or absolute.
 #   --port <n>        Port to serve on. Default 8080.
+#   --host <addr>     Address to bind. Default 127.0.0.1, this machine only; 0.0.0.0
+#                     for every interface (then see VIBEDOCS_WS_ALLOWED_ORIGINS).
 #   --runs            Enable the Agent Runs viewer and mint an ingest token.
 #   --yes             Do not prompt; requires --folders.
 #   --dry-run         Print the roots and the LaunchAgent plist; change nothing.
@@ -46,6 +48,7 @@ ROOTS_FILE="$VIBEDOCS_HOME/roots.txt"
 # Only referenced to clean up after a previous install that staged symlinks here.
 LEGACY_ROOTS_DIR="$VIBEDOCS_HOME/roots"
 PORT=8080
+HOST=127.0.0.1
 FOLDERS=""
 ASSUME_YES=0
 ENABLE_RUNS=0
@@ -59,6 +62,7 @@ while [ $# -gt 0 ]; do
     # old invocation in their shell history.
     --root)      echo "--root is gone: folders are now named directly, with no staging directory. Use --folders." >&2; exit 2 ;;
     --port)      PORT="${2:-}"; shift 2 ;;
+    --host)      HOST="${2:-}"; shift 2 ;;
     --runs)      ENABLE_RUNS=1; shift ;;
     --yes|-y)    ASSUME_YES=1; shift ;;
     --dry-run)   DRY_RUN=1; shift ;;
@@ -239,6 +243,7 @@ PLIST_BODY="$(cat <<PLIST_EOF
     <key>VIBEDOCS_SETTINGS_ENABLED</key><string>true</string>
     <key>VIBEDOCS_SUPERVISED</key><string>true</string>
     <key>VIBEDOCS_PORT</key><string>${PORT}</string>
+    <key>VIBEDOCS_HOST</key><string>$(xml_escape "$HOST")</string>
     <key>PATH</key><string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>${RUNS_ENV}
   </dict>
   <key>RunAtLoad</key><true/>
@@ -274,6 +279,14 @@ printf '%s\n' "$PLIST_BODY" > "$PLIST"
 chmod 600 "$PLIST"
 
 build
+
+# Where to look for it. A wildcard bind answers on loopback; anything else answers
+# only where it was bound, which may not include localhost.
+case "$HOST" in
+  0.0.0.0|::|'') CHECK_HOST=127.0.0.1 ;;
+  *:*)           CHECK_HOST="[$HOST]" ;;
+  *)             CHECK_HOST="$HOST" ;;
+esac
 
 # Do not report success without checking. Two failures hide here, and they need
 # different messages: a root configuration the server refuses outright, and a
@@ -315,7 +328,7 @@ printf "\nStarting"
 up=""
 refusal=""
 for _ in $(seq 1 30); do
-  if curl -fsS -o /dev/null "http://localhost:${PORT}/api/projects" 2>/dev/null; then up="yes"; break; fi
+  if curl -fsS -o /dev/null "http://${CHECK_HOST}:${PORT}/api/projects" 2>/dev/null; then up="yes"; break; fi
   # Stop waiting the moment the server says why it will not start. KeepAlive
   # restarts it on a loop, so without this the operator watches 30 dots for a
   # verdict that was available after one.
@@ -358,7 +371,7 @@ if [ -z "$up" ]; then
   exit 1
 fi
 
-echo "VibeDocs is running at http://localhost:${PORT}"
+echo "VibeDocs is running at http://${CHECK_HOST}:${PORT}"
 for root in "${ROOTS[@]}"; do
   echo "  root:   $root"
 done

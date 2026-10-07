@@ -230,6 +230,8 @@ which restarts the service for you, or re-run the script.
 
 It is also drivable non-interactively: `--folders Development,src/work --yes`.
 `--dry-run` prints the roots and the LaunchAgent plist without writing either.
+The service binds to `127.0.0.1`, so only this machine can reach it; pass
+`--host 0.0.0.0` to serve every interface.
 
 **Linux.** A systemd unit file is included in `systemd/vibedocs.service` — edit the paths and run `scripts/setup-service.sh` to install it.
 

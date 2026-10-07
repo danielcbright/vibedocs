@@ -36,6 +36,7 @@ still change in a minor release.
   plist names that file with Settings and supervised restart on. `--folders` is
   unchanged and now also accepts nested folders and paths containing a colon.
   The new `--dry-run` prints the roots and the plist without writing either.
+  `--host` sets `VIBEDOCS_HOST` in the plist; the default is `127.0.0.1`.
 - `GET /open` bypasses the service worker, so when the server is stopped the
   browser shows a connection error instead of the cached home page.
 

@@ -353,7 +353,8 @@ browser folder picker at any depth; the selection goes to `~/.vibedocs/roots.txt
 named by `VIBEDOCS_ROOTS_FILE`, so the watcher sees real paths and Settings can
 edit it later. The script is also drivable non-interactively (`--folders a,b,c
 --yes`) for an agent installing on someone's behalf, and `--dry-run` prints the
-roots and plist without writing either.
+roots and plist without writing either. The plist sets `VIBEDOCS_HOST` from
+`--host`, default `127.0.0.1`, and the health check probes that address.
 
 **Two things about that changed in #193, and the second one is breaking.**
 

@@ -105,7 +105,7 @@ describe('install-macos.sh --help', () => {
 
   it('lists every option it accepts', () => {
     const out = help()
-    for (const flag of ['--folders', '--port', '--runs', '--yes', '--dry-run', '--uninstall']) {
+    for (const flag of ['--folders', '--port', '--host', '--runs', '--yes', '--dry-run', '--uninstall']) {
       expect(out, `expected --help to document ${flag}`).toContain(flag)
     }
   })
@@ -165,6 +165,11 @@ describe('install-macos.sh --dry-run --folders', () => {
     // VIBEDOCS_ROOTS is colon-separated and could not express this; the roots file
     // can, so the old refusal is gone rather than carried over.
     expect(run('--folders', 'Work: Archive', '--yes')).toContain(`  ${home}/Work: Archive\n`)
+  })
+
+  it('binds to this machine only unless told otherwise', () => {
+    expect(run('--folders', 'ops', '--yes')).toContain('<key>VIBEDOCS_HOST</key><string>127.0.0.1</string>')
+    expect(run('--folders', 'ops', '--yes', '--host', '0.0.0.0')).toContain('<key>VIBEDOCS_HOST</key><string>0.0.0.0</string>')
   })
 
   it('writes nothing', () => {
