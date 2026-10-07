@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
-import { useProjects } from '@/hooks/use-projects'
+import { useProjects, useHiddenProject } from '@/hooks/use-projects'
 import { useDocument } from '@/hooks/use-document'
 import { useSearch } from '@/hooks/use-search'
 import { useConfig } from '@/hooks/use-config'
@@ -10,6 +10,7 @@ import { ApiError, type ApiClient } from '@/lib/api-client'
 function makeMockClient(overrides: Partial<ApiClient> = {}): ApiClient {
   return {
     getProjects: vi.fn().mockResolvedValue([]),
+    getProjectTree: vi.fn().mockRejectedValue(new ApiError('Not found', 404)),
     renderDoc: vi.fn().mockResolvedValue({ html: '', toc: [] }),
     getRawDoc: vi.fn().mockResolvedValue(''),
     search: vi.fn().mockResolvedValue([]),
@@ -147,5 +148,60 @@ describe('useConfig with injected client', () => {
 
     await waitFor(() => expect(result.current.uploadEnabled).toBe(true))
     expect(client.getConfig).toHaveBeenCalled()
+  })
+})
+
+describe('useHiddenProject — a hidden project joins the sidebar while you are on it (ADR-0003)', () => {
+  const hidden = { name: 'repo-wt', hasDocsFolder: false, tree: [], hidden: true }
+  const listed = [{ name: 'repo', hasDocsFolder: false, tree: [] }]
+  const args = (over: Partial<Parameters<typeof useHiddenProject>[0]> = {}) => ({
+    activeProject: 'repo-wt',
+    activePath: 'README.md',
+    projects: listed,
+    loading: false,
+    fileType: 'markdown' as const,
+    ...over,
+  })
+
+  it('fetches the active project when the list does not have it, and returns it when hidden', async () => {
+    const client = makeMockClient({ getProjectTree: vi.fn().mockResolvedValue(hidden) })
+    const { result } = renderHook(() => useHiddenProject(args(), client))
+    await waitFor(() => expect(result.current).toEqual(hidden))
+    expect(client.getProjectTree).toHaveBeenCalledWith('repo-wt', 'markdown')
+  })
+
+  it('does nothing for a listed project, or while the list is still loading', () => {
+    const client = makeMockClient()
+    renderHook(() => useHiddenProject(args({ activeProject: 'repo' }), client))
+    renderHook(() => useHiddenProject(args({ projects: [], loading: true }), client))
+    expect(client.getProjectTree).not.toHaveBeenCalled()
+  })
+
+  it('returns null for a project that turns out not to be hidden, or does not exist', async () => {
+    const client = makeMockClient({ getProjectTree: vi.fn().mockResolvedValue({ ...hidden, hidden: false }) })
+    const { result } = renderHook(() => useHiddenProject(args(), client))
+    await waitFor(() => expect(client.getProjectTree).toHaveBeenCalled())
+    expect(result.current).toBeNull()
+  })
+
+  it('re-fetches the tree on each doc opened in it, since nothing watches a hidden project', async () => {
+    const client = makeMockClient({ getProjectTree: vi.fn().mockResolvedValue(hidden) })
+    const { rerender } = renderHook((p: { path: string }) => useHiddenProject(args({ activePath: p.path }), client), {
+      initialProps: { path: 'README.md' },
+    })
+    await waitFor(() => expect(client.getProjectTree).toHaveBeenCalledTimes(1))
+    rerender({ path: 'docs/new.md' })
+    await waitFor(() => expect(client.getProjectTree).toHaveBeenCalledTimes(2))
+  })
+
+  it('re-fetches when the window regains focus, and keeps showing the old tree meanwhile', async () => {
+    const client = makeMockClient({ getProjectTree: vi.fn().mockResolvedValue(hidden) })
+    const { result } = renderHook(() => useHiddenProject(args(), client))
+    await waitFor(() => expect(result.current).toEqual(hidden))
+    act(() => {
+      window.dispatchEvent(new Event('focus'))
+    })
+    expect(result.current).toEqual(hidden)
+    await waitFor(() => expect(client.getProjectTree).toHaveBeenCalledTimes(2))
   })
 })

@@ -17,6 +17,7 @@
 import type { Context, Hono } from 'hono'
 import type { RootsSource } from '../project-roots.js'
 import type { AfterSave, RootsSettings, RootsSaved } from '../shared/settings-types.js'
+import { NO_RULES } from '../shared/project-visibility.js'
 import { checkSettingsAuth } from './auth.js'
 import { listFolders } from './folders.js'
 import { checkSelection, readRootsFile, writeRootsFile } from './selection.js'
@@ -58,9 +59,11 @@ export function registerSettingsRoutes(app: Hono, deps: SettingsRoutesDeps): voi
   const editable = deps.source.kind === 'file' && deps.rootsFile !== null
 
   app.get('/api/settings/roots', async (c) => {
+    const file = deps.rootsFile !== null ? await readRootsFile(deps.rootsFile) : null
     const body: RootsSettings = {
       roots: [...deps.roots],
-      saved: deps.rootsFile !== null ? await readRootsFile(deps.rootsFile) : null,
+      saved: file?.roots ?? null,
+      rules: file?.rules ?? NO_RULES,
       editable,
       reason: editable ? null : notEditableReason(deps.source),
       home: deps.home,
@@ -74,18 +77,18 @@ export function registerSettingsRoutes(app: Hono, deps: SettingsRoutesDeps): voi
   })
 
   app.post('/api/settings/roots/check', async (c) => {
-    const body = (await c.req.json().catch(() => null)) as { roots?: unknown } | null
-    return c.json({ data: await checkSelection(body?.roots) })
+    const body = (await c.req.json().catch(() => null)) as { roots?: unknown; rules?: unknown } | null
+    return c.json({ data: await checkSelection(body?.roots, body?.rules) })
   })
 
   app.put('/api/settings/roots', async (c) => {
     if (!editable) return c.json({ error: notEditableReason(deps.source) }, 409)
-    const body = (await c.req.json().catch(() => null)) as { roots?: unknown } | null
-    const check = await checkSelection(body?.roots)
+    const body = (await c.req.json().catch(() => null)) as { roots?: unknown; rules?: unknown } | null
+    const check = await checkSelection(body?.roots, body?.rules)
     if (!check.ok) return c.json({ error: check.error }, 400)
 
-    await writeRootsFile(deps.rootsFile!, check.roots)
-    const saved: RootsSaved = { roots: check.roots, afterSave: deps.afterSave }
+    await writeRootsFile(deps.rootsFile!, check.roots, check.rules)
+    const saved: RootsSaved = { roots: check.roots, rules: check.rules, afterSave: deps.afterSave }
     const res = c.json({ data: saved })
     deps.onSaved(check.roots)
     return res

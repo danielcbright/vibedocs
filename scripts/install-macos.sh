@@ -175,12 +175,22 @@ fi
 # restated here (the picker shows the server's own verdict before saving), or they
 # would drift from the ones in the code. The health check below reprints whatever
 # the server refuses on.
+# Hide/show rules set in Settings (hide, show, show-worktrees) survive a --folders
+# re-run; the server drops any that no longer name a project or root of the new
+# selection, so they are kept as they are rather than filtered here.
+KEPT_RULES=""
+[ -f "$ROOTS_FILE" ] && KEPT_RULES="$(grep -E '^(hide|show|show-worktrees) ' "$ROOTS_FILE" || true)"
+
 write_roots_file() {
   mkdir -p "$(dirname "$ROOTS_FILE")"
   {
     echo "# VibeDocs roots, one absolute path per line. Written by the installer and the"
     echo "# Settings page. After editing by hand, restart vibedocs."
     printf '%s\n' "${ROOTS[@]}"
+    if [ -n "$KEPT_RULES" ]; then
+      echo "# Hidden projects (not listed, watched or searched): hide, show, show-worktrees."
+      printf '%s\n' "$KEPT_RULES"
+    fi
   } > "$ROOTS_FILE.tmp"
   mv "$ROOTS_FILE.tmp" "$ROOTS_FILE"
 }
@@ -261,6 +271,7 @@ if [ "$DRY_RUN" = "1" ]; then
   echo
   echo "$ROOTS_FILE:"
   printf '  %s\n' "${ROOTS[@]}"
+  [ -z "$KEPT_RULES" ] || printf '%s\n' "$KEPT_RULES" | sed 's/^/  /'
   echo
   echo "$PLIST:"
   echo "$PLIST_BODY"

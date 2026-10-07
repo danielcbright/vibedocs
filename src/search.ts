@@ -55,6 +55,8 @@ export interface IndexStoreOptions {
   projectsDir?: string
   /** Every configured root, in order (#113). */
   roots?: readonly string[]
+  /** Hidden projects (ADR-0003) are not indexed. Defaults to hiding nothing. */
+  isHidden?: (projectDir: string) => boolean
 }
 
 /** Where an indexable file lives, in the terms the wire format uses. */
@@ -79,6 +81,7 @@ export interface IndexKey {
 export function resolveIndexKey(
   rootDir: string | readonly string[],
   absPath: string,
+  isHidden: (projectDir: string) => boolean = () => false,
 ): IndexKey | null {
   const roots = typeof rootDir === 'string' ? [rootDir] : rootDir
 
@@ -101,6 +104,7 @@ export function resolveIndexKey(
   }
 
   if (!isMarkdownPath(segments[segments.length - 1])) return null
+  if (isHidden(path.join(root, segments[0]))) return null
 
   // Naming goes through the same function discovery uses, so a hit always carries
   // a name the path resolver can turn back into a directory.
@@ -148,7 +152,12 @@ async function readEntry(absPath: string, key: IndexKey): Promise<IndexEntry | n
   }
 }
 
-async function collectInto(map: IndexMap, dir: string, roots: readonly string[]): Promise<void> {
+async function collectInto(
+  map: IndexMap,
+  dir: string,
+  roots: readonly string[],
+  isHidden: (projectDir: string) => boolean,
+): Promise<void> {
   let names: string[]
   try {
     names = await readdir(dir)
@@ -169,20 +178,23 @@ async function collectInto(map: IndexMap, dir: string, roots: readonly string[])
 
     if (s.isDirectory()) {
       if (EXCLUDED_DIRS.has(name)) continue
-      await collectInto(map, fullPath, roots)
+      await collectInto(map, fullPath, roots, isHidden)
       continue
     }
 
     // Scope decision goes through resolveIndexKey so the walk and incremental
     // updates cannot drift apart.
-    const key = resolveIndexKey(roots, fullPath)
+    const key = resolveIndexKey(roots, fullPath, isHidden)
     if (key === null) continue
     const entry = await readEntry(fullPath, key)
     if (entry !== null) map.set(fullPath, entry)
   }
 }
 
-async function collectAll(roots: readonly string[]): Promise<IndexMap> {
+async function collectAll(
+  roots: readonly string[],
+  isHidden: (projectDir: string) => boolean,
+): Promise<IndexMap> {
   const map: IndexMap = new Map()
 
   for (const rootDir of roots) {
@@ -205,7 +217,10 @@ async function collectAll(roots: readonly string[]): Promise<IndexMap> {
         continue
       }
 
-      await collectInto(map, projectDir, roots)
+      // Skipped whole rather than file by file: a hidden worktree is a copy of a
+      // repository, and walking it is the cost hiding exists to avoid.
+      if (isHidden(projectDir)) continue
+      await collectInto(map, projectDir, roots, isHidden)
     }
   }
 
@@ -214,6 +229,7 @@ async function collectAll(roots: readonly string[]): Promise<IndexMap> {
 
 export function createIndexStore(options: IndexStoreOptions = {}): IndexStore {
   const roots = options.roots ?? [options.projectsDir ?? PROJECTS_DIR]
+  const isHidden = options.isHidden ?? (() => false)
   let entries: IndexMap = new Map()
   let version = 0
 
@@ -270,7 +286,7 @@ export function createIndexStore(options: IndexStoreOptions = {}): IndexStore {
 
     rebuild(): Promise<number> {
       return serial(async () => {
-        entries = await collectAll(roots)
+        entries = await collectAll(roots, isHidden)
         version += 1
         return version
       })
@@ -278,7 +294,7 @@ export function createIndexStore(options: IndexStoreOptions = {}): IndexStore {
 
     updateFile(absPath: string): Promise<number> {
       return serial(async () => {
-        const key = resolveIndexKey(roots, absPath)
+        const key = resolveIndexKey(roots, absPath, isHidden)
         // Out of scope for the index — and out of scope means out of scope even
         // if we happen to hold a stale entry for it, so nothing to remove.
         if (key === null) return version

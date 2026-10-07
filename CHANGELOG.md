@@ -27,6 +27,13 @@ still change in a minor release.
   lists nothing, stops the server at startup.
 - **`vibedocs pick-roots --write <file>`**: the same picker as a one-shot page on
   127.0.0.1, which the macOS installer runs.
+- **Hidden projects.** Linked git worktrees inside a root are hidden by default:
+  they are left out of the sidebar, search and the file watcher, but still served,
+  so their docs open by path and the sidebar shows the project while you are on
+  one of them. Settings has an eye toggle per project and a **Hide git worktrees**
+  switch per root. The roots file stores these choices as `hide`, `show` and
+  `show-worktrees` lines, and installer re-runs keep them. See
+  [ADR-0003](docs/adr/0003-hidden-projects.md).
 
 ### Changed
 

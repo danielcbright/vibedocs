@@ -5,6 +5,8 @@ import type { SiteConfig } from './site-config.js'
 import { EXCLUDED_DIRS } from './excluded-paths.js'
 import { isMarkdownPath } from './markdown-paths.js'
 import { parseRoots, projectNameFor } from './project-roots.js'
+import { NO_RULES, type VisibilityRules } from './shared/project-visibility.js'
+import { createProjectVisibility, type ProjectVisibility } from './project-visibility.js'
 
 /**
  * Configured roots, snapshotted from the environment at module load.
@@ -27,6 +29,13 @@ const rootsResult = parseRoots(process.env, process.cwd(), (file) => {
 export const PROJECT_ROOTS: readonly string[] = rootsResult.ok ? rootsResult.roots : []
 export const PROJECT_ROOTS_ERROR: string | null = rootsResult.ok ? null : rootsResult.error
 export const PROJECT_ROOTS_NOTES: readonly string[] = rootsResult.ok ? rootsResult.notes ?? [] : []
+/** Hide/show rules from the roots file (ADR-0003); the defaults when there are none. */
+export const PROJECT_RULES: VisibilityRules = rootsResult.ok ? rootsResult.rules ?? NO_RULES : NO_RULES
+/** The live server's one visibility instance, shared by discovery, search and the watcher. */
+export const PROJECT_VISIBILITY: ProjectVisibility = createProjectVisibility({
+  roots: PROJECT_ROOTS,
+  rules: PROJECT_RULES,
+})
 
 /**
  * The first configured root. Kept because plenty of call sites are inherently
@@ -100,6 +109,7 @@ async function buildTree(dir: string, projectRoot: string): Promise<FileNode[]> 
 
 export async function discoverProjects(
   projectsDir: string = PROJECTS_DIR,
+  isHidden: (projectDir: string) => boolean = () => false,
 ): Promise<ProjectInfo[]> {
   let entries: string[]
   try {
@@ -120,6 +130,7 @@ export async function discoverProjects(
     } catch {
       continue
     }
+    if (isHidden(projectDir)) continue
 
     const docsDir = path.join(projectDir, 'docs')
     let hasDocsFolder = false
@@ -150,16 +161,21 @@ export async function discoverProjects(
  * Roots are visited in configured order, which fixes both the sidebar order and
  * which of two same-named projects keeps the bare name.
  */
-export async function discoverAcrossRoots(roots: readonly string[]): Promise<ProjectInfo[]> {
+export async function discoverAcrossRoots(
+  roots: readonly string[],
+  isHidden: (projectDir: string) => boolean = () => false,
+): Promise<ProjectInfo[]> {
   // One root is the installed base: skip the merge entirely so its behaviour is
   // not merely equivalent but literally the same code path.
-  if (roots.length === 1) return discoverProjects(roots[0])
+  if (roots.length === 1) return discoverProjects(roots[0], isHidden)
 
   const merged: ProjectInfo[] = []
   const taken = new Set<string>()
 
   for (const root of roots) {
-    for (const project of await discoverProjects(root)) {
+    for (const project of await discoverProjects(root, isHidden)) {
+      // Naming ignores visibility on purpose: hiding a project must never rename
+      // another, because names are routing keys (ADR-0003).
       const name = projectNameFor(roots, path.join(root, project.name), existsAsDir)
       // Null means the directory is not a direct child of a configured root, which
       // cannot happen for something discoverProjects just returned.

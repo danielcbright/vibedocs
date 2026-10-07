@@ -8,12 +8,13 @@
  */
 import { mkdir, readFile, rename, stat, writeFile } from 'fs/promises'
 import path from 'path'
-import { checkRootSelection, formatRootsFile, parseRootsFile } from '../project-roots.js'
+import { checkRootSelection, formatRootsFile, parseRootsFile, pruneRules } from '../project-roots.js'
+import { NO_RULES, type VisibilityRules } from '../shared/project-visibility.js'
 import type { RootsCheck } from '../shared/settings-types.js'
 
 const MAX_ROOTS = 64
 
-export async function checkSelection(input: unknown): Promise<RootsCheck> {
+export async function checkSelection(input: unknown, rulesInput: unknown = NO_RULES): Promise<RootsCheck> {
   if (!Array.isArray(input) || !input.every((r) => typeof r === 'string')) {
     return { ok: false, error: 'Expected a list of folder paths.' }
   }
@@ -38,22 +39,51 @@ export async function checkSelection(input: unknown): Promise<RootsCheck> {
   }
 
   const conflict = checkRootSelection(roots)
-  return conflict === null ? { ok: true, roots } : { ok: false, error: conflict }
+  if (conflict !== null) return { ok: false, error: conflict }
+
+  const rules = parseRules(rulesInput)
+  if (typeof rules === 'string') return { ok: false, error: rules }
+  // A rule for a root that was just unticked is dropped, not refused: the page
+  // would otherwise have to clean up after every untick before it could save.
+  return { ok: true, roots, rules: pruneRules(rules, roots) }
+}
+
+function parseRules(input: unknown): VisibilityRules | string {
+  if (input === undefined || input === null) return NO_RULES
+  const r = input as Record<string, unknown>
+  const lists: Array<keyof VisibilityRules> = ['hide', 'show', 'showWorktrees']
+  const out: Record<string, string[]> = {}
+  for (const key of lists) {
+    const list = r[key] ?? []
+    if (!Array.isArray(list) || !list.every((p) => typeof p === 'string')) return 'Expected lists of folder paths.'
+    out[key] = []
+    for (const p of list as string[]) {
+      if (/[\n\r\0]/.test(p)) return `“${p}” contains a line break.`
+      if (!path.isAbsolute(p)) return `“${p}” is not an absolute path.`
+      const resolved = path.resolve(p)
+      if (!out[key].includes(resolved)) out[key].push(resolved)
+    }
+  }
+  return out as unknown as VisibilityRules
 }
 
 /** Write the roots file atomically, so a crash mid-write cannot leave the next boot a half file. */
-export async function writeRootsFile(file: string, roots: readonly string[]): Promise<void> {
+export async function writeRootsFile(
+  file: string,
+  roots: readonly string[],
+  rules: VisibilityRules = NO_RULES,
+): Promise<void> {
   await mkdir(path.dirname(file), { recursive: true })
   const tmp = `${file}.${process.pid}.tmp`
-  await writeFile(tmp, formatRootsFile(roots), { mode: 0o644 })
+  await writeFile(tmp, formatRootsFile(roots, rules), { mode: 0o644 })
   await rename(tmp, file)
 }
 
-/** What the roots file lists now, or null when it is missing or unparseable. */
-export async function readRootsFile(file: string): Promise<string[] | null> {
+/** What the roots file holds now, or null when it is missing or unparseable. */
+export async function readRootsFile(file: string): Promise<{ roots: string[]; rules: VisibilityRules } | null> {
   try {
     const parsed = parseRootsFile(await readFile(file, 'utf-8'))
-    return parsed.ok ? parsed.roots : null
+    return parsed.ok ? { roots: parsed.roots, rules: pruneRules(parsed.rules, parsed.roots) } : null
   } catch {
     return null
   }

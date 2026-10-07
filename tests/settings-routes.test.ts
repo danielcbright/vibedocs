@@ -76,6 +76,8 @@ function appWith(overrides: Partial<SettingsRoutesDeps> = {}, peer = '127.0.0.1'
   return app
 }
 
+const app = () => appWith()
+
 const put = (app: Hono, roots: unknown, headers: Record<string, string> = LOCAL) =>
   app.request('/api/settings/roots', {
     method: 'PUT',
@@ -90,6 +92,7 @@ describe('GET /api/settings/roots', () => {
     expect((await res.json()).data).toEqual({
       roots: [path.join(home, 'ops')],
       saved: [path.join(home, 'ops')],
+      rules: { hide: [], show: [], showWorktrees: [] },
       editable: true,
       reason: null,
       home,
@@ -156,6 +159,18 @@ describe('GET /api/settings/folders', () => {
     expect(data.folders.find((f: { name: string }) => f.name === 'deep')).toMatchObject({ markdown: 1, capped: true })
   })
 
+  it('marks linked git worktrees, which are hidden by default as projects', async () => {
+    const wt = path.join(home, 'src', 'work', 'repo-a-wt')
+    await mkdir(wt, { recursive: true })
+    await writeFile(path.join(wt, '.git'), `gitdir: ${home}/src/work/repo-a/.git/worktrees/repo-a-wt\n`)
+    const { data } = await (await app().request(`/api/settings/folders?path=${encodeURIComponent(path.join(home, 'src', 'work'))}`, { headers: LOCAL })).json()
+    expect(data.folders.map((f: { name: string; worktree: boolean }) => [f.name, f.worktree])).toEqual([
+      ['repo-a', false],
+      ['repo-a-wt', true],
+      ['repo-b', false],
+    ])
+  })
+
   it('caps a count instead of walking an enormous tree', async () => {
     const big = path.join(home, 'big', 'docs')
     await mkdir(big, { recursive: true })
@@ -175,7 +190,32 @@ describe('POST /api/settings/roots/check — the server\'s own verdict, before s
 
   it('accepts nested folders below the top level of home', async () => {
     const roots = [path.join(home, 'src', 'work'), path.join(home, 'src', 'personal')]
-    expect((await (await check(appWith(), roots)).json()).data).toEqual({ ok: true, roots })
+    expect((await (await check(appWith(), roots)).json()).data).toEqual({ ok: true, roots, rules: { hide: [], show: [], showWorktrees: [] } })
+  })
+
+  it('keeps hide/show rules that apply to the chosen roots and drops the rest (ADR-0003)', async () => {
+    const work = path.join(home, 'src', 'work')
+    const res = await app().request('/api/settings/roots/check', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...LOCAL },
+      body: JSON.stringify({
+        roots: [work],
+        rules: { hide: [path.join(work, 'repo-b'), path.join(home, 'ops', 'x')], show: [], showWorktrees: [work, path.join(home, 'ops')] },
+      }),
+    })
+    expect((await res.json()).data.rules).toEqual({ hide: [path.join(work, 'repo-b')], show: [], showWorktrees: [work] })
+  })
+
+  it('refuses malformed rules', async () => {
+    const bad = async (rules: unknown) =>
+      (await (await app().request('/api/settings/roots/check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...LOCAL },
+        body: JSON.stringify({ roots: [path.join(home, 'ops')], rules }),
+      })).json()).data
+    expect((await bad({ hide: 'x' })).error).toMatch(/lists of folder paths/)
+    expect((await bad({ hide: ['relative'] })).error).toMatch(/not an absolute path/)
+    expect((await bad({ show: [`${home}/ops/a\nb`] })).error).toMatch(/line break/)
   })
 
   it('returns the boot refusal for a parent and its child', async () => {
@@ -204,9 +244,25 @@ describe('PUT /api/settings/roots', () => {
     const roots = [path.join(home, 'src', 'work'), path.join(home, 'src', 'personal'), path.join(home, 'ops')]
     const res = await put(appWith(), roots)
     expect(res.status).toBe(200)
-    expect((await res.json()).data).toEqual({ roots, afterSave: 'restart' })
+    expect((await res.json()).data).toEqual({ roots, rules: { hide: [], show: [], showWorktrees: [] }, afterSave: 'restart' })
     expect(await readFile(rootsFile, 'utf-8')).toMatch(new RegExp(`${roots.join('\\n')}\\n$`))
     expect(saved).toEqual([roots])
+  })
+
+  it('writes hide/show rules as directives, and reads them back', async () => {
+    const work = path.join(home, 'src', 'work')
+    const rules = { hide: [path.join(work, 'repo-b')], show: [], showWorktrees: [work] }
+    const res = await app().request('/api/settings/roots', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...LOCAL },
+      body: JSON.stringify({ roots: [work], rules }),
+    })
+    expect(res.status).toBe(200)
+    const text = await readFile(rootsFile, 'utf-8')
+    expect(text).toContain(`hide ${path.join(work, 'repo-b')}\n`)
+    expect(text).toContain(`show-worktrees ${work}\n`)
+    const { data } = await (await app().request('/api/settings/roots', { headers: LOCAL })).json()
+    expect(data.rules).toEqual(rules)
   })
 
   it('leaves the file alone and does not hand over when the selection is refused', async () => {

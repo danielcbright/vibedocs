@@ -1,6 +1,7 @@
 import { useCallback } from "react"
 import { AlertTriangle, CheckCircle2, Loader2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { FolderTree } from "./FolderTree"
 import { useRootsPicker, type SaveState, type UseRootsPickerOptions } from "./use-roots-picker"
 import type { SettingsClient } from "./settings-client"
@@ -67,11 +68,20 @@ export function SettingsView({ client, variant = "app", pickerOptions }: Setting
               root={settings.home}
               selected={selection}
               onToggle={picker.toggle}
+              rules={picker.rules}
+              onToggleHidden={picker.toggleHidden}
               disabled={busy || finished}
             />
             <section className="space-y-2" aria-label="Chosen roots">
               <h2 className="text-sm font-medium">Roots ({selection.length})</h2>
-              <RootList roots={selection} tilde={tilde} onRemove={busy || finished ? undefined : picker.remove} />
+              <ChosenRoots
+                roots={selection}
+                tilde={tilde}
+                showWorktrees={picker.rules.showWorktrees}
+                onHideWorktrees={picker.setHideWorktrees}
+                onRemove={picker.remove}
+                disabled={busy || finished}
+              />
               {dirty && check === null && (
                 <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <Loader2 className="size-3 animate-spin" /> Checking…
@@ -129,6 +139,60 @@ function RootList({
           )}
         </li>
       ))}
+    </ul>
+  )
+}
+
+/** The roots being chosen, each with its worktree switch (ADR-0003). */
+function ChosenRoots({
+  roots,
+  tilde,
+  showWorktrees,
+  onHideWorktrees,
+  onRemove,
+  disabled,
+}: {
+  roots: readonly string[]
+  tilde: (p: string) => string
+  showWorktrees: readonly string[]
+  onHideWorktrees: (root: string, hide: boolean) => void
+  onRemove: (root: string) => void
+  disabled: boolean
+}) {
+  if (roots.length === 0) return <p className="text-sm text-muted-foreground">None chosen.</p>
+  return (
+    <ul className="divide-y rounded-md border text-sm">
+      {roots.map((r) => {
+        const id = `hide-worktrees-${r}`
+        return (
+          <li key={r} className="flex items-center gap-3 px-3 py-1.5">
+            <span className="min-w-0 flex-1 truncate font-mono text-xs" title={r}>
+              {tilde(r)}
+            </span>
+            <span className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+              <Checkbox
+                id={id}
+                checked={!showWorktrees.includes(r)}
+                disabled={disabled}
+                onCheckedChange={(v) => onHideWorktrees(r, v === true)}
+              />
+              <label htmlFor={id} className="cursor-pointer">
+                Hide git worktrees
+              </label>
+            </span>
+            {!disabled && (
+              <button
+                type="button"
+                className="tap-target rounded p-0.5 text-muted-foreground hover:text-foreground"
+                aria-label={`Remove ${r}`}
+                onClick={() => onRemove(r)}
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
+          </li>
+        )
+      })}
     </ul>
   )
 }

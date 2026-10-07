@@ -12,6 +12,7 @@
  * actually supported. A separator nobody can test is not a feature.
  */
 import path from 'path'
+import { NO_RULES, hasRules, type VisibilityRules } from './shared/project-visibility.js'
 
 /** Separator for `VIBEDOCS_ROOTS`. POSIX-only, see the module note. */
 export const ROOTS_SEPARATOR = ':'
@@ -37,7 +38,8 @@ export const ROOTS_SEPARATOR = ':'
 export const ROOT_QUALIFIER = '~'
 
 export type ParseRootsResult =
-  | { ok: true; roots: string[]; notes?: string[] }
+  /** `rules` only when a roots file names some (ADR-0003); otherwise the defaults apply. */
+  | { ok: true; roots: string[]; notes?: string[]; rules?: VisibilityRules }
   | { ok: false; error: string }
 
 /**
@@ -93,6 +95,7 @@ export function parseRoots(
   const source = rootsSource(env)
 
   let candidates: string[]
+  let fileRules: VisibilityRules = NO_RULES
   if (source.kind === 'list') {
     candidates = raw!
       .split(ROOTS_SEPARATOR)
@@ -121,6 +124,7 @@ export function parseRoots(
         return { ok: false, error: `The roots file ${file} lists no folders. Choose at least one.` }
       }
       candidates = parsed.roots
+      fileRules = parsed.rules
       if (env.VIBEDOCS_ROOT) notes.push('VIBEDOCS_ROOTS_FILE is set, so VIBEDOCS_ROOT is ignored.')
     } else {
       candidates = [env.VIBEDOCS_ROOT || cwd]
@@ -131,7 +135,42 @@ export function parseRoots(
   const conflict = findRootConflict(roots)
   if (conflict) return { ok: false, error: conflict }
 
-  return { ok: true, roots, ...(notes.length > 0 ? { notes } : {}) }
+  // A rule left behind when its root was removed by hand is noted and dropped, not
+  // fatal: it can only ever have hidden something, and refusing to boot over that
+  // would be out of proportion.
+  const rules = pruneRules(fileRules, roots, (line) =>
+    notes.push(`Ignoring "${line}" in the roots file: it names no project or root that is configured.`),
+  )
+
+  return {
+    ok: true,
+    roots,
+    ...(notes.length > 0 ? { notes } : {}),
+    ...(hasRules(rules) ? { rules } : {}),
+  }
+}
+
+/**
+ * Keep only the rules that apply to these roots: `hide`/`show` must name a project
+ * (a direct child of a root), `show-worktrees` a root.
+ */
+export function pruneRules(
+  rules: VisibilityRules,
+  roots: readonly string[],
+  onDropped: (line: string) => void = () => {},
+): VisibilityRules {
+  const isProject = (p: string) => roots.includes(path.dirname(p))
+  const keep = (kind: string, list: readonly string[], ok: (p: string) => boolean) =>
+    list.filter((p) => {
+      if (ok(p)) return true
+      onDropped(`${kind} ${p}`)
+      return false
+    })
+  return {
+    hide: keep('hide', rules.hide, isProject),
+    show: keep('show', rules.show, isProject),
+    showWorktrees: keep('show-worktrees', rules.showWorktrees, (p) => roots.includes(p)),
+  }
 }
 
 /**
@@ -161,26 +200,63 @@ function dedupeResolved(candidates: readonly string[], cwd: string): string[] {
  * with its line number instead of resolving against wherever the service started.
  * Line-separated rather than colon-separated, so a path containing a colon is
  * expressible here even though it is not in `VIBEDOCS_ROOTS`.
+ *
+ * Visibility rules (ADR-0003) are lines that start with a word instead of `/`:
+ * `hide <project>`, `show <project>`, `show-worktrees <root>`. An absolute path
+ * cannot start with a word, so the two cannot be confused.
  */
-export function parseRootsFile(contents: string): { ok: true; roots: string[] } | { ok: false; error: string } {
+export function parseRootsFile(
+  contents: string,
+): { ok: true; roots: string[]; rules: VisibilityRules } | { ok: false; error: string } {
   const roots: string[] = []
+  const hide: string[] = []
+  const show: string[] = []
+  const showWorktrees: string[] = []
+  const directives: Record<string, string[]> = { hide, show, 'show-worktrees': showWorktrees }
+
   const lines = contents.split(/\r?\n/)
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!.trim()
     if (line === '' || line.startsWith('#')) continue
-    if (!path.isAbsolute(line)) {
-      return { ok: false, error: `line ${i + 1}: "${line}" is not an absolute path.` }
+    if (line.startsWith('/')) {
+      roots.push(line)
+      continue
     }
-    roots.push(line)
+    const space = line.search(/\s/)
+    const word = space === -1 ? line : line.slice(0, space)
+    const target = space === -1 ? '' : line.slice(space).trim()
+    const list = directives[word]
+    if (list === undefined) {
+      // `~/src` or `notes/x` is a root written relative, not a misspelt directive.
+      const looksLikePath = word.includes('/') || word.startsWith('~') || word.startsWith('.')
+      return {
+        ok: false,
+        error: looksLikePath
+          ? `line ${i + 1}: "${line}" is not an absolute path.`
+          : `line ${i + 1}: unknown directive "${word}".`,
+      }
+    }
+    if (!path.isAbsolute(target)) {
+      return { ok: false, error: `line ${i + 1}: "${target}" after "${word}" is not an absolute path.` }
+    }
+    list.push(path.resolve(target))
   }
-  return { ok: true, roots }
+  return { ok: true, roots, rules: { hide, show, showWorktrees } }
 }
 
-export function formatRootsFile(roots: readonly string[]): string {
+export function formatRootsFile(roots: readonly string[], rules: VisibilityRules = NO_RULES): string {
+  const directives = [
+    ...rules.hide.map((p) => `hide ${p}\n`),
+    ...rules.show.map((p) => `show ${p}\n`),
+    ...rules.showWorktrees.map((p) => `show-worktrees ${p}\n`),
+  ]
   return (
     '# VibeDocs roots, one absolute path per line. Written by the installer and the\n' +
     '# Settings page. After editing by hand, restart vibedocs.\n' +
-    roots.map((r) => `${r}\n`).join('')
+    roots.map((r) => `${r}\n`).join('') +
+    (directives.length > 0
+      ? '# Hidden projects (not listed, watched or searched): hide, show, show-worktrees.\n' + directives.join('')
+      : '')
   )
 }
 

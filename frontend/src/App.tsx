@@ -14,7 +14,7 @@ import { DocContent } from "@/components/doc-content"
 import { TocPanel } from "@/components/toc-panel"
 import { MobileToc } from "@/components/mobile-toc"
 import { SearchDialog } from "@/components/search-dialog"
-import { useProjects, type FileTypeFilter, type FileNode } from "@/hooks/use-projects"
+import { useProjects, useHiddenProject, type FileTypeFilter, type FileNode } from "@/hooks/use-projects"
 import { useDocument } from "@/hooks/use-document"
 import { useWebSocket } from "@/hooks/use-websocket"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -69,7 +69,16 @@ function DocsApp() {
   const [viewMode, setViewMode] = useState<ViewMode>("docs")
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
-  const { projects, refresh: refreshProjects } = useProjects(VIEW_MODE_TO_FILE_TYPE[viewMode])
+  const { projects: listedProjects, loading: projectsLoading, refresh: refreshProjects } = useProjects(VIEW_MODE_TO_FILE_TYPE[viewMode])
+  // A hidden project (ADR-0003) joins the list only while you are on one of its docs.
+  const hiddenProject = useHiddenProject({
+    activeProject,
+    activePath,
+    projects: listedProjects,
+    loading: projectsLoading,
+    fileType: VIEW_MODE_TO_FILE_TYPE[viewMode],
+  })
+  const projects = hiddenProject ? [...listedProjects, hiddenProject] : listedProjects
   const { uploadEnabled, runsEnabled, settingsEnabled } = useConfig()
 
   // `#/runs` parses to project "" (parseHash splits on the first slash), and no

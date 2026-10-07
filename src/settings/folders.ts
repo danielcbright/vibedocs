@@ -14,6 +14,7 @@ import { EXCLUDED_DIRS } from '../excluded-paths.js'
 import { isMarkdownPath } from '../markdown-paths.js'
 import { VibedocsError } from '../errors.js'
 import type { FolderEntry, FolderListing } from '../shared/settings-types.js'
+import { isLinkedWorktree } from '../project-visibility.js'
 
 /**
  * Home-level folders the picker never offers: application state and media
@@ -63,6 +64,7 @@ export async function listFolders(dir: string, home: string): Promise<FolderList
         markdown: counted?.count ?? null,
         capped: counted?.capped ?? false,
         protected: isProtected,
+        worktree: !isProtected && isLinkedWorktree(full),
       }
     }),
   )
