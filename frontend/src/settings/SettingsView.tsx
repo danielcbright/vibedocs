@@ -80,7 +80,12 @@ export function SettingsView({ client, variant = "app", pickerOptions }: Setting
               {check && !check.ok && <Notice tone="error">{check.error}</Notice>}
             </section>
             <div className="flex items-center gap-2">
-              <Button onClick={() => void picker.save()} disabled={!dirty || !check?.ok || busy || finished}>
+              {/* The installer waits on this page, so keeping the current roots must be a
+                  choice too; in Settings an unchanged save would only restart for nothing. */}
+              <Button
+                onClick={() => void picker.save()}
+                disabled={(!dirty && variant !== "install") || !check?.ok || busy || finished}
+              >
                 {variant === "install" ? "Use these folders" : "Save roots"}
               </Button>
               {dirty && !busy && !finished && (

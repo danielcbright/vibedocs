@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { execFileSync } from 'child_process'
-import { readFileSync } from 'fs'
+import { readFileSync, mkdtempSync, mkdirSync, rmSync, existsSync, realpathSync } from 'fs'
+import os from 'os'
 import path from 'path'
 
 /**
@@ -25,8 +26,16 @@ const SCRIPT = readFileSync(
 )
 
 describe('install-macos.sh root staging (#193)', () => {
-  it('writes VIBEDOCS_ROOTS into the plist', () => {
-    expect(SCRIPT).toContain('VIBEDOCS_ROOTS')
+  it('names the roots file in the plist, with Settings and supervised restart on', () => {
+    const plistBlock = SCRIPT.slice(SCRIPT.indexOf('<key>EnvironmentVariables</key>'))
+    expect(plistBlock).toMatch(/<key>VIBEDOCS_ROOTS_FILE<\/key>/)
+    expect(plistBlock).toMatch(/<key>VIBEDOCS_SETTINGS_ENABLED<\/key><string>true</)
+    expect(plistBlock).toMatch(/<key>VIBEDOCS_SUPERVISED<\/key><string>true</)
+  })
+
+  it('does not set VIBEDOCS_ROOTS, which would beat the roots file and leave Settings read-only', () => {
+    const plistBlock = SCRIPT.slice(SCRIPT.indexOf('<key>EnvironmentVariables</key>'))
+    expect(plistBlock).not.toMatch(/<key>VIBEDOCS_ROOTS<\/key>/)
   })
 
   it('does not set VIBEDOCS_ROOT, which would win over nothing and confuse the boot log', () => {
@@ -79,7 +88,7 @@ describe('install-macos.sh --help', () => {
 
   it('lists every option it accepts', () => {
     const out = help()
-    for (const flag of ['--folders', '--port', '--runs', '--yes', '--uninstall']) {
+    for (const flag of ['--folders', '--port', '--runs', '--yes', '--dry-run', '--uninstall']) {
       expect(out, `expected --help to document ${flag}`).toContain(flag)
     }
   })
@@ -97,22 +106,57 @@ describe('install-macos.sh --help', () => {
 })
 
 /**
- * A colon in a selected folder's path.
+ * The installer run for real, with `--dry-run` so nothing is written: no plist, no
+ * roots file, no launchctl. HOME is a scratch directory, so even a regression that
+ * ignored the flag could not reach the developer's own LaunchAgent.
  *
- * `VIBEDOCS_ROOTS` is colon-separated, POSIX-style, exactly like `PATH` — so a
- * path containing a literal colon cannot be expressed, and APFS does allow one.
- * The separator is not going to change, so the installer has to refuse such a
- * folder: joining it silently produces two roots that are each half a path, and
- * the server then reports missing directories the operator never named.
+ * The interactive path hands the choice to `vibedocs pick-roots`, which
+ * tests/cli-pick-roots.test.ts drives over a real socket.
  */
-describe('install-macos.sh with a colon in a folder path', () => {
-  it('refuses rather than silently splitting the path in two', () => {
-    // Matched on the guard itself, not on the word appearing somewhere in a
-    // comment — the first version of this test passed against a script with no
-    // guard at all, because a comment above happened to say "colon-separated".
-    // The installer is not executed here: it writes a LaunchAgent plist, so
-    // running it from the suite would clobber a developer's own service.
-    expect(SCRIPT).toMatch(/case "\$target" in\s*\n\s*\*:\*\)/)
-    expect(SCRIPT).toMatch(/contains a colon[\s\S]{0,80}exit 2/)
+describe('install-macos.sh --dry-run --folders', () => {
+  let home: string
+  const run = (...args: string[]) =>
+    execFileSync('bash', [path.join(import.meta.dirname, '..', 'scripts', 'install-macos.sh'), '--dry-run', ...args], {
+      encoding: 'utf-8',
+      env: { ...process.env, HOME: home },
+    })
+
+  beforeEach(() => {
+    home = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'vibedocs-install-')))
+    for (const d of ['src/work/repo', 'ops', 'Work: Archive']) mkdirSync(path.join(home, d), { recursive: true })
+  })
+  afterEach(() => {
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  it('takes a nested folder below the top level of home', () => {
+    const out = run('--folders', 'src/work,ops', '--yes')
+    const rootsSection = out.slice(out.indexOf(`${home}/.vibedocs/roots:`), out.indexOf('.plist:'))
+    expect(rootsSection).toContain(`  ${home}/src/work\n`)
+    expect(rootsSection).toContain(`  ${home}/ops\n`)
+    expect(out).toContain(`<key>VIBEDOCS_ROOTS_FILE</key><string>${home}/.vibedocs/roots</string>`)
+  })
+
+  it('keeps --folders as it was: names under home, absolute paths, missing ones skipped', () => {
+    const out = run('--folders', `ops,${home}/src/work,nope`, '--yes')
+    expect(out).toContain(`✓ ${home}/ops`)
+    expect(out).toContain(`✓ ${home}/src/work`)
+    expect(out).toMatch(/! nope — not a directory, skipped/)
+  })
+
+  it('accepts a folder whose name contains a colon, since roots go to a line-based file', () => {
+    // VIBEDOCS_ROOTS is colon-separated and could not express this; the roots file
+    // can, so the old refusal is gone rather than carried over.
+    expect(run('--folders', 'Work: Archive', '--yes')).toContain(`  ${home}/Work: Archive\n`)
+  })
+
+  it('writes nothing', () => {
+    run('--folders', 'ops', '--yes')
+    expect(existsSync(path.join(home, 'Library'))).toBe(false)
+    expect(existsSync(path.join(home, '.vibedocs'))).toBe(false)
+  })
+
+  it('still refuses --yes without --folders', () => {
+    expect(() => run('--yes')).toThrow()
   })
 })

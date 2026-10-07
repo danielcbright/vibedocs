@@ -174,6 +174,18 @@ describe('SettingsView — what a save means', () => {
     expect(screen.getByRole('checkbox', { name: `Use ${HOME}/ops as a root` })).toBeDisabled()
   })
 
+  it('on the install page, lets the current roots be kept as they are', async () => {
+    // Re-running the installer to keep the same folders must not dead-end on a
+    // disabled button.
+    const client = fakeClient({}, { afterSave: 'done' })
+    const user = userEvent.setup()
+    await renderPicker(client, 'install')
+    const use = screen.getByRole('button', { name: 'Use these folders' })
+    await waitFor(() => expect(use).toBeEnabled())
+    await user.click(use)
+    expect(client.save).toHaveBeenCalledWith([`${HOME}/ops`])
+  })
+
   it('flags a saved selection that the running server has not applied yet', async () => {
     await renderPicker(fakeClient({}, { roots: [`${HOME}/ops`], saved: [`${HOME}/src`] }))
     expect(screen.getByText(/not running yet/)).toBeInTheDocument()
