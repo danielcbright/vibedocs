@@ -16,6 +16,7 @@ import { runLive, readRawFile } from './app-state.js'
 import { createWsClientChannel } from './adapters/ws-client-channel.js'
 import { registerStaticRoutes } from './static-files.js'
 import { registerAgentRunsRoutes } from './agent-runs/routes.js'
+import { registerOpenRoute } from './open-route.js'
 
 // A root configuration that cannot work stops the server here, with the reason.
 // Booting anyway would serve an empty or double-counted set of projects and look
@@ -64,6 +65,8 @@ registerSearchRoute(app, { search: (q, n) => state.search(q, n), get version() {
 registerConfigRoute(app, state.uploadAuth, state.agentRuns.cfg.enabled)
 registerUploadRoute(app, assetResolver, state.uploadAuth, () => state.broadcast(refreshTreeMessage()))
 registerFileRoute(app, assetResolver)
+// Must precede registerStaticRoutes too — see the MUST note below.
+registerOpenRoute(app, { roots: PROJECT_ROOTS, docResolver })
 
 // Origin allowlist is needed BEFORE route registration (the control-write gate
 // uses it) and again after boot for the WS handshake. It only reads env + PORT,
