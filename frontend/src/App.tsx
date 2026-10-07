@@ -327,7 +327,7 @@ function DocsApp() {
               onAppViewChange={handleAppViewChange}
               runsEnabled={runsEnabled}
               settingsEnabled={settingsEnabled}
-              onOpenSettings={openSettings}
+              onOpenSettings={() => { openSettings(); setMobileSidebarOpen(false) }}
               activeRuns={activeRunCount(runs)}
               runsRail={
                 <RunRail
