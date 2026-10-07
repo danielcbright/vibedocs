@@ -22,6 +22,8 @@ export interface ServerConfig {
   uploadEnabled: boolean
   /** Whether the Agent Runs feature is enabled server-side. */
   runsEnabled: boolean
+  /** Whether the roots picker (Settings) is enabled server-side. */
+  settingsEnabled: boolean
 }
 
 export interface RequestOptions {
@@ -51,7 +53,7 @@ export class ApiError extends Error {
   }
 }
 
-const DEFAULT_CONFIG: ServerConfig = { uploadEnabled: false, runsEnabled: false }
+const DEFAULT_CONFIG: ServerConfig = { uploadEnabled: false, runsEnabled: false, settingsEnabled: false }
 
 type FetchFn = typeof fetch
 
@@ -69,7 +71,7 @@ function buildPath(project: string, docPath: string, base: string): string {
   return `${base}/${encodeURIComponent(project)}/${docPath}`
 }
 
-async function readErrorMessage(res: Response, fallback: string): Promise<string> {
+export async function readErrorMessage(res: Response, fallback: string): Promise<string> {
   try {
     const body = (await res.json()) as { error?: unknown }
     if (body && typeof body.error === "string") return body.error
@@ -142,6 +144,7 @@ export function createApiClient(options: CreateApiClientOptions = {}): ApiClient
             // Older servers omit runsEnabled; absent means off, matching the
             // safe-default rule the rest of this client follows.
             runsEnabled: json.runsEnabled === true,
+            settingsEnabled: json.settingsEnabled === true,
           }
         }
         return DEFAULT_CONFIG

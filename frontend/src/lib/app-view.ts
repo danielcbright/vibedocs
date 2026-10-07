@@ -7,3 +7,6 @@
  * name would be a trap.
  */
 export type AppView = "docs" | "runs"
+
+/** `#/settings`, like `#/runs`, sits in the empty-project namespace no directory can claim. */
+export const SETTINGS_HASH = "/settings"

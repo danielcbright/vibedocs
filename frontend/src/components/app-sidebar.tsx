@@ -4,12 +4,13 @@ import {
   SidebarHeader,
 } from "@/components/ui/sidebar"
 import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
-import { Activity, Search, Upload } from "lucide-react"
+import { Activity, Search, Settings, Upload } from "lucide-react"
 import type { AppView } from "@/lib/app-view"
 import { VibedocsLogo } from "@/components/vibedocs-logo"
 import { ThemeToggle } from "@/components/theme-toggle"
@@ -36,6 +37,9 @@ interface AppSidebarProps {
   appView?: AppView
   onAppViewChange?: (view: AppView) => void
   runsEnabled?: boolean
+  /** Shows the Settings (roots picker) button. */
+  settingsEnabled?: boolean
+  onOpenSettings?: () => void
   activeRuns?: number
   /** Rendered in place of the file tree when appView is "runs". */
   runsRail?: React.ReactNode
@@ -58,6 +62,8 @@ export function AppSidebar({
   appView = "docs",
   onAppViewChange,
   runsEnabled = false,
+  settingsEnabled = false,
+  onOpenSettings,
   activeRuns = 0,
   runsRail = null,
   onLogoClick,
@@ -153,7 +159,20 @@ export function AppSidebar({
               <span className="font-semibold text-sm">VibeDocs</span>
             </div>
           )}
-          <ThemeToggle />
+          <div className="flex items-center gap-0.5">
+            {settingsEnabled && onOpenSettings && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 tap-target tap-active-feedback"
+                aria-label="Settings"
+                onClick={onOpenSettings}
+              >
+                <Settings className="h-4 w-4" />
+              </Button>
+            )}
+            <ThemeToggle />
+          </div>
         </div>
         {runsEnabled && onAppViewChange && (
           <div className="mt-2 flex items-center rounded-md border border-sidebar-border text-[11px] overflow-hidden">

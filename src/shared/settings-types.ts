@@ -10,7 +10,7 @@ export interface FolderEntry {
   path: string
   /** Markdown files within four levels, or null when not counted (privacy-protected). */
   markdown: number | null
-  /** True when counting stopped at the cap, so `markdown` is a lower bound. */
+  /** True when counting stopped early (file cap, depth limit, entry budget), so `markdown` is a lower bound. */
   capped: boolean
   /** macOS privacy-protected (Documents, Desktop, Downloads): a background service needs Full Disk Access. */
   protected: boolean

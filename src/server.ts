@@ -92,7 +92,12 @@ registerSettingsRoutes(app, {
     console.log('  ↻ Roots saved — exiting so the supervisor restarts on them')
     // Let the response flush first. 75 (EX_TEMPFAIL) rather than 0 so a systemd
     // unit with Restart=on-failure restarts too; launchd KeepAlive restarts on any exit.
-    setTimeout(() => void state.shutdown().finally(() => process.exit(75)), 250)
+    // Shutdown is capped: an open browser socket keeps it pending indefinitely, and
+    // a restart that waits on it never happens.
+    setTimeout(() => {
+      const capped = new Promise((resolve) => setTimeout(resolve, 2000).unref())
+      void Promise.race([state.shutdown(), capped]).finally(() => process.exit(75))
+    }, 250)
   },
 })
 

@@ -37,6 +37,12 @@ describe('chooseStrategy', () => {
     expect(chooseStrategy(base({ pathname: '/api/config' }))).toBe('network-only')
   })
 
+  it('leaves GET /open to the browser, so a stopped server is a connection error rather than the cached home page', () => {
+    // /open answers a redirect to the doc. A cached app shell would swallow the
+    // path and land on the home page with nothing saying why.
+    expect(chooseStrategy(base({ isNavigation: true, pathname: '/open' }))).toBe('network-only')
+  })
+
   it('serves navigations network-first with a cache fallback', () => {
     expect(chooseStrategy(base({ isNavigation: true, pathname: '/' }))).toBe('network-first')
   })

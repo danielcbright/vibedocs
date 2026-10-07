@@ -41,6 +41,7 @@ function chooseStrategy(req, url) {
   if (p.startsWith('/api/render/') || p.startsWith('/api/raw/')) return 'network-first'
   if (p === '/api/projects' || p.startsWith('/api/projects?')) return 'network-first'
   if (p.startsWith('/api/')) return 'network-only'
+  if (p === '/open') return 'network-only' // see sw-strategy.ts
   return 'network-first' // navigations + app shell
 }
 

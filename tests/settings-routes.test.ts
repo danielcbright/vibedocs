@@ -146,6 +146,16 @@ describe('GET /api/settings/folders', () => {
     expect((await q('src')).status).toBe(400)
   })
 
+  it('marks a count that stopped at the depth limit as a lower bound', async () => {
+    // Otherwise ~/src would read 522 while its own child ~/src/eg reads 1,000+:
+    // the child's four levels reach one level further down.
+    await mkdir(path.join(home, 'deep', 'a', 'b', 'c', 'd'), { recursive: true })
+    await writeFile(path.join(home, 'deep', 'a', 'b', 'c', 'd', 'far.md'), 'x')
+    await writeFile(path.join(home, 'deep', 'near.md'), 'x')
+    const { data } = await (await appWith().request('/api/settings/folders', { headers: LOCAL })).json()
+    expect(data.folders.find((f: { name: string }) => f.name === 'deep')).toMatchObject({ markdown: 1, capped: true })
+  })
+
   it('caps a count instead of walking an enormous tree', async () => {
     const big = path.join(home, 'big', 'docs')
     await mkdir(big, { recursive: true })

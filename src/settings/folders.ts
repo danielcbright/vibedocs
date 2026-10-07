@@ -110,9 +110,15 @@ async function readChildDirs(dir: string): Promise<string[]> {
   return names
 }
 
-/** Markdown files at most four levels below `dir`, stopping at the cap or the entry budget. */
+/**
+ * Markdown files at most four levels below `dir`. `capped` means the count is a
+ * lower bound: it hit the file cap or the entry budget, or left a folder unread at
+ * the depth limit. Without the last, a parent reads "522" beside a child's
+ * "1,000+", because the child's four levels reach one further down.
+ */
 export async function countMarkdown(dir: string): Promise<{ count: number; capped: boolean }> {
   let count = 0
+  let truncated = false
   let budget = ENTRY_BUDGET
   const stack: Array<{ dir: string; depth: number }> = [{ dir, depth: 1 }]
 
@@ -129,12 +135,13 @@ export async function countMarkdown(dir: string): Promise<{ count: number; cappe
       if (isHiddenName(entry.name)) continue
       if (entry.isFile() && isMarkdownPath(entry.name)) {
         if (++count >= MARKDOWN_CAP) return { count, capped: true }
-      } else if (entry.isDirectory() && depth < MAX_DEPTH) {
-        stack.push({ dir: path.join(current, entry.name), depth: depth + 1 })
+      } else if (entry.isDirectory()) {
+        if (depth < MAX_DEPTH) stack.push({ dir: path.join(current, entry.name), depth: depth + 1 })
+        else truncated = true
       }
     }
   }
-  return { count, capped: false }
+  return { count, capped: truncated }
 }
 
 function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
