@@ -31,7 +31,8 @@ still change in a minor release.
 ### Changed
 
 - **macOS installer**: without `--folders` it opens the browser picker instead of
-  listing only the top level of `~`. Roots go to `~/.vibedocs/roots.txt`, and the
+  listing only the top level of `~`, starting from the roots an existing install
+  already has. Roots go to `~/.vibedocs/roots.txt`, and the
   plist names that file with Settings and supervised restart on. `--folders` is
   unchanged and now also accepts nested folders and paths containing a colon.
   The new `--dry-run` prints the roots and the plist without writing either.
