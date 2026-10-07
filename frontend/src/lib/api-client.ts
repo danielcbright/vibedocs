@@ -32,6 +32,8 @@ export interface RequestOptions {
 
 export interface ApiClient {
   getProjects(fileType: FileTypeFilter, opts?: RequestOptions): Promise<ProjectInfo[]>
+  /** One project's tree, hidden or not — `/api/projects` leaves hidden ones out (ADR-0003). */
+  getProjectTree(project: string, fileType: FileTypeFilter, opts?: RequestOptions): Promise<ProjectInfo>
   renderDoc(project: string, docPath: string, opts?: RequestOptions): Promise<RenderedDoc>
   getRawDoc(project: string, docPath: string, opts?: RequestOptions): Promise<string>
   search(query: string, opts?: RequestOptions): Promise<SearchResult[]>
@@ -94,6 +96,16 @@ export function createApiClient(options: CreateApiClientOptions = {}): ApiClient
       }
       const json = (await res.json()) as { data?: ProjectInfo[] }
       return json.data ?? []
+    },
+
+    async getProjectTree(project, fileType, opts) {
+      const res = await doFetch(`/api/projects/${encodeURIComponent(project)}/tree?fileType=${fileType}`, {
+        signal: opts?.signal,
+      })
+      if (!res.ok) {
+        throw new ApiError(await readErrorMessage(res, "Failed to load project"), res.status)
+      }
+      return ((await res.json()) as { data: ProjectInfo }).data
     },
 
     async renderDoc(project, docPath, opts) {

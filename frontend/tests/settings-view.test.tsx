@@ -5,6 +5,7 @@ import { SettingsView } from '@/settings/SettingsView'
 import { createSettingsClient, SETUP_TOKEN_HEADER, type SettingsClient } from '@/settings/settings-client'
 import { ApiError } from '@/lib/api-client'
 import type { FolderListing, RootsCheck, RootsSettings } from '@shared/settings-types'
+import { NO_RULES } from '@shared/project-visibility'
 
 /**
  * The roots picker — Settings view and install page alike.
@@ -19,17 +20,18 @@ const FOLDERS: Record<string, FolderListing> = {
     path: HOME,
     parent: null,
     folders: [
-      { name: 'Documents', path: `${HOME}/Documents`, markdown: null, capped: false, protected: true },
-      { name: 'ops', path: `${HOME}/ops`, markdown: 10, capped: false, protected: false },
-      { name: 'src', path: `${HOME}/src`, markdown: 1000, capped: true, protected: false },
+      { name: 'Documents', path: `${HOME}/Documents`, markdown: null, capped: false, protected: true, worktree: false },
+      { name: 'ops', path: `${HOME}/ops`, markdown: 10, capped: false, protected: false, worktree: false },
+      { name: 'src', path: `${HOME}/src`, markdown: 1000, capped: true, protected: false, worktree: false },
     ],
   },
   [`${HOME}/src`]: {
     path: `${HOME}/src`,
     parent: HOME,
     folders: [
-      { name: 'work', path: `${HOME}/src/work`, markdown: 412, capped: false, protected: false },
-      { name: 'personal', path: `${HOME}/src/personal`, markdown: 86, capped: false, protected: false },
+      { name: 'work', path: `${HOME}/src/work`, markdown: 412, capped: false, protected: false, worktree: false },
+      { name: 'personal', path: `${HOME}/src/personal`, markdown: 86, capped: false, protected: false, worktree: false },
+      { name: 'work-wt', path: `${HOME}/src/work-wt`, markdown: 412, capped: false, protected: false, worktree: true },
     ],
   },
 }
@@ -42,13 +44,14 @@ function fakeClient(overrides: Partial<SettingsClient> = {}, settings: Partial<R
     reason: null,
     home: HOME,
     afterSave: 'manual',
+    rules: NO_RULES,
     ...settings,
   }
   const client = {
     getRoots: vi.fn(async () => base),
     listFolders: vi.fn(async (p?: string) => FOLDERS[p ?? HOME] ?? { path: p!, parent: HOME, folders: [] }),
-    check: vi.fn(async (roots: string[]): Promise<RootsCheck> => ({ ok: true, roots })),
-    save: vi.fn(async (roots: string[]) => ({ roots, afterSave: base.afterSave })),
+    check: vi.fn(async (roots: string[], rules = NO_RULES): Promise<RootsCheck> => ({ ok: true, roots, rules })),
+    save: vi.fn(async (roots: string[], rules = NO_RULES) => ({ roots, rules, afterSave: base.afterSave })),
     ...overrides,
   }
   return client
@@ -86,14 +89,14 @@ describe('SettingsView — choosing', () => {
     await user.click(screen.getByRole('checkbox', { name: `Use ${HOME}/src/personal as a root` }))
 
     // Appended in click order: order decides which root keeps a shared name.
-    await waitFor(() => expect(client.check).toHaveBeenLastCalledWith([`${HOME}/ops`, `${HOME}/src/work`, `${HOME}/src/personal`]))
+    await waitFor(() => expect(client.check).toHaveBeenLastCalledWith([`${HOME}/ops`, `${HOME}/src/work`, `${HOME}/src/personal`], NO_RULES))
     expect(screen.getByRole('checkbox', { name: `Use ${HOME}/src as a root` })).toHaveAttribute('data-state', 'indeterminate')
     expect(within(screen.getByRole('region', { name: 'Chosen roots' })).getByText('~/src/work')).toBeInTheDocument()
 
     const save = screen.getByRole('button', { name: /save roots/i })
     await waitFor(() => expect(save).toBeEnabled())
     await user.click(save)
-    expect(client.save).toHaveBeenCalledWith([`${HOME}/ops`, `${HOME}/src/work`, `${HOME}/src/personal`])
+    expect(client.save).toHaveBeenCalledWith([`${HOME}/ops`, `${HOME}/src/work`, `${HOME}/src/personal`], NO_RULES)
     expect(await screen.findByText(/restart vibedocs to serve them/i)).toBeInTheDocument()
   })
 
@@ -103,6 +106,40 @@ describe('SettingsView — choosing', () => {
     await user.click(screen.getByRole('button', { name: 'Expand src' }))
     await screen.findByRole('checkbox', { name: `Use ${HOME}/src/work as a root` })
     expect(screen.getAllByText('project')).toHaveLength(2)
+    // The worktree is a project too, hidden by default.
+    expect(screen.getByRole('button', { name: `Show ${HOME}/src/work-wt` })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('hides a project by hand and shows a worktree by hand, saving both as rules (ADR-0003)', async () => {
+    const client = fakeClient({}, { roots: [`${HOME}/src`], saved: [`${HOME}/src`] })
+    const user = userEvent.setup()
+    await renderPicker(client)
+    await user.click(screen.getByRole('button', { name: 'Expand src' }))
+    await user.click(await screen.findByRole('button', { name: `Hide ${HOME}/src/personal` }))
+    await user.click(screen.getByRole('button', { name: `Show ${HOME}/src/work-wt` }))
+    expect(screen.getByRole('button', { name: `Show ${HOME}/src/personal` })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: `Hide ${HOME}/src/work-wt` })).toBeInTheDocument()
+
+    const save = screen.getByRole('button', { name: /save roots/i })
+    await waitFor(() => expect(save).toBeEnabled())
+    await user.click(save)
+    expect(client.save).toHaveBeenCalledWith([`${HOME}/src`], {
+      hide: [`${HOME}/src/personal`],
+      show: [`${HOME}/src/work-wt`],
+      showWorktrees: [],
+    })
+  })
+
+  it('turns a root\'s worktree hiding off with its switch', async () => {
+    const client = fakeClient({}, { roots: [`${HOME}/src`], saved: [`${HOME}/src`] })
+    const user = userEvent.setup()
+    await renderPicker(client)
+    const hideWorktrees = screen.getByRole('checkbox', { name: 'Hide git worktrees' })
+    expect(hideWorktrees).toBeChecked()
+    await user.click(hideWorktrees)
+    await user.click(screen.getByRole('button', { name: 'Expand src' }))
+    expect(await screen.findByRole('button', { name: `Hide ${HOME}/src/work-wt` })).toBeInTheDocument()
+    await waitFor(() => expect(client.check).toHaveBeenLastCalledWith([`${HOME}/src`], { hide: [], show: [], showWorktrees: [`${HOME}/src`] }))
   })
 
   it('shows the server\'s refusal and will not save', async () => {
@@ -134,11 +171,11 @@ describe('SettingsView — what a save means', () => {
     const client = fakeClient({}, { afterSave: 'restart' })
     client.getRoots = vi.fn(async () => {
       calls++
-      if (calls === 1) return { roots: [`${HOME}/ops`], saved: [`${HOME}/ops`], editable: true, reason: null, home: HOME, afterSave: 'restart' as const }
+      if (calls === 1) return { roots: [`${HOME}/ops`], saved: [`${HOME}/ops`], editable: true, reason: null, home: HOME, afterSave: 'restart' as const, rules: NO_RULES }
       // The old process answers once more before it exits, then the server is down.
-      if (calls === 2) return { roots: [`${HOME}/ops`], saved: target, editable: true, reason: null, home: HOME, afterSave: 'restart' as const }
+      if (calls === 2) return { roots: [`${HOME}/ops`], saved: target, editable: true, reason: null, home: HOME, afterSave: 'restart' as const, rules: NO_RULES }
       if (calls === 3) throw new TypeError('fetch failed')
-      return { roots: target, saved: target, editable: true, reason: null, home: HOME, afterSave: 'restart' as const }
+      return { roots: target, saved: target, editable: true, reason: null, home: HOME, afterSave: 'restart' as const, rules: NO_RULES }
     })
     const user = userEvent.setup()
     await renderPicker(client)
@@ -183,7 +220,7 @@ describe('SettingsView — what a save means', () => {
     const use = screen.getByRole('button', { name: 'Use these folders' })
     await waitFor(() => expect(use).toBeEnabled())
     await user.click(use)
-    expect(client.save).toHaveBeenCalledWith([`${HOME}/ops`])
+    expect(client.save).toHaveBeenCalledWith([`${HOME}/ops`], NO_RULES)
   })
 
   it('flags a saved selection that the running server has not applied yet', async () => {

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { execFileSync } from 'child_process'
-import { readFileSync, mkdtempSync, mkdirSync, rmSync, existsSync, realpathSync } from 'fs'
+import { readFileSync, writeFileSync, mkdtempSync, mkdirSync, rmSync, existsSync, realpathSync } from 'fs'
 import os from 'os'
 import path from 'path'
 
@@ -170,6 +170,17 @@ describe('install-macos.sh --dry-run --folders', () => {
   it('binds to this machine only unless told otherwise', () => {
     expect(run('--folders', 'ops', '--yes')).toContain('<key>VIBEDOCS_HOST</key><string>127.0.0.1</string>')
     expect(run('--folders', 'ops', '--yes', '--host', '0.0.0.0')).toContain('<key>VIBEDOCS_HOST</key><string>0.0.0.0</string>')
+  })
+
+  it('keeps the hide/show rules an earlier run or Settings wrote (ADR-0003)', () => {
+    mkdirSync(path.join(home, '.vibedocs'), { recursive: true })
+    writeFileSync(
+      path.join(home, '.vibedocs', 'roots.txt'),
+      `${home}/ops\nhide ${home}/ops/old\nshow-worktrees ${home}/ops\n`,
+    )
+    const out = run('--folders', 'ops', '--yes')
+    expect(out).toContain(`  hide ${home}/ops/old\n`)
+    expect(out).toContain(`  show-worktrees ${home}/ops\n`)
   })
 
   it('writes nothing', () => {

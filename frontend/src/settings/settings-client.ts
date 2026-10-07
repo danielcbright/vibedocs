@@ -5,6 +5,7 @@ import type {
   RootsSaved,
   RootsSettings,
 } from "@shared/settings-types"
+import type { VisibilityRules } from "@shared/project-visibility"
 
 /**
  * Client for `/api/settings/*`, used by the Settings view and the one-shot
@@ -14,8 +15,8 @@ import type {
 export interface SettingsClient {
   getRoots(): Promise<RootsSettings>
   listFolders(path?: string): Promise<FolderListing>
-  check(roots: string[]): Promise<RootsCheck>
-  save(roots: string[]): Promise<RootsSaved>
+  check(roots: string[], rules?: VisibilityRules): Promise<RootsCheck>
+  save(roots: string[], rules?: VisibilityRules): Promise<RootsSaved>
 }
 
 export const SETUP_TOKEN_HEADER = "X-Vibedocs-Setup-Token"
@@ -55,8 +56,8 @@ export function createSettingsClient(options: CreateSettingsClientOptions = {}):
         {},
         "Failed to list folders",
       ),
-    check: (roots) => call("/api/settings/roots/check", json("POST", { roots }), "Failed to check folders"),
-    save: (roots) => call("/api/settings/roots", json("PUT", { roots }), "Failed to save"),
+    check: (roots, rules) => call("/api/settings/roots/check", json("POST", { roots, rules }), "Failed to check folders"),
+    save: (roots, rules) => call("/api/settings/roots", json("PUT", { roots, rules }), "Failed to save"),
   }
 }
 

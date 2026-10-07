@@ -49,6 +49,14 @@ export function ProjectTreeGroup({
           <SidebarGroupLabel className="cursor-pointer hover:bg-sidebar-accent rounded-md transition-colors h-7 tap-row tap-active-feedback">
             <ChevronRight className="h-3 w-3 mr-1 shrink-0 transition-transform group-data-[state=open]/collapsible:rotate-90" />
             <span className="truncate">{project.name}</span>
+            {project.hidden && (
+              <span
+                className="ml-auto shrink-0 rounded bg-muted px-1.5 text-[10px] font-normal text-muted-foreground"
+                title="Hidden: not in the project list, search or live reload. Shown while you are on one of its docs."
+              >
+                hidden
+              </span>
+            )}
           </SidebarGroupLabel>
         </CollapsibleTrigger>
         <CollapsibleContent>

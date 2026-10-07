@@ -180,6 +180,16 @@ from **Settings** (the gear in the sidebar): a folder tree from your home folder
 down, with a checkbox per folder. The same two configurations are refused there,
 before you save.
 
+### Hidden projects
+
+Making a folder of repositories a root makes every git worktree in it a project
+too. Those are hidden by default: not in the sidebar, search or live reload, but
+still served, so `vibedocs open` and saved links reach their docs, and the
+sidebar shows the project while you are on one of them. In Settings, the eye on
+each project hides or shows it, and each root has a **Hide git worktrees**
+switch. The roots file keeps these as `hide <project>`, `show <project>` and
+`show-worktrees <root>` lines.
+
 ### Open a file by its path
 
 ```bash

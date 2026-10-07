@@ -79,6 +79,24 @@ macOS installer). Five things that will bite:
 5. **The file is `~/.vibedocs/roots.txt`, not `roots`** — that name is the pre-#193
    symlink directory, which an upgraded machine may still have.
 
+### Hidden projects — see `docs/adr/0003-hidden-projects.md`
+
+Not listed, watched or searched, still served. Linked git worktrees are hidden by
+default; the roots file adds `hide`/`show`/`show-worktrees` lines. Four traps:
+
+1. **One answer, one instance.** `PROJECT_VISIBILITY` (`src/discovery.ts`) is asked
+   by discovery, the search walk and `resolveIndexKey`; the watcher takes
+   `hiddenProjectDirs` at boot. A layer that decides for itself produces search
+   hits for projects the sidebar does not have.
+2. **Naming ignores visibility.** `projectNameFor` never consults it, so hiding a
+   project cannot rename another — names are routing keys.
+3. **The watcher's set is boot-time.** A worktree created later drops out of the
+   list and index at once (the probe re-reads `.git` after 2 s) but stays watched
+   until restart.
+4. **The rule is shared** (`src/shared/project-visibility.ts`): Settings previews
+   with the function the server decides with. Worktree detection reads `gitdir:`
+   under `worktrees/`; a plain `.git`-is-a-file test also catches submodules.
+
 ### Agent Runs — see `docs/agent-runs.md`
 
 A live viewer for headless coding-agent runs, off unless `VIBEDOCS_RUNS_ENABLED`
@@ -260,6 +278,7 @@ Adding `src/server.ts` to `tsconfig.cli.json` pulled the whole server into a typ
 - `GET /api/config` - Tiny client config endpoint: `{ uploadEnabled, runsEnabled, settingsEnabled }`. Frontend uses this to hide UI for features the server has off.
 - `GET /open?path=<url-encoded absolute path>` - 302 to `/#<project>/<path>`, or a 404/400 page (JSON with `Accept: application/json`). **The route and parameter name are a contract** with a macOS `.md` handler app; don't rename them. Opens files inside the roots only — serving files outside them was considered and rejected. Registered before the SPA fallback.
 - `GET /api/settings/roots`, `GET /api/settings/folders?path=`, `POST /api/settings/roots/check`, `PUT /api/settings/roots` - Roots picker. See "Roots picker" above.
+- `GET /api/projects/:project/tree` - One project's tree, hidden or not, flagged `hidden`. The sidebar uses it for a hidden project you opened by path.
 
 ## Key Patterns
 
