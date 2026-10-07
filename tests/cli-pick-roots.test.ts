@@ -32,7 +32,7 @@ describe('runPickRoots', () => {
     home = path.join(tmp, 'home')
     dist = path.join(tmp, 'dist')
     rootsFile = path.join(tmp, 'vibedocs', 'roots')
-    for (const f of ['src/eg/repo/README.md', 'src/personal/site/README.md', 'ops/runbook.md']) {
+    for (const f of ['src/work/repo/README.md', 'src/personal/site/README.md', 'ops/runbook.md']) {
       await mkdir(path.dirname(path.join(home, f)), { recursive: true })
       await writeFile(path.join(home, f), '# x')
     }
@@ -89,9 +89,9 @@ describe('runPickRoots', () => {
     expect(settings).toMatchObject({ roots: [], editable: true, home, afterSave: 'done' })
 
     const listing = (await (await api(`/api/settings/folders?path=${encodeURIComponent(path.join(home, 'src'))}`)).json()).data
-    expect(listing.folders.map((f: { name: string }) => f.name)).toEqual(['eg', 'personal'])
+    expect(listing.folders.map((f: { name: string }) => f.name)).toEqual(['personal', 'work'])
 
-    const chosen = [path.join(home, 'src', 'eg'), path.join(home, 'ops')]
+    const chosen = [path.join(home, 'src', 'work'), path.join(home, 'ops')]
     const put = await api('/api/settings/roots', { method: 'PUT', body: JSON.stringify({ roots: chosen }) })
     expect(put.status).toBe(200)
     expect((await put.json()).data).toEqual({ roots: chosen, afterSave: 'done' })

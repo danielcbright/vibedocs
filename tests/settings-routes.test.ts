@@ -30,9 +30,9 @@ beforeEach(async () => {
   rootsFile = path.join(tmp, 'vibedocs', 'roots')
   saved = []
   const files = [
-    'src/eg/repo-a/README.md',
-    'src/eg/repo-a/docs/guide.md',
-    'src/eg/repo-b/README.md',
+    'src/work/repo-a/README.md',
+    'src/work/repo-a/docs/guide.md',
+    'src/work/repo-b/README.md',
     'src/personal/vibedocs/README.md',
     'ops/runbook.md',
     'ops/.git/HEAD.md',
@@ -131,8 +131,8 @@ describe('GET /api/settings/folders', () => {
     const { data } = await res.json()
     expect(data.parent).toBe(home)
     expect(data.folders.map((f: { name: string }) => [f.name, f.markdown])).toEqual([
-      ['eg', 3],
       ['personal', 1],
+      ['work', 3],
     ])
   })
 
@@ -147,8 +147,8 @@ describe('GET /api/settings/folders', () => {
   })
 
   it('marks a count that stopped at the depth limit as a lower bound', async () => {
-    // Otherwise ~/src would read 522 while its own child ~/src/eg reads 1,000+:
-    // the child's four levels reach one level further down.
+    // Otherwise a parent could read fewer files than its own child: the child's
+    // four levels reach one level further down.
     await mkdir(path.join(home, 'deep', 'a', 'b', 'c', 'd'), { recursive: true })
     await writeFile(path.join(home, 'deep', 'a', 'b', 'c', 'd', 'far.md'), 'x')
     await writeFile(path.join(home, 'deep', 'near.md'), 'x')
@@ -174,12 +174,12 @@ describe('POST /api/settings/roots/check — the server\'s own verdict, before s
     })
 
   it('accepts nested folders below the top level of home', async () => {
-    const roots = [path.join(home, 'src', 'eg'), path.join(home, 'src', 'personal')]
+    const roots = [path.join(home, 'src', 'work'), path.join(home, 'src', 'personal')]
     expect((await (await check(appWith(), roots)).json()).data).toEqual({ ok: true, roots })
   })
 
   it('returns the boot refusal for a parent and its child', async () => {
-    const { data } = await (await check(appWith(), [path.join(home, 'src'), path.join(home, 'src', 'eg')])).json()
+    const { data } = await (await check(appWith(), [path.join(home, 'src'), path.join(home, 'src', 'work')])).json()
     expect(data.ok).toBe(false)
     expect(data.error).toMatch(/nested/)
   })
@@ -194,14 +194,14 @@ describe('POST /api/settings/roots/check — the server\'s own verdict, before s
     const app = appWith()
     expect((await (await check(app, [])).json()).data.error).toMatch(/at least one/)
     expect((await (await check(app, [path.join(home, 'gone')])).json()).data.error).toMatch(/does not exist/)
-    expect((await (await check(app, ['src/eg'])).json()).data.error).toMatch(/not an absolute path/)
+    expect((await (await check(app, ['src/work'])).json()).data.error).toMatch(/not an absolute path/)
     expect((await (await check(app, 'src')).json()).data.error).toMatch(/list of folder paths/)
   })
 })
 
 describe('PUT /api/settings/roots', () => {
   it('writes the roots file and then hands over to the host', async () => {
-    const roots = [path.join(home, 'src', 'eg'), path.join(home, 'src', 'personal'), path.join(home, 'ops')]
+    const roots = [path.join(home, 'src', 'work'), path.join(home, 'src', 'personal'), path.join(home, 'ops')]
     const res = await put(appWith(), roots)
     expect(res.status).toBe(200)
     expect((await res.json()).data).toEqual({ roots, afterSave: 'restart' })
@@ -211,7 +211,7 @@ describe('PUT /api/settings/roots', () => {
 
   it('leaves the file alone and does not hand over when the selection is refused', async () => {
     const before = await readFile(rootsFile, 'utf-8')
-    const res = await put(appWith(), [path.join(home, 'src'), path.join(home, 'src', 'eg')])
+    const res = await put(appWith(), [path.join(home, 'src'), path.join(home, 'src', 'work')])
     expect(res.status).toBe(400)
     expect((await res.json()).error).toMatch(/nested/)
     expect(await readFile(rootsFile, 'utf-8')).toBe(before)

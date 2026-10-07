@@ -2,7 +2,7 @@
 
 **Status:** accepted (2026-10-07)
 
-The macOS installer's picker listed only the top level of `~`, so a folder like `~/src/work` could not be a root without typing `--folders`. And because the selection lived in `VIBEDOCS_ROOTS` inside the LaunchAgent plist, changing it meant re-running the installer. Decided with Daniel before implementation. The code is in `src/settings/`, `src/cli/pick-roots.ts` and `frontend/src/settings/`.
+The macOS installer's picker listed only the top level of `~`, so a folder like `~/src/work` could not be a root without typing `--folders`. And because the selection lived in `VIBEDOCS_ROOTS` inside the LaunchAgent plist, changing it meant re-running the installer. Decided before implementation. The code is in `src/settings/`, `src/cli/pick-roots.ts` and `frontend/src/settings/`.
 
 ## Decisions
 

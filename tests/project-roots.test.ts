@@ -114,7 +114,7 @@ describe('parseRoots', () => {
 describe('parseRoots — roots file', () => {
   const cwd = '/work'
   const files: Record<string, string> = {
-    '/cfg/roots': '# chosen in Settings\n/home/me/src/eg\n\n  /home/me/ops  \n',
+    '/cfg/roots': '# chosen in Settings\n/home/me/src/work\n\n  /home/me/ops  \n',
     '/cfg/colon': '/Volumes/Work: Archive\n',
     '/cfg/empty': '# nothing chosen\n\n',
     '/cfg/relative': '/ok\n~/src\n',
@@ -126,7 +126,7 @@ describe('parseRoots — roots file', () => {
   it('reads one root per line, skipping blanks and # comments and trimming whitespace', () => {
     expect(parse({ VIBEDOCS_ROOTS_FILE: '/cfg/roots' })).toEqual({
       ok: true,
-      roots: ['/home/me/src/eg', '/home/me/ops'],
+      roots: ['/home/me/src/work', '/home/me/ops'],
     })
   })
 
@@ -163,7 +163,7 @@ describe('parseRoots — roots file', () => {
 
   it('resolves the file name itself against the working directory', () => {
     const r = parseRoots({ VIBEDOCS_ROOTS_FILE: 'roots' }, '/cfg', read)
-    expect(r.roots).toEqual(['/home/me/src/eg', '/home/me/ops'])
+    expect(r.roots).toEqual(['/home/me/src/work', '/home/me/ops'])
   })
 
   it('loses to VIBEDOCS_ROOTS, and says so', () => {
@@ -174,13 +174,13 @@ describe('parseRoots — roots file', () => {
 
   it('wins over VIBEDOCS_ROOT, and says so', () => {
     const r = parse({ VIBEDOCS_ROOTS_FILE: '/cfg/roots', VIBEDOCS_ROOT: '/single' })
-    expect(r.roots).toEqual(['/home/me/src/eg', '/home/me/ops'])
+    expect(r.roots).toEqual(['/home/me/src/work', '/home/me/ops'])
     expect(r.notes?.join(' ')).toMatch(/VIBEDOCS_ROOT is ignored/)
   })
 
   it('takes over from an empty VIBEDOCS_ROOTS', () => {
     expect(parse({ VIBEDOCS_ROOTS: '', VIBEDOCS_ROOTS_FILE: '/cfg/roots' }).roots).toEqual([
-      '/home/me/src/eg',
+      '/home/me/src/work',
       '/home/me/ops',
     ])
   })
@@ -197,7 +197,7 @@ describe('rootsSource — the one place precedence is decided', () => {
 
 describe('roots file format', () => {
   it('round-trips what it writes', () => {
-    const roots = ['/home/me/src/eg', '/Volumes/Work: Archive']
+    const roots = ['/home/me/src/work', '/Volumes/Work: Archive']
     expect(parseRootsFile(formatRootsFile(roots))).toEqual({ ok: true, roots })
   })
 

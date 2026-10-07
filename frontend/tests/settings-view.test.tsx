@@ -28,7 +28,7 @@ const FOLDERS: Record<string, FolderListing> = {
     path: `${HOME}/src`,
     parent: HOME,
     folders: [
-      { name: 'eg', path: `${HOME}/src/eg`, markdown: 412, capped: false, protected: false },
+      { name: 'work', path: `${HOME}/src/work`, markdown: 412, capped: false, protected: false },
       { name: 'personal', path: `${HOME}/src/personal`, markdown: 86, capped: false, protected: false },
     ],
   },
@@ -82,18 +82,18 @@ describe('SettingsView — choosing', () => {
     await renderPicker(client)
 
     await user.click(screen.getByRole('button', { name: 'Expand src' }))
-    await user.click(await screen.findByRole('checkbox', { name: `Use ${HOME}/src/eg as a root` }))
+    await user.click(await screen.findByRole('checkbox', { name: `Use ${HOME}/src/work as a root` }))
     await user.click(screen.getByRole('checkbox', { name: `Use ${HOME}/src/personal as a root` }))
 
     // Appended in click order: order decides which root keeps a shared name.
-    await waitFor(() => expect(client.check).toHaveBeenLastCalledWith([`${HOME}/ops`, `${HOME}/src/eg`, `${HOME}/src/personal`]))
+    await waitFor(() => expect(client.check).toHaveBeenLastCalledWith([`${HOME}/ops`, `${HOME}/src/work`, `${HOME}/src/personal`]))
     expect(screen.getByRole('checkbox', { name: `Use ${HOME}/src as a root` })).toHaveAttribute('data-state', 'indeterminate')
-    expect(within(screen.getByRole('region', { name: 'Chosen roots' })).getByText('~/src/eg')).toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: 'Chosen roots' })).getByText('~/src/work')).toBeInTheDocument()
 
     const save = screen.getByRole('button', { name: /save roots/i })
     await waitFor(() => expect(save).toBeEnabled())
     await user.click(save)
-    expect(client.save).toHaveBeenCalledWith([`${HOME}/ops`, `${HOME}/src/eg`, `${HOME}/src/personal`])
+    expect(client.save).toHaveBeenCalledWith([`${HOME}/ops`, `${HOME}/src/work`, `${HOME}/src/personal`])
     expect(await screen.findByText(/restart vibedocs to serve them/i)).toBeInTheDocument()
   })
 
@@ -101,19 +101,19 @@ describe('SettingsView — choosing', () => {
     const user = userEvent.setup()
     await renderPicker(fakeClient({}, { roots: [`${HOME}/src`], saved: [`${HOME}/src`] }))
     await user.click(screen.getByRole('button', { name: 'Expand src' }))
-    await screen.findByRole('checkbox', { name: `Use ${HOME}/src/eg as a root` })
+    await screen.findByRole('checkbox', { name: `Use ${HOME}/src/work as a root` })
     expect(screen.getAllByText('project')).toHaveLength(2)
   })
 
   it('shows the server\'s refusal and will not save', async () => {
     const client = fakeClient({
-      check: vi.fn(async (): Promise<RootsCheck> => ({ ok: false, error: `Root ${HOME}/src/eg is nested inside root ${HOME}/src.` })),
+      check: vi.fn(async (): Promise<RootsCheck> => ({ ok: false, error: `Root ${HOME}/src/work is nested inside root ${HOME}/src.` })),
     })
     const user = userEvent.setup()
     await renderPicker(client)
     await user.click(screen.getByRole('checkbox', { name: `Use ${HOME}/src as a root` }))
     await user.click(screen.getByRole('button', { name: 'Expand src' }))
-    await user.click(await screen.findByRole('checkbox', { name: `Use ${HOME}/src/eg as a root` }))
+    await user.click(await screen.findByRole('checkbox', { name: `Use ${HOME}/src/work as a root` }))
     expect(await screen.findByText(/is nested inside root/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /save roots/i })).toBeDisabled()
   })

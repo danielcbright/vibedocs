@@ -113,8 +113,8 @@ async function readChildDirs(dir: string): Promise<string[]> {
 /**
  * Markdown files at most four levels below `dir`. `capped` means the count is a
  * lower bound: it hit the file cap or the entry budget, or left a folder unread at
- * the depth limit. Without the last, a parent reads "522" beside a child's
- * "1,000+", because the child's four levels reach one further down.
+ * the depth limit. Without the last, a parent could read fewer files than one of
+ * its children, because the child's four levels reach one further down.
  */
 export async function countMarkdown(dir: string): Promise<{ count: number; capped: boolean }> {
   let count = 0
