@@ -1,6 +1,15 @@
 import { describe, it, expect } from 'vitest'
 import path from 'path'
-import { parseRoots, projectNameFor, locateProject, resolveBuildRoot } from '../src/project-roots.js'
+import {
+  parseRoots,
+  projectNameFor,
+  locateProject,
+  resolveBuildRoot,
+  rootsSource,
+  parseRootsFile,
+  formatRootsFile,
+  checkRootSelection,
+} from '../src/project-roots.js'
 
 /**
  * Where projects are looked for. One root today, a colon-separated list with
@@ -90,6 +99,119 @@ describe('parseRoots', () => {
   it('accepts a single root with no basename constraint at all', () => {
     // The single-root case must stay exactly as permissive as it is today.
     expect(parse({ VIBEDOCS_ROOT: '/' }).ok).toBe(true)
+  })
+})
+
+/**
+ * `VIBEDOCS_ROOTS_FILE` — roots kept in a file, one absolute path per line.
+ *
+ * The installer and the Settings page both write it, so the selection can change
+ * without editing a LaunchAgent plist. It sits below `VIBEDOCS_ROOTS` in
+ * precedence: an exported list is the most specific thing an operator can say.
+ * Above `VIBEDOCS_ROOT`, because naming a file is more deliberate than the
+ * single-root default.
+ */
+describe('parseRoots — roots file', () => {
+  const cwd = '/work'
+  const files: Record<string, string> = {
+    '/cfg/roots': '# chosen in Settings\n/home/me/src/eg\n\n  /home/me/ops  \n',
+    '/cfg/colon': '/Volumes/Work: Archive\n',
+    '/cfg/empty': '# nothing chosen\n\n',
+    '/cfg/relative': '/ok\n~/src\n',
+    '/cfg/nested': '/a\n/a/b\n',
+  }
+  const read = (p: string) => files[p] ?? null
+  const parse = (env: Record<string, string | undefined>) => parseRoots(env, cwd, read)
+
+  it('reads one root per line, skipping blanks and # comments and trimming whitespace', () => {
+    expect(parse({ VIBEDOCS_ROOTS_FILE: '/cfg/roots' })).toEqual({
+      ok: true,
+      roots: ['/home/me/src/eg', '/home/me/ops'],
+    })
+  })
+
+  it('can express a path containing a colon, which VIBEDOCS_ROOTS cannot', () => {
+    expect(parse({ VIBEDOCS_ROOTS_FILE: '/cfg/colon' }).roots).toEqual(['/Volumes/Work: Archive'])
+  })
+
+  it('refuses to boot on a file it cannot read, rather than falling back to the working directory', () => {
+    // Falling back would silently serve whatever directory the service started in.
+    const r = parse({ VIBEDOCS_ROOTS_FILE: '/cfg/missing' })
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/cannot read/i)
+    expect(r.error).toContain('/cfg/missing')
+  })
+
+  it('refuses a file that lists no folders', () => {
+    const r = parse({ VIBEDOCS_ROOTS_FILE: '/cfg/empty' })
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/no folders/i)
+  })
+
+  it('refuses a relative line and says which line, since ~ is not expanded', () => {
+    const r = parse({ VIBEDOCS_ROOTS_FILE: '/cfg/relative' })
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/line 2/)
+    expect(r.error).toContain('~/src')
+  })
+
+  it('applies the same conflict rules as the list', () => {
+    const r = parse({ VIBEDOCS_ROOTS_FILE: '/cfg/nested' })
+    expect(r.ok).toBe(false)
+    expect(r.error).toMatch(/nested/i)
+  })
+
+  it('resolves the file name itself against the working directory', () => {
+    const r = parseRoots({ VIBEDOCS_ROOTS_FILE: 'roots' }, '/cfg', read)
+    expect(r.roots).toEqual(['/home/me/src/eg', '/home/me/ops'])
+  })
+
+  it('loses to VIBEDOCS_ROOTS, and says so', () => {
+    const r = parse({ VIBEDOCS_ROOTS: '/a:/b', VIBEDOCS_ROOTS_FILE: '/cfg/roots' })
+    expect(r.roots).toEqual(['/a', '/b'])
+    expect(r.notes?.join(' ')).toMatch(/VIBEDOCS_ROOTS_FILE is ignored/)
+  })
+
+  it('wins over VIBEDOCS_ROOT, and says so', () => {
+    const r = parse({ VIBEDOCS_ROOTS_FILE: '/cfg/roots', VIBEDOCS_ROOT: '/single' })
+    expect(r.roots).toEqual(['/home/me/src/eg', '/home/me/ops'])
+    expect(r.notes?.join(' ')).toMatch(/VIBEDOCS_ROOT is ignored/)
+  })
+
+  it('takes over from an empty VIBEDOCS_ROOTS', () => {
+    expect(parse({ VIBEDOCS_ROOTS: '', VIBEDOCS_ROOTS_FILE: '/cfg/roots' }).roots).toEqual([
+      '/home/me/src/eg',
+      '/home/me/ops',
+    ])
+  })
+})
+
+describe('rootsSource — the one place precedence is decided', () => {
+  it('names the variable that wins', () => {
+    expect(rootsSource({ VIBEDOCS_ROOTS: '/a', VIBEDOCS_ROOTS_FILE: '/f', VIBEDOCS_ROOT: '/r' })).toEqual({ kind: 'list' })
+    expect(rootsSource({ VIBEDOCS_ROOTS: ' : ', VIBEDOCS_ROOTS_FILE: '/f', VIBEDOCS_ROOT: '/r' })).toEqual({ kind: 'file', file: '/f' })
+    expect(rootsSource({ VIBEDOCS_ROOT: '/r' })).toEqual({ kind: 'single' })
+    expect(rootsSource({})).toEqual({ kind: 'cwd' })
+  })
+})
+
+describe('roots file format', () => {
+  it('round-trips what it writes', () => {
+    const roots = ['/home/me/src/eg', '/Volumes/Work: Archive']
+    expect(parseRootsFile(formatRootsFile(roots))).toEqual({ ok: true, roots })
+  })
+
+  it('writes a header a hand-editor will see', () => {
+    expect(formatRootsFile(['/a'])).toMatch(/^# /)
+    expect(formatRootsFile(['/a']).endsWith('/a\n')).toBe(true)
+  })
+})
+
+describe('checkRootSelection', () => {
+  it('returns null for a workable selection and the server\'s own refusal otherwise', () => {
+    expect(checkRootSelection(['/a', '/b'])).toBeNull()
+    expect(checkRootSelection(['/x/docs', '/y/docs'])).toMatch(/basename/)
+    expect(checkRootSelection(['/a', '/a/b'])).toMatch(/nested/)
   })
 })
 

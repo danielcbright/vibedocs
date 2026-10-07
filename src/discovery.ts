@@ -1,5 +1,5 @@
 import { readdir, stat } from 'fs/promises'
-import { statSync } from 'fs'
+import { readFileSync, statSync } from 'fs'
 import path from 'path'
 import type { SiteConfig } from './site-config.js'
 import { EXCLUDED_DIRS } from './excluded-paths.js'
@@ -17,7 +17,13 @@ import { parseRoots, projectNameFor } from './project-roots.js'
  * produces a stack trace instead of an explanation. `PROJECT_ROOTS_ERROR` carries
  * it to the composition root, which exits with the message.
  */
-const rootsResult = parseRoots(process.env, process.cwd())
+const rootsResult = parseRoots(process.env, process.cwd(), (file) => {
+  try {
+    return readFileSync(file, 'utf-8')
+  } catch {
+    return null
+  }
+})
 export const PROJECT_ROOTS: readonly string[] = rootsResult.ok ? rootsResult.roots : []
 export const PROJECT_ROOTS_ERROR: string | null = rootsResult.ok ? null : rootsResult.error
 export const PROJECT_ROOTS_NOTES: readonly string[] = rootsResult.ok ? rootsResult.notes ?? [] : []

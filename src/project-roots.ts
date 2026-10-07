@@ -41,40 +41,109 @@ export type ParseRootsResult =
   | { ok: false; error: string }
 
 /**
+ * Which variable decides the roots. The one place precedence lives — the Settings
+ * page asks this rather than restating it, so it cannot offer to edit a file that
+ * `VIBEDOCS_ROOTS` is overriding.
+ *
+ * `VIBEDOCS_ROOTS` > `VIBEDOCS_ROOTS_FILE` > `VIBEDOCS_ROOT` > the working
+ * directory. An exported list is the most specific thing an operator can say; a
+ * named file is more deliberate than the single-root default.
+ */
+export type RootsSource =
+  | { kind: 'list' }
+  | { kind: 'file'; file: string }
+  | { kind: 'single' }
+  | { kind: 'cwd' }
+
+export function rootsSource(env: Record<string, string | undefined>): RootsSource {
+  const list = env.VIBEDOCS_ROOTS
+  if (list !== undefined && list.split(ROOTS_SEPARATOR).some((e) => e.trim().length > 0)) {
+    return { kind: 'list' }
+  }
+  const file = env.VIBEDOCS_ROOTS_FILE?.trim()
+  if (file) return { kind: 'file', file }
+  if (env.VIBEDOCS_ROOT) return { kind: 'single' }
+  return { kind: 'cwd' }
+}
+
+/** Reads a roots file, or returns null when it cannot. Injected to keep this module pure. */
+export type ReadRootsFile = (absPath: string) => string | null
+
+/**
  * Resolve the configured roots, or explain why the configuration cannot work.
  *
  * Two arrangements are rejected rather than accepted-and-coped-with, because both
  * are silently wrong rather than merely unusual:
  *
  * - **Shared basenames.** The qualified name for a colliding project is
- *   `<name>@<rootBasename>`, so two roots named `docs` make it ambiguous.
+ *   `<name>~<rootBasename>`, so two roots named `docs` make it ambiguous.
  * - **Nesting.** With `/a` and `/a/b`, every file under `b` is discovered twice
  *   under two different project names, and every watcher event fires twice.
+ *
+ * A roots file that cannot be read, or lists nothing, is refused too: falling back
+ * to the working directory would quietly serve wherever the service started.
  */
 export function parseRoots(
   env: Record<string, string | undefined>,
   cwd: string,
+  readRootsFile: ReadRootsFile = () => null,
 ): ParseRootsResult {
   const notes: string[] = []
   const raw = env.VIBEDOCS_ROOTS
+  const source = rootsSource(env)
 
   let candidates: string[]
-  if (raw !== undefined && raw.split(ROOTS_SEPARATOR).some((e) => e.trim().length > 0)) {
-    candidates = raw
+  if (source.kind === 'list') {
+    candidates = raw!
       .split(ROOTS_SEPARATOR)
       .map((entry) => entry.trim())
       // An empty entry (a trailing colon, say) would resolve to the working
       // directory — quietly adding an enormous root, which is the failure #113
       // opens with.
       .filter((entry) => entry.length > 0)
+    if (env.VIBEDOCS_ROOTS_FILE) {
+      notes.push('VIBEDOCS_ROOTS is set, so VIBEDOCS_ROOTS_FILE is ignored.')
+    }
     if (env.VIBEDOCS_ROOT) {
       notes.push('VIBEDOCS_ROOTS is set, so VIBEDOCS_ROOT is ignored.')
     }
   } else {
     if (raw !== undefined) notes.push('VIBEDOCS_ROOTS was set but empty; ignoring it.')
-    candidates = [env.VIBEDOCS_ROOT || cwd]
+    if (source.kind === 'file') {
+      const file = path.resolve(cwd, source.file)
+      const contents = readRootsFile(file)
+      if (contents === null) {
+        return { ok: false, error: `Cannot read the roots file ${file} (VIBEDOCS_ROOTS_FILE).` }
+      }
+      const parsed = parseRootsFile(contents)
+      if (!parsed.ok) return { ok: false, error: `Roots file ${file}: ${parsed.error}` }
+      if (parsed.roots.length === 0) {
+        return { ok: false, error: `The roots file ${file} lists no folders. Choose at least one.` }
+      }
+      candidates = parsed.roots
+      if (env.VIBEDOCS_ROOT) notes.push('VIBEDOCS_ROOTS_FILE is set, so VIBEDOCS_ROOT is ignored.')
+    } else {
+      candidates = [env.VIBEDOCS_ROOT || cwd]
+    }
   }
 
+  const roots = dedupeResolved(candidates, cwd)
+  const conflict = findRootConflict(roots)
+  if (conflict) return { ok: false, error: conflict }
+
+  return { ok: true, roots, ...(notes.length > 0 ? { notes } : {}) }
+}
+
+/**
+ * The server's verdict on a proposed selection: null when it would boot, else the
+ * refusal it would print. The Settings page and the install picker show this
+ * before saving, so the rules are not restated anywhere else.
+ */
+export function checkRootSelection(roots: readonly string[]): string | null {
+  return findRootConflict(dedupeResolved(roots, '/'))
+}
+
+function dedupeResolved(candidates: readonly string[], cwd: string): string[] {
   const roots: string[] = []
   for (const candidate of candidates) {
     const resolved = path.resolve(cwd, candidate)
@@ -82,11 +151,37 @@ export function parseRoots(
     // separator, so this only guards the duplicate-entry case.
     if (!roots.includes(resolved)) roots.push(resolved)
   }
+  return roots
+}
 
-  const conflict = findRootConflict(roots)
-  if (conflict) return { ok: false, error: conflict }
+/**
+ * A roots file: one absolute path per line; blank lines and `#` comments skipped.
+ *
+ * Absolute only, and `~` is not expanded — a hand-edited `~/src` fails at boot
+ * with its line number instead of resolving against wherever the service started.
+ * Line-separated rather than colon-separated, so a path containing a colon is
+ * expressible here even though it is not in `VIBEDOCS_ROOTS`.
+ */
+export function parseRootsFile(contents: string): { ok: true; roots: string[] } | { ok: false; error: string } {
+  const roots: string[] = []
+  const lines = contents.split(/\r?\n/)
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!.trim()
+    if (line === '' || line.startsWith('#')) continue
+    if (!path.isAbsolute(line)) {
+      return { ok: false, error: `line ${i + 1}: "${line}" is not an absolute path.` }
+    }
+    roots.push(line)
+  }
+  return { ok: true, roots }
+}
 
-  return { ok: true, roots, ...(notes.length > 0 ? { notes } : {}) }
+export function formatRootsFile(roots: readonly string[]): string {
+  return (
+    '# VibeDocs roots, one absolute path per line. Written by the installer and the\n' +
+    '# Settings page. After editing by hand, restart vibedocs.\n' +
+    roots.map((r) => `${r}\n`).join('')
+  )
 }
 
 function findRootConflict(roots: readonly string[]): string | null {
