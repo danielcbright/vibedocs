@@ -109,6 +109,14 @@ vi.mock('../src/upload-route.js', () => ({
   registerUploadRoute: () => { hoisted.callLog.push('registerUploadRoute') },
 }))
 
+vi.mock('../src/open-route.js', () => ({
+  registerOpenRoute: () => { hoisted.callLog.push('registerOpenRoute') },
+}))
+
+vi.mock('../src/settings/routes.js', () => ({
+  registerSettingsRoutes: () => { hoisted.callLog.push('registerSettingsRoutes') },
+}))
+
 vi.mock('../src/static-files.js', () => ({
   registerStaticRoutes: () => { hoisted.callLog.push('registerStaticRoutes') },
 }))
@@ -154,6 +162,18 @@ describe('server boot orchestration', () => {
   it('registers static routes LAST among route-registration calls (catch-all wins after API)', () => {
     const routeCalls = callLog.filter((c) => c.startsWith('register'))
     expect(routeCalls[routeCalls.length - 1]).toBe('registerStaticRoutes')
+  })
+
+  it('registers /open before the SPA fallback, which would otherwise answer it 200', () => {
+    const open = callLog.indexOf('registerOpenRoute')
+    expect(open).toBeGreaterThanOrEqual(0)
+    expect(open).toBeLessThan(callLog.indexOf('registerStaticRoutes'))
+  })
+
+  it('registers the settings routes before the SPA fallback', () => {
+    const settings = callLog.indexOf('registerSettingsRoutes')
+    expect(settings).toBeGreaterThanOrEqual(0)
+    expect(settings).toBeLessThan(callLog.indexOf('registerStaticRoutes'))
   })
 
   it('calls serve AFTER all route registration', () => {

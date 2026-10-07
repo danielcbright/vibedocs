@@ -102,6 +102,15 @@ describe('PathResolver with multiple roots', () => {
     expectThrows(() => resolver().resolve('shared~RootTwo', '.env'), 'forbidden')
   })
 
+  it('refuses a dot-directory or excluded directory named as the project', async () => {
+    // With several roots the name is looked up, and the lookup finds any directory,
+    // so the project segment needs the same check as every segment below it.
+    await mkdir(path.join(two, '.git'), { recursive: true })
+    await mkdir(path.join(two, 'node_modules'), { recursive: true })
+    expectThrows(() => resolver().resolve('.git', 'config'), 'forbidden')
+    expectThrows(() => resolver().resolve('node_modules', 'pkg/README.md'), 'forbidden')
+  })
+
   it('still applies the extension allowlist across roots', () => {
     const md = new PathResolver({ roots: [one, two], requireExtensions: ['.md'] })
     expect(md.resolve('beta', 'notes.md') as unknown as string).toBe(path.join(two, 'beta', 'notes.md'))

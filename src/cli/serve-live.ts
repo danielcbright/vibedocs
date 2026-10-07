@@ -60,18 +60,10 @@ export async function runLiveServer(args: ParsedServeArgs): Promise<number> {
     return 1
   }
 
-  // Always the list form, even for one root, and with the inherited single-root
-  // variable REMOVED: the server reads VIBEDOCS_ROOTS first, so leaving an
-  // exported VIBEDOCS_ROOT in place would mean the child carries two answers to
-  // the same question and warns about the one the operator did not type.
-  const childEnv: NodeJS.ProcessEnv = { ...process.env, VIBEDOCS_PORT: String(args.port) }
-  delete childEnv.VIBEDOCS_ROOT
-  childEnv.VIBEDOCS_ROOTS = args.roots.join(ROOTS_SEPARATOR)
-
   return new Promise<number>((resolve) => {
     const child = spawn(process.execPath, entryArgs, {
       stdio: 'inherit',
-      env: childEnv,
+      env: childEnvFor(process.env, args),
     })
     child.on('exit', (code) => resolve(code ?? 0))
     child.on('error', (err) => {
@@ -79,4 +71,19 @@ export async function runLiveServer(args: ParsedServeArgs): Promise<number> {
       resolve(1)
     })
   })
+}
+
+/**
+ * The server child's environment: always the list form, even for one root, with
+ * every other inherited roots variable REMOVED. The server reads VIBEDOCS_ROOTS
+ * first, so leaving an exported VIBEDOCS_ROOT or VIBEDOCS_ROOTS_FILE in place would
+ * mean the child carries two answers to the same question and warns about the one
+ * the operator did not type.
+ */
+export function childEnvFor(env: NodeJS.ProcessEnv, args: ParsedServeArgs): NodeJS.ProcessEnv {
+  const childEnv: NodeJS.ProcessEnv = { ...env, VIBEDOCS_PORT: String(args.port) }
+  delete childEnv.VIBEDOCS_ROOT
+  delete childEnv.VIBEDOCS_ROOTS_FILE
+  childEnv.VIBEDOCS_ROOTS = args.roots.join(ROOTS_SEPARATOR)
+  return childEnv
 }

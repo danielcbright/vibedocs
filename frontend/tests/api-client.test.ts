@@ -178,7 +178,7 @@ describe('createApiClient', () => {
       expect(fetchSpy.mock.calls[0][0]).toBe('/api/config')
       // A server that predates Agent Runs omits runsEnabled; absent means off,
       // matching the safe-default rule the rest of this client follows.
-      expect(result).toEqual({ uploadEnabled: true, runsEnabled: false })
+      expect(result).toEqual({ uploadEnabled: true, runsEnabled: false, settingsEnabled: false })
     })
 
     it('reads runsEnabled when the server reports it', async () => {
@@ -189,21 +189,32 @@ describe('createApiClient', () => {
         }),
       )
       const client = createApiClient({ fetch: fetchSpy })
-      expect(await client.getConfig()).toEqual({ uploadEnabled: false, runsEnabled: true })
+      expect(await client.getConfig()).toEqual({ uploadEnabled: false, runsEnabled: true, settingsEnabled: false })
+    })
+
+    it('reads settingsEnabled when the server reports it, and treats its absence as off', async () => {
+      fetchSpy.mockResolvedValueOnce(
+        new Response(JSON.stringify({ uploadEnabled: false, runsEnabled: false, settingsEnabled: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+      const client = createApiClient({ fetch: fetchSpy })
+      expect((await client.getConfig()).settingsEnabled).toBe(true)
     })
 
     it('returns safe defaults on non-ok response — config must never throw', async () => {
       fetchSpy.mockResolvedValueOnce(new Response('', { status: 500 }))
       const client = createApiClient({ fetch: fetchSpy })
 
-      expect(await client.getConfig()).toEqual({ uploadEnabled: false, runsEnabled: false })
+      expect(await client.getConfig()).toEqual({ uploadEnabled: false, runsEnabled: false, settingsEnabled: false })
     })
 
     it('returns safe defaults on network failure', async () => {
       fetchSpy.mockRejectedValueOnce(new Error('network down'))
       const client = createApiClient({ fetch: fetchSpy })
 
-      expect(await client.getConfig()).toEqual({ uploadEnabled: false, runsEnabled: false })
+      expect(await client.getConfig()).toEqual({ uploadEnabled: false, runsEnabled: false, settingsEnabled: false })
     })
   })
 

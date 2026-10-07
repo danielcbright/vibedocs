@@ -41,6 +41,10 @@ export function chooseStrategy(req: RequestShape): CacheStrategy {
   // config, uploads). Let it hit the network and fail honestly offline.
   if (req.pathname.startsWith('/api/')) return 'network-only'
 
+  // Open-by-path redirects to a doc. From a cached shell it would land on the
+  // home page with nothing saying why, so a stopped server should look stopped.
+  if (req.pathname === '/open') return 'network-only'
+
   // Top-level navigations and the app shell (index.html, manifest, icons):
   // network-first so a deploy is picked up, cache fallback so the installed
   // app opens with no network.

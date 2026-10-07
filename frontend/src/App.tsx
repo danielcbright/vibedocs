@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react"
+import { useState, useCallback, useEffect, useRef, useMemo } from "react"
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable"
 import { usePanelRef } from "react-resizable-panels"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -20,11 +20,13 @@ import { useWebSocket } from "@/hooks/use-websocket"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useConfig } from "@/hooks/use-config"
 import { findFirstMarkdown } from "@/lib/find-first-markdown"
-import type { AppView } from "@/lib/app-view"
+import { SETTINGS_HASH, type AppView } from "@/lib/app-view"
 import { RunsView } from "@/agent-runs/RunsView"
 import { RunRail } from "@/agent-runs/RunRail"
 import { useRuns } from "@/agent-runs/hooks/use-runs"
 import { activeRunCount } from "@/agent-runs/lib/run-status"
+import { SettingsView } from "@/settings/SettingsView"
+import { createSettingsClient } from "@/settings/settings-client"
 
 function parseHash(): { project: string | null; path: string | null } {
   const hash = window.location.hash.slice(1)
@@ -68,13 +70,20 @@ function DocsApp() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const { projects, refresh: refreshProjects } = useProjects(VIEW_MODE_TO_FILE_TYPE[viewMode])
-  const { uploadEnabled, runsEnabled } = useConfig()
+  const { uploadEnabled, runsEnabled, settingsEnabled } = useConfig()
 
   // `#/runs` parses to project "" (parseHash splits on the first slash), and no
   // project directory can be named "", so the namespace cannot collide.
   const isRunsRoute = activeProject === "" && (activePath ?? "").startsWith("runs")
   const activeRunId = isRunsRoute ? ((activePath ?? "").split("/")[1] || null) : null
   const appView: AppView = isRunsRoute ? "runs" : "docs"
+  const isSettingsRoute = activeProject === "" && activePath === SETTINGS_HASH.slice(1)
+  // Runs and Settings take the full width: no TOC panel, no doc header.
+  const fullWidth = isRunsRoute || isSettingsRoute
+  const settingsClient = useMemo(() => createSettingsClient(), [])
+  const openSettings = useCallback(() => {
+    window.location.hash = SETTINGS_HASH
+  }, [])
 
   const { runs, loading: runsLoading, refresh: refreshRuns } = useRuns(runsEnabled)
   const [runRecordsNonce, setRunRecordsNonce] = useState(0)
@@ -91,7 +100,7 @@ function DocsApp() {
     // tick after the hash changes, so a state-based check can capture a runs
     // hash during the gap and then "return to docs" would go nowhere.
     const hash = window.location.hash
-    if (!hash.startsWith("#/runs")) lastDocsHash.current = hash
+    if (!hash.startsWith("#/runs") && !hash.startsWith(`#${SETTINGS_HASH}`)) lastDocsHash.current = hash
   }, [activeProject, activePath])
 
   const handleAppViewChange = useCallback((next: AppView) => {
@@ -275,6 +284,8 @@ function DocsApp() {
           <div className="flex-1 min-h-0 overflow-hidden">
             {isRunsRoute ? (
               <RunsView runs={runs} loading={runsLoading} activeRunId={activeRunId} onRunChanged={refreshRuns} recordsNonce={runRecordsNonce} />
+            ) : isSettingsRoute ? (
+              <SettingsView client={settingsClient} />
             ) : (
             <DocContent
               html={html}
@@ -315,6 +326,8 @@ function DocsApp() {
               appView={appView}
               onAppViewChange={handleAppViewChange}
               runsEnabled={runsEnabled}
+              settingsEnabled={settingsEnabled}
+              onOpenSettings={() => { openSettings(); setMobileSidebarOpen(false) }}
               activeRuns={activeRunCount(runs)}
               runsRail={
                 <RunRail
@@ -362,6 +375,8 @@ function DocsApp() {
               appView={appView}
               onAppViewChange={handleAppViewChange}
               runsEnabled={runsEnabled}
+              settingsEnabled={settingsEnabled}
+              onOpenSettings={openSettings}
               activeRuns={activeRunCount(runs)}
               runsRail={<RunRail runs={runs} activeRunId={activeRunId} onSelect={selectRun} />}
             />
@@ -372,8 +387,8 @@ function DocsApp() {
           <ResizablePanel id="content" defaultSize="62%" minSize="30%">
             <div className="flex flex-col h-full min-w-0 overflow-hidden">
               <header className="flex h-12 items-center gap-2 border-b px-4 shrink-0">
-                {isRunsRoute ? (
-                  <span className="text-sm font-medium">Agent Runs</span>
+                {fullWidth ? (
+                  <span className="text-sm font-medium">{isRunsRoute ? "Agent Runs" : "Settings"}</span>
                 ) : (
                   <ProjectSwitcher
                     projects={projects}
@@ -385,6 +400,8 @@ function DocsApp() {
               </header>
               {isRunsRoute ? (
                 <RunsView runs={runs} loading={runsLoading} activeRunId={activeRunId} onRunChanged={refreshRuns} recordsNonce={runRecordsNonce} />
+              ) : isSettingsRoute ? (
+                <SettingsView client={settingsClient} />
               ) : (
               <DocContent
                 html={html}
@@ -401,10 +418,10 @@ function DocsApp() {
               )}
             </div>
           </ResizablePanel>
-          {/* No TOC in Runs — the transcript takes the full width, and the
+          {/* No TOC in Runs or Settings — they take the full width, and the
               handle must go with the panel or it dangles. */}
-          {!isRunsRoute && <ResizableHandle />}
-          {!isRunsRoute && (
+          {!fullWidth && <ResizableHandle />}
+          {!fullWidth && (
             <ResizablePanel id="toc" defaultSize="20%" minSize={120} maxSize="30%">
               {hasToc ? <TocPanel toc={toc} /> : null}
             </ResizablePanel>

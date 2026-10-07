@@ -2,7 +2,9 @@ import { Hono } from 'hono'
 import { serve } from '@hono/node-server'
 import { fileURLToPath } from 'url'
 import path from 'path'
+import os from 'os'
 import type { Server } from 'net'
+import { getConnInfo } from '@hono/node-server/conninfo'
 import { PROJECT_ROOTS, PROJECT_ROOTS_ERROR, PROJECT_ROOTS_NOTES } from './discovery.js'
 import { registerSearchRoute, registerFileRoute } from './server-routes.js'
 import { registerUploadRoute, registerConfigRoute } from './upload-route.js'
@@ -16,6 +18,10 @@ import { runLive, readRawFile } from './app-state.js'
 import { createWsClientChannel } from './adapters/ws-client-channel.js'
 import { registerStaticRoutes } from './static-files.js'
 import { registerAgentRunsRoutes } from './agent-runs/routes.js'
+import { registerOpenRoute } from './open-route.js'
+import { registerSettingsRoutes } from './settings/routes.js'
+import { parseSettingsConfig } from './settings/auth.js'
+import { rootsSource } from './project-roots.js'
 
 // A root configuration that cannot work stops the server here, with the reason.
 // Booting anyway would serve an empty or double-counted set of projects and look
@@ -61,9 +67,39 @@ app.get('/api/raw/:project/*', async (c) => {
 })
 
 registerSearchRoute(app, { search: (q, n) => state.search(q, n), get version() { return state.searchVersion } })
-registerConfigRoute(app, state.uploadAuth, state.agentRuns.cfg.enabled)
+const settings = parseSettingsConfig(process.env, state.uploadAuth.readOnly)
+registerConfigRoute(app, state.uploadAuth, state.agentRuns.cfg.enabled, settings.enabled)
 registerUploadRoute(app, assetResolver, state.uploadAuth, () => state.broadcast(refreshTreeMessage()))
 registerFileRoute(app, assetResolver)
+// Must precede registerStaticRoutes too — see the MUST note below.
+registerOpenRoute(app, { roots: PROJECT_ROOTS, docResolver })
+
+// Roots picker (Settings view). A saved change takes effect on restart, because
+// PROJECT_ROOTS is a module-load snapshot: under a supervisor the server exits and
+// is started again on the new roots; otherwise the page says to restart it.
+const source = rootsSource(process.env)
+registerSettingsRoutes(app, {
+  enabled: settings.enabled,
+  port: () => PORT,
+  peerAddress: (c) => getConnInfo(c).remote.address,
+  home: os.homedir(),
+  roots: PROJECT_ROOTS,
+  source,
+  rootsFile: source.kind === 'file' ? path.resolve(process.cwd(), source.file) : null,
+  afterSave: settings.supervised ? 'restart' : 'manual',
+  onSaved: () => {
+    if (!settings.supervised) return
+    console.log('  ↻ Roots saved — exiting so the supervisor restarts on them')
+    // Let the response flush first. 75 (EX_TEMPFAIL) rather than 0 so a systemd
+    // unit with Restart=on-failure restarts too; launchd KeepAlive restarts on any exit.
+    // Shutdown is capped: an open browser socket keeps it pending indefinitely, and
+    // a restart that waits on it never happens.
+    setTimeout(() => {
+      const capped = new Promise((resolve) => setTimeout(resolve, 2000).unref())
+      void Promise.race([state.shutdown(), capped]).finally(() => process.exit(75))
+    }, 250)
+  },
+})
 
 // Origin allowlist is needed BEFORE route registration (the control-write gate
 // uses it) and again after boot for the WS handshake. It only reads env + PORT,
@@ -104,6 +140,7 @@ const runsMode = !state.agentRuns.cfg.enabled
     ? 'READ-ONLY (no ingest token)'
     : 'ENABLED'
 console.log(`  🔒 Agent runs: ${runsMode}  (${state.agentRuns.cfg.runsDir})`)
+console.log(`  🔒 Settings: ${!settings.enabled ? 'DISABLED' : source.kind === 'file' ? 'ENABLED (this machine only)' : 'READ-ONLY (roots not from a file)'}`)
 state.setClientChannel(createWsClientChannel({
   server: server as unknown as Server,
   verifyClient: buildVerifyClient({ allowedOrigins, allowNoOrigin }),

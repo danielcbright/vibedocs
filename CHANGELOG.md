@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 While the version stays below 1.0.0, the CLI flags and `SiteConfig` shape may
 still change in a minor release.
 
+## [Unreleased]
+
+### Added
+
+- **Open a file by its path.** `GET /open?path=<url-encoded absolute path>`
+  redirects to the document's hash route, using the same project names as the
+  sidebar. A path outside every root, a missing file or a non-markdown file gets a
+  page saying which. `vibedocs open <path> [--port <n>]` calls it and opens the
+  browser, or prints the reason and exits 1.
+- **Choose roots in a folder tree.** Settings (the gear in the sidebar, with
+  `VIBEDOCS_SETTINGS_ENABLED`) shows your home folder as a checkbox tree, so a
+  nested folder such as `~/src/work` can be a root. It shows the server's own
+  verdict on a selection before you save, and under `VIBEDOCS_SUPERVISED` the
+  server restarts itself onto the new roots. Changes are accepted only from this
+  machine. See [ADR-0002](docs/adr/0002-roots-picker-and-roots-file.md).
+- **`VIBEDOCS_ROOTS_FILE`**: roots in a file, one absolute path per line, ranked
+  between `VIBEDOCS_ROOTS` and `VIBEDOCS_ROOT`. A file that cannot be read, or
+  lists nothing, stops the server at startup.
+- **`vibedocs pick-roots --write <file>`**: the same picker as a one-shot page on
+  127.0.0.1, which the macOS installer runs.
+
+### Changed
+
+- **macOS installer**: without `--folders` it opens the browser picker instead of
+  listing only the top level of `~`, starting from the roots an existing install
+  already has. Roots go to `~/.vibedocs/roots.txt`, and the
+  plist names that file with Settings and supervised restart on. `--folders` is
+  unchanged and now also accepts nested folders and paths containing a colon.
+  The new `--dry-run` prints the roots and the plist without writing either.
+  `--host` sets `VIBEDOCS_HOST` in the plist; the default is `127.0.0.1`.
+- `GET /open` bypasses the service worker, so when the server is stopped the
+  browser shows a connection error instead of the cached home page.
+
+### Security
+
+- **`PathResolver` now checks the project segment against the dot-directory and
+  excluded-folder rules.** It used to check only the segments below the project
+  directory, so `/api/file/.git/config` served a root's own git config, and with
+  a root of `~`, `/api/file/.ssh/id_rsa` served a private key.
+
 ## [0.4.0] — 2026-08-09
 
 **The first release published to npm.** `npx vibedocs serve` and

@@ -11,7 +11,10 @@ VibeDocs — self-hosted markdown documentation browser **and** static-site gene
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `VIBEDOCS_ROOT` | `process.cwd()` | Root directory to scan for project folders |
-| `VIBEDOCS_ROOTS` | _(unset)_ | Colon-separated list of roots (#113). Wins over `VIBEDOCS_ROOT`; see "Several roots" under Key Patterns. |
+| `VIBEDOCS_ROOTS` | _(unset)_ | Colon-separated list of roots (#113). Wins over `VIBEDOCS_ROOTS_FILE` and `VIBEDOCS_ROOT`; see "Several roots" under Key Patterns. |
+| `VIBEDOCS_ROOTS_FILE` | _(unset)_ | File of roots, one absolute path per line. Unreadable or empty refuses to boot (never falls back to cwd). The installer and Settings write it. |
+| `VIBEDOCS_SETTINGS_ENABLED` | `false` | Roots picker in the app (`/api/settings/*`). Off → 404. `VIBEDOCS_READ_ONLY` forces it off. See "Roots picker" below. |
+| `VIBEDOCS_SUPERVISED` | `false` | A supervisor restarts this process on exit, so a saved roots change exits 75 to apply itself. |
 | `VIBEDOCS_PORT` or `PORT` | `8080` | Server port |
 | `VIBEDOCS_WS_ALLOWED_ORIGINS` | _(unset)_ | Comma-separated extra Origin allowlist for the WebSocket handshake. Defaults always include `http://localhost:8080`, `http://localhost:5173`, `http://localhost:${PORT}` and the matching `http://127.0.0.1:` forms. Add tailnet/public hostnames here (e.g. `http://vibedocs.tailnet:8080`) when exposing vibedocs beyond localhost. |
 | `VIBEDOCS_WS_ALLOW_NO_ORIGIN` | `false` | When `true`, accept WS handshakes with no `Origin` header (non-browser clients like `wscat`). Default denies them so the threat model stays browser-driven CSWSH. |
@@ -52,6 +55,29 @@ The ordering above lives in the `UPLOAD_GATES` array in `src/upload-pipeline.ts`
 | **Hydration** (`--hydration full\|minimal`) | `full` ships the SPA bundle; `minimal` ships CSS + server-rendered nav and ~500 KB less JS. `composePageHtml` is the only branch point. |
 | **PWA** (`src/cli/pwa.ts`) | Every build is installable and offline-capable in BOTH modes. SW registration is a plain script, never `type="module"`, or minimal mode's no-module-script contract breaks. |
 | **Search** (Pagefind, `src/cli/pagefind.ts`) | On by default in both modes, independent of the React bundle. `pagefind` is an **optionalDependency**; `resolveSearchEnabled` must drive the per-page markup and the indexing step together, or pages 404 on `/pagefind/*`. |
+
+### Roots picker — see `docs/adr/0002-roots-picker-and-roots-file.md`
+
+A checkbox folder tree for choosing roots, in two hosts: Settings in the live app
+(`#/settings`) and the one-shot install page (`vibedocs pick-roots`, run by the
+macOS installer). Five things that will bite:
+
+1. **One routes module, two hosts.** `src/settings/routes.ts` serves both; they
+   differ only in `afterSave`/`onSaved` (live: exit 75 under `VIBEDOCS_SUPERVISED`;
+   install: hand back and exit). Don't fork the routes for the installer.
+2. **The gate is three checks, each against a different caller** (`src/settings/auth.ts`):
+   loopback peer (another machine), loopback `Host` (DNS rebinding), our own
+   `Origin` on writes (CSRF). Don't relax it to the runs-control same-origin rule:
+   a root of `~` serves every non-dot file through `/api/file`.
+3. **No rule is restated.** Precedence is `rootsSource`, conflicts are
+   `checkRootSelection` (both `src/project-roots.ts`); the picker and installer show
+   the server's verdict. The installer's plist must never set `VIBEDOCS_ROOTS` — it
+   would win over the file and make Settings read-only.
+4. **The restart caps shutdown at 2 s.** An open browser socket keeps
+   `state.shutdown()` pending forever; uncapped, the server logged that it was
+   exiting and never did.
+5. **The file is `~/.vibedocs/roots.txt`, not `roots`** — that name is the pre-#193
+   symlink directory, which an upgraded machine may still have.
 
 ### Agent Runs — see `docs/agent-runs.md`
 
@@ -116,6 +142,8 @@ src/                    # Backend (Hono server)
   coalescing-runner.ts  # createCoalescingRunner — debounce + single-flight. Guards the full index re-walk; see the OOM note under Gotchas.
   upload.ts             # safeWriteFile(targetDir: SafePath, ...): conflict renaming + safe writes
   path-resolver.ts      # PathResolver: validates project+path → SafePath; throws VibedocsError
+  open-route.ts         # GET /open?path=<abs> → 302 to the hash route, or a page saying why not
+  settings/             # /api/settings/* — roots picker routes, gate, folder listing, roots-file writes
   errors.ts             # VibedocsError taxonomy + registerErrorHandler (single HTTP translation point)
   shared/               # Canonical home for types shared between backend (src/) and frontend (frontend/src/) — import via the `@shared/*` alias from the frontend
     ws-messages.ts      # Typed WS message envelope
@@ -123,6 +151,7 @@ src/                    # Backend (Hono server)
 frontend/               # Frontend (Vite React app)
   src/
     App.tsx             # Root layout: mobile (hamburger drawer + bottom-sheet TOC) / desktop (3-panel resizable). navigateSmart resolves folder/empty paths to first markdown file.
+    settings/           # Roots picker: FolderTree, SettingsView (#/settings), SetupPage (?setup=<token>)
     components/         # app-sidebar, doc-content, breadcrumb-nav, toc-panel, mobile-toc, search-dialog, theme-toggle, connection-status
     components/ui/      # shadcn/ui primitives (auto-generated)
     hooks/              # use-projects, use-document, use-websocket, use-search, use-mobile, use-raw-document
@@ -208,6 +237,8 @@ surfaces drift and the npm one is the one that governs publishing.
 
 ```bash
 vibedocs serve [--root <dir>] [--port <n>]     # live documentation browser
+vibedocs open <path> [--port <n>]              # open a file in the running server (GET /open)
+vibedocs pick-roots --write <file>             # one-shot browser roots picker (the installer runs it)
 vibedocs build --project <name> --out <dir>    # static site
 vibedocs build --project <name> --serve        # build, then preview via sirv
 ```
@@ -226,7 +257,9 @@ Adding `src/server.ts` to `tsconfig.cli.json` pulled the whole server into a typ
 - `GET /api/search?q=` - Full-text search
 - `POST /api/upload/:project/*` - Upload files to a project folder (multipart form data). Gated by `VIBEDOCS_UPLOAD_TOKEN` + `VIBEDOCS_READ_ONLY`. See "Upload deployment modes" above.
 - `GET /api/file/:project/*` - Serve non-markdown files (images, PDFs, etc.)
-- `GET /api/config` - Tiny client config endpoint: `{ uploadEnabled: boolean }`. Frontend uses this to hide upload UI when uploads are disabled or in read-only mode.
+- `GET /api/config` - Tiny client config endpoint: `{ uploadEnabled, runsEnabled, settingsEnabled }`. Frontend uses this to hide UI for features the server has off.
+- `GET /open?path=<url-encoded absolute path>` - 302 to `/#<project>/<path>`, or a 404/400 page (JSON with `Accept: application/json`). **The route and parameter name are a contract** with a macOS `.md` handler app; don't rename them. Opens files inside the roots only — serving files outside them was considered and rejected. Registered before the SPA fallback.
+- `GET /api/settings/roots`, `GET /api/settings/folders?path=`, `POST /api/settings/roots/check`, `PUT /api/settings/roots` - Roots picker. See "Roots picker" above.
 
 ## Key Patterns
 
@@ -236,7 +269,7 @@ Adding `src/server.ts` to `tsconfig.cli.json` pulled the whole server into a typ
 - **WebSocket messages:** `{ type: 'reload' }` for markdown changes, `{ type: 'refresh-tree' }` for any file add/remove
 - **SPA fallback:** In production, all non-API GET requests return `frontend/dist/index.html`
 - **Search index:** Full walk on startup and to reconcile directory-level changes; individual file events patch a single entry via `updateFile`/`removeFile`. `resolveIndexKey(rootDir, absPath)` decides scope for BOTH paths, so the walk and the incremental patches cannot disagree about whether a file belongs in the index. Every mutation is serialised on one chain inside the store — a watcher can deliver add-then-unlink for the same path without the caller awaiting between them, and without the queue the slower read could land after the removal and resurrect a deleted file.
-- **Path validation:** `src/path-resolver.ts` — `PathResolver` returns a `SafePath` branded type that downstream FS calls require; throws typed `VibedocsError` (traversal / invalid / not-found) on failure. Two instances (`docResolver`, `assetResolver`) configured at server startup.
+- **Path validation:** `src/path-resolver.ts` — `PathResolver` returns a `SafePath` branded type that downstream FS calls require; throws typed `VibedocsError` (traversal / invalid / not-found) on failure. Two instances (`docResolver`, `assetResolver`) configured at server startup. The dot/excluded check runs on every segment below the **root**, the project segment included — measured from the project directory, `/api/file/.git/config` served a root's own git config.
 - **File upload:** `src/upload.ts` `safeWriteFile(targetDir: SafePath, ...)` does filename sanitization via `path.basename()` and conflict auto-renaming (`file-1.ext`, `file-2.ext`, up to 100 suffixes). Path validation happens earlier at the resolver.
 - **Upload auth:** `src/upload-auth.ts` exposes pure functions used by `src/upload-pipeline.ts`: `parseUploadAuthConfig(env)` reads `VIBEDOCS_UPLOAD_TOKEN`/`VIBEDOCS_READ_ONLY`/`VIBEDOCS_UPLOAD_MAX_BYTES`; `checkUploadAuth(cfg, authHeader)` returns a discriminated `'read-only' | 'no-token-configured' | 'unauthorized' | 'ok'`; `checkExtensionAllowed(filename)` enforces an allowlist (`.md`, images, `.pdf`, `.txt`) with explicit deny for `.html`/`.svg`/`.js`/etc. Read-only mode hides the endpoint (404) regardless of token; an unset token also returns 404 (not 401) so unauthenticated scanners can't fingerprint the feature. Bearer-token comparison is constant-time (`crypto.timingSafeEqual`).
 - **Upload pipeline:** `src/upload-pipeline.ts` composes the auth policy + extension/size checks into a typed, ordered `UPLOAD_GATES` array — each gate is a tagged `UploadGate` with a `phase: 'auth' | 'content'` field. The route handler in `src/upload-route.ts` calls `runPipelinePhase('auth', ctx)` first (no body parse needed) then `runPipelinePhase('content', ctx)` after parsing files. Gate ordering is enforced by code: `tests/upload-pipeline.test.ts` asserts both the exact `UPLOAD_GATES.map(g => g.name)` sequence and the phase invariant (every auth gate precedes every content gate).
@@ -315,9 +348,13 @@ This is the vibedocs-side capstone of the publishable-static-site engine (#45 sp
 login. It *asks which folders to index* rather than assuming a root — a home
 directory typically contains `~/Library` (thousands of directories of
 application state) and often employer-synced folders, and neither belongs in a
-documentation browser. Selected folders are named directly in `VIBEDOCS_ROOTS`,
-so the watcher sees real paths. The script is also drivable non-interactively
-(`--folders a,b,c --yes`) for an agent installing on someone's behalf.
+documentation browser. Without `--folders` it runs `vibedocs pick-roots`, a
+browser folder picker at any depth; the selection goes to `~/.vibedocs/roots.txt`,
+named by `VIBEDOCS_ROOTS_FILE`, so the watcher sees real paths and Settings can
+edit it later. The script is also drivable non-interactively (`--folders a,b,c
+--yes`) for an agent installing on someone's behalf, and `--dry-run` prints the
+roots and plist without writing either. The plist sets `VIBEDOCS_HOST` from
+`--host`, default `127.0.0.1`, and the health check probes that address.
 
 **Two things about that changed in #193, and the second one is breaking.**
 
