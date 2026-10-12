@@ -14,6 +14,7 @@ import { DocContent } from "@/components/doc-content"
 import { TocPanel } from "@/components/toc-panel"
 import { MobileToc } from "@/components/mobile-toc"
 import { SearchDialog } from "@/components/search-dialog"
+import { PanelToggle } from "@/components/panel-toggle"
 import { useProjects, useHiddenProject, type FileTypeFilter, type FileNode } from "@/hooks/use-projects"
 import { useDocument } from "@/hooks/use-document"
 import { useWebSocket } from "@/hooks/use-websocket"
@@ -131,6 +132,19 @@ function DocsApp() {
   }, [])
   const { html, toc, loading, error, refresh: refreshDoc } = useDocument(activeProject, activePath)
   const sidebarPanelRef = usePanelRef()
+  const tocPanelRef = usePanelRef()
+  // Mirrors of the panels' collapsed state, fed by onResize so the toggle
+  // buttons track a drag-to-collapse as well as their own clicks.
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [tocCollapsed, setTocCollapsed] = useState(false)
+  const togglePanel = useCallback((ref: typeof sidebarPanelRef) => {
+    const panel = ref.current
+    if (!panel) return
+    if (panel.isCollapsed()) panel.expand()
+    else panel.collapse()
+  }, [])
+  const toggleSidebar = useCallback(() => togglePanel(sidebarPanelRef), [togglePanel, sidebarPanelRef])
+  const toggleToc = useCallback(() => togglePanel(tocPanelRef), [togglePanel, tocPanelRef])
   const isMobile = useIsMobile()
 
   // Parse hash on mount and on hash change
@@ -200,19 +214,12 @@ function DocsApp() {
           setMobileSidebarOpen((prev) => !prev)
           return
         }
-        const panel = sidebarPanelRef.current
-        if (panel) {
-          if (panel.isCollapsed()) {
-            panel.expand()
-          } else {
-            panel.collapse()
-          }
-        }
+        toggleSidebar()
       }
     }
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [sidebarPanelRef, isMobile])
+  }, [toggleSidebar, isMobile])
 
   // WebSocket live reload
   const { connected } = useWebSocket({
@@ -371,6 +378,7 @@ function DocsApp() {
             minSize={150}
             maxSize="30%"
             collapsible
+            onResize={(size) => setSidebarCollapsed(size.inPixels === 0)}
           >
             <AppSidebar
               projects={projects}
@@ -395,15 +403,32 @@ function DocsApp() {
           {/* Main content */}
           <ResizablePanel id="content" defaultSize="62%" minSize="30%">
             <div className="flex flex-col h-full min-w-0 overflow-hidden">
-              <header className="flex h-12 items-center gap-2 border-b px-4 shrink-0">
-                {fullWidth ? (
-                  <span className="text-sm font-medium">{isRunsRoute ? "Agent Runs" : "Settings"}</span>
-                ) : (
-                  <ProjectSwitcher
-                    projects={projects}
-                    activeProject={activeProject}
-                    onNavigate={navigateSmart}
-                    inline
+              <header className="flex h-12 items-center gap-2 border-b px-2 shrink-0">
+                <PanelToggle
+                  side="left"
+                  label="sidebar"
+                  shortcut="⌘B"
+                  collapsed={sidebarCollapsed}
+                  onToggle={toggleSidebar}
+                />
+                <div className="flex-1 min-w-0 flex items-center">
+                  {fullWidth ? (
+                    <span className="text-sm font-medium px-2">{isRunsRoute ? "Agent Runs" : "Settings"}</span>
+                  ) : (
+                    <ProjectSwitcher
+                      projects={projects}
+                      activeProject={activeProject}
+                      onNavigate={navigateSmart}
+                      inline
+                    />
+                  )}
+                </div>
+                {!fullWidth && (
+                  <PanelToggle
+                    side="right"
+                    label="table of contents"
+                    collapsed={tocCollapsed}
+                    onToggle={toggleToc}
                   />
                 )}
               </header>
@@ -431,7 +456,15 @@ function DocsApp() {
               handle must go with the panel or it dangles. */}
           {!fullWidth && <ResizableHandle />}
           {!fullWidth && (
-            <ResizablePanel id="toc" defaultSize="20%" minSize={120} maxSize="30%">
+            <ResizablePanel
+              id="toc"
+              panelRef={tocPanelRef}
+              defaultSize="20%"
+              minSize={120}
+              maxSize="30%"
+              collapsible
+              onResize={(size) => setTocCollapsed(size.inPixels === 0)}
+            >
               {hasToc ? <TocPanel toc={toc} /> : null}
             </ResizablePanel>
           )}

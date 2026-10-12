@@ -178,8 +178,11 @@ export function DocContent({ html, loading, error, project, docPath, connected, 
             this, a single wide <pre> or <table> inside the markdown stretches
             the column to its own intrinsic width and pushes the page into
             a redundant outer horizontal scroll — defeating per-element
-            scroll affordances. */}
-        <div className="w-full max-w-full md:max-w-[900px] mx-auto px-4 py-4 md:px-8 md:py-6">
+            scroll affordances. There is deliberately no max-width: the
+            column fills the centre panel at whatever width the user drags
+            it to, and a table fills the column (`.table-wrap > table` has
+            `min-width: 100%`). */}
+        <div className="w-full max-w-full px-4 py-4 md:px-8 md:py-6">
           {loading ? (
             <div className="space-y-4">
               <Skeleton className="h-8 w-3/4" />
