@@ -316,11 +316,10 @@
   border-radius: 8px;
 }
 .prose-content .table-wrap > table {
-  /* Let wide tables exceed the wrapper (so the wrapper's overflow-x kicks
-     in and the scroll-shadow becomes visible). Narrow tables still fill
-     the wrapper via min-width. */
-  width: max-content;
-  min-width: 100%;
+  /* Fill the wrapper and let cells wrap to fit it. The wrapper's overflow-x
+     (and the scroll-shadow) only engages when the table's minimum content
+     width — an unbreakable code span, say — exceeds the column. */
+  width: 100%;
   margin-bottom: 0;
 }
 
