@@ -159,7 +159,10 @@ export function DocContent({ html, loading, error, project, docPath, connected, 
               title={docPath}
             >
               <FileText className="h-3.5 w-3.5 shrink-0" />
-              <span className="truncate font-mono text-xs" dir="rtl">{docPath}</span>
+              {/* dir=rtl truncates from the left so the filename stays visible;
+                  <bdi> keeps the path itself left-to-right, or bidi moves its
+                  leading slash to the end. */}
+              <span className="truncate font-mono text-xs" dir="rtl"><bdi>{docPath}</bdi></span>
             </div>
           ) : (
             <BreadcrumbNav project={project} docPath={docPath} tree={projectTree} onNavigate={onNavigate} />
