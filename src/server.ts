@@ -20,6 +20,7 @@ import { registerStaticRoutes } from './static-files.js'
 import { registerAgentRunsRoutes } from './agent-runs/routes.js'
 import { registerOpenRoute } from './open-route.js'
 import { registerSettingsRoutes } from './settings/routes.js'
+import { registerExternalFileRoutes } from './external-file-routes.js'
 import { parseSettingsConfig } from './settings/auth.js'
 import { rootsSource } from './project-roots.js'
 
@@ -74,6 +75,9 @@ registerFileRoute(app, assetResolver)
 registerProjectTreeRoute(app, { assetResolver, isHidden: (dir) => state.visibility.isHidden(dir) })
 // Must precede registerStaticRoutes too — see the MUST note below.
 registerOpenRoute(app, { roots: PROJECT_ROOTS, docResolver })
+// A markdown file outside every project, opened by absolute path (#223).
+// This machine's browser only; see src/external-file-routes.ts.
+registerExternalFileRoutes(app, { port: () => PORT, peerAddress: (c) => getConnInfo(c).remote.address })
 
 // Roots picker (Settings view). A saved change takes effect on restart, because
 // PROJECT_ROOTS is a module-load snapshot: under a supervisor the server exits and

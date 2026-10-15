@@ -1,4 +1,5 @@
 import type { ProjectInfo, FileTypeFilter } from "@/hooks/use-projects"
+import { EXTERNAL_PROJECT } from "@shared/external-file"
 
 export interface TocEntry {
   level: number
@@ -73,6 +74,16 @@ function buildPath(project: string, docPath: string, base: string): string {
   return `${base}/${encodeURIComponent(project)}/${docPath}`
 }
 
+/**
+ * A doc under `EXTERNAL_PROJECT` is a file outside every project, opened by
+ * absolute path (`#/file<abs>`); `docPath` is then that absolute path and the
+ * server renders it at `/api/external/*` instead of a project route.
+ */
+function docUrl(project: string, docPath: string, kind: "render" | "raw"): string {
+  if (project === EXTERNAL_PROJECT) return `/api/external/${kind}?path=${encodeURIComponent(docPath)}`
+  return buildPath(project, docPath, `/api/${kind}`)
+}
+
 export async function readErrorMessage(res: Response, fallback: string): Promise<string> {
   try {
     const body = (await res.json()) as { error?: unknown }
@@ -109,7 +120,7 @@ export function createApiClient(options: CreateApiClientOptions = {}): ApiClient
     },
 
     async renderDoc(project, docPath, opts) {
-      const res = await doFetch(buildPath(project, docPath, "/api/render"), {
+      const res = await doFetch(docUrl(project, docPath, "render"), {
         signal: opts?.signal,
       })
       if (!res.ok) {
@@ -123,7 +134,7 @@ export function createApiClient(options: CreateApiClientOptions = {}): ApiClient
     },
 
     async getRawDoc(project, docPath, opts) {
-      const res = await doFetch(buildPath(project, docPath, "/api/raw"), {
+      const res = await doFetch(docUrl(project, docPath, "raw"), {
         signal: opts?.signal,
       })
       if (!res.ok) {

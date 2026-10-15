@@ -58,6 +58,14 @@ const SAFE_METHODS = new Set(['GET', 'HEAD'])
 /** Vite's dev server, which proxies `/api` here (the Host it forwards is ours). */
 const DEV_PORT = 5173
 
+/**
+ * The same three checks for a feature that is always on but this-machine-only,
+ * such as rendering a markdown file by absolute path (`/api/external/*`).
+ */
+export function checkLocalOnly(input: Omit<SettingsAuthInput, 'enabled'>): 'not-local' | 'ok' {
+  return checkSettingsAuth({ ...input, enabled: true }) === 'ok' ? 'ok' : 'not-local'
+}
+
 export function checkSettingsAuth(input: SettingsAuthInput): SettingsAuthResult {
   if (!input.enabled) return 'disabled'
   if (!isLoopbackAddress(input.peerAddress)) return 'not-local'

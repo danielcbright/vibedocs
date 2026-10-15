@@ -32,6 +32,12 @@ export interface RewriteOptions {
   currentDocPath: string
   /** When present, the rewriter records each resolved asset reference here. */
   collector?: ReferenceCollector
+  /**
+   * Live mode only: where an asset at a doc-relative POSIX path is served.
+   * Defaults to `/api/file/<project>/<path>`; a file outside every project
+   * (`/api/external/render`) has no project route and supplies its own.
+   */
+  liveAssetUrl?: (posixPath: string) => string
 }
 
 /**
@@ -187,7 +193,8 @@ function rewriteAssetUrl(src: string, opts: RewriteOptions): string | null {
   opts.collector?.add(resolved, opts.currentDocPath)
 
   if (opts.mode === 'live') {
-    return buildLiveAssetUrl(opts.projectName, resolved) + suffix
+    const url = opts.liveAssetUrl ? opts.liveAssetUrl(resolved) : buildLiveAssetUrl(opts.projectName, resolved)
+    return url + suffix
   }
 
   const currentPageUrl = buildPageUrl(opts.currentDocPath)

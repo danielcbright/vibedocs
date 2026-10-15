@@ -21,6 +21,7 @@ import { useIsMobile } from "@/hooks/use-mobile"
 import { useConfig } from "@/hooks/use-config"
 import { findFirstMarkdown } from "@/lib/find-first-markdown"
 import { SETTINGS_HASH, type AppView } from "@/lib/app-view"
+import { EXTERNAL_PROJECT, externalPathFromHashPath } from "@shared/external-file"
 import { RunsView } from "@/agent-runs/RunsView"
 import { RunRail } from "@/agent-runs/RunRail"
 import { useRuns } from "@/agent-runs/hooks/use-runs"
@@ -87,6 +88,12 @@ function DocsApp() {
   const activeRunId = isRunsRoute ? ((activePath ?? "").split("/")[1] || null) : null
   const appView: AppView = isRunsRoute ? "runs" : "docs"
   const isSettingsRoute = activeProject === "" && activePath === SETTINGS_HASH.slice(1)
+  // `#/file<abs>`: a markdown file outside every project, sent here by /open.
+  // It renders like any doc, under EXTERNAL_PROJECT so the API client knows
+  // where to fetch it; nothing in the sidebar is active for it.
+  const externalPath = activeProject === "" ? externalPathFromHashPath(activePath) : null
+  const docProject = externalPath !== null ? EXTERNAL_PROJECT : activeProject
+  const docPath = externalPath ?? activePath
   // Runs and Settings take the full width: no TOC panel, no doc header.
   const fullWidth = isRunsRoute || isSettingsRoute
   const settingsClient = useMemo(() => createSettingsClient(), [])
@@ -129,7 +136,7 @@ function DocsApp() {
     setActiveProject(null)
     setActivePath(null)
   }, [])
-  const { html, toc, loading, error, refresh: refreshDoc } = useDocument(activeProject, activePath)
+  const { html, toc, loading, error, refresh: refreshDoc } = useDocument(docProject, docPath)
   const sidebarPanelRef = usePanelRef()
   const isMobile = useIsMobile()
 
@@ -300,8 +307,8 @@ function DocsApp() {
               html={html}
               loading={loading}
               error={error}
-              project={activeProject}
-              docPath={activePath}
+              project={docProject}
+              docPath={docPath}
               connected={connected}
               projectTree={activeProjectTree}
               projects={projects}
@@ -416,8 +423,8 @@ function DocsApp() {
                 html={html}
                 loading={loading}
                 error={error}
-                project={activeProject}
-                docPath={activePath}
+                project={docProject}
+                docPath={docPath}
                 connected={connected}
                 projectTree={activeProjectTree}
                 projects={projects}
