@@ -198,8 +198,10 @@ vibedocs open ~/Development/my-project/docs/guide.md   # --port <n> if not 8080
 
 This opens the file in the running server. Underneath it is
 `GET /open?path=<url-encoded absolute path>`, which redirects to the document and
-is what a Finder "Open With" handler can call. A path outside every root, a
-missing file or a non-markdown file gets a page saying which.
+is what a Finder "Open With" handler can call. A missing file or a non-markdown
+file gets a page saying which. A markdown file outside every root opens too when
+`VIBEDOCS_SETTINGS_ENABLED` is on (the macOS installer sets it), from this
+machine's browser only; otherwise it gets a page saying it is not in VibeDocs.
 
 ## Development
 

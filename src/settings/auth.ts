@@ -14,6 +14,10 @@
  * Read-only mode forces the feature off, like uploads. A reverse proxy on this
  * machine that forwards remote requests with a loopback Host header defeats the
  * first two; that is documented rather than detected.
+ *
+ * `/api/external/*` (a markdown file by absolute path, #223) is the same kind of
+ * read and runs on the same switch and the same three checks — one decision,
+ * one place. Don't give it a gate of its own.
  */
 import { isTruthy } from '../upload-auth.js'
 import { isOriginAllowed } from '../ws-auth.js'
@@ -57,14 +61,6 @@ const SAFE_METHODS = new Set(['GET', 'HEAD'])
 
 /** Vite's dev server, which proxies `/api` here (the Host it forwards is ours). */
 const DEV_PORT = 5173
-
-/**
- * The same three checks for a feature that is always on but this-machine-only,
- * such as rendering a markdown file by absolute path (`/api/external/*`).
- */
-export function checkLocalOnly(input: Omit<SettingsAuthInput, 'enabled'>): 'not-local' | 'ok' {
-  return checkSettingsAuth({ ...input, enabled: true }) === 'ok' ? 'ok' : 'not-local'
-}
 
 export function checkSettingsAuth(input: SettingsAuthInput): SettingsAuthResult {
   if (!input.enabled) return 'disabled'

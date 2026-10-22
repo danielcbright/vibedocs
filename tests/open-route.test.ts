@@ -52,11 +52,11 @@ afterEach(async () => {
   await rm(tmp, { recursive: true, force: true })
 })
 
-function appFor(roots: readonly string[], opts: { withSpaFallback?: string } = {}) {
+function appFor(roots: readonly string[], opts: { withSpaFallback?: string; externalFiles?: boolean } = {}) {
   const app = new Hono()
   registerErrorHandler(app)
   const docResolver = new PathResolver({ roots, requireExtensions: MARKDOWN_EXTENSIONS })
-  registerOpenRoute(app, { roots, docResolver })
+  registerOpenRoute(app, { roots, docResolver, externalFiles: opts.externalFiles ?? true })
   if (opts.withSpaFallback) registerStaticRoutes(app, opts.withSpaFallback)
   return app
 }
@@ -178,6 +178,39 @@ describe('GET /open — a markdown file no project serves opens by absolute path
     const res = await open(appFor([one, two]), '/tmp/<script>alert(1)</script>.md')
     expect(res.status).toBe(302)
     expect(res.headers.get('location')).toBe('/#/file/tmp/%3Cscript%3Ealert(1)%3C/script%3E.md')
+  })
+})
+
+describe('GET /open — with external files off, an outside path is "Not in VibeDocs" as before #223', () => {
+  const off = () => appFor([one, two], { externalFiles: false })
+  const expectNotInVibedocs = async (res: Response) => {
+    expect(res.status).toBe(404)
+    expect(res.headers.get('location')).toBeNull()
+    expect(await res.text()).toMatch(/Not in VibeDocs/)
+  }
+
+  it('refuses a markdown file outside every root, pointing at the Settings switch', async () => {
+    const res = await open(off(), path.join(outside, 'secret.md'))
+    await expectNotInVibedocs(res)
+  })
+
+  it('says the same for a missing outside path and a non-markdown one, so it leaks nothing about either', async () => {
+    const app = off()
+    await expectNotInVibedocs(await open(app, path.join(outside, 'nope.md')))
+    await expectNotInVibedocs(await open(app, path.join(outside, 'notes.txt')))
+  })
+
+  it('refuses a hidden or excluded file and a loose file in a root the same way', async () => {
+    const app = off()
+    await expectNotInVibedocs(await open(app, path.join(one, 'alpha', '.hidden', 'secret.md')))
+    await expectNotInVibedocs(await open(app, path.join(one, 'alpha', 'node_modules', 'pkg', 'README.md')))
+    await expectNotInVibedocs(await open(app, path.join(one, 'loose.md')))
+  })
+
+  it('still redirects a file inside a project', async () => {
+    const res = await open(off(), path.join(one, 'alpha', 'docs', 'guide.md'))
+    expect(res.status).toBe(302)
+    expect(res.headers.get('location')).toBe('/#alpha/docs/guide.md')
   })
 })
 

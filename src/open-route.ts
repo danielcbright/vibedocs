@@ -17,9 +17,11 @@
  *
  * A markdown file the roots do not cover — outside every root, directly in one,
  * or under a hidden or excluded folder — is sent to `#/file<abs>` instead (#223),
- * where `/api/external/*` renders it for this machine's browser only. Nothing is
- * stat'ed before that decision, so this route still says the same thing about an
- * outside path whether or not it exists: it is not a way to probe the filesystem.
+ * where `/api/external/*` renders it for this machine's browser only. That is on
+ * the Settings switch (`externalFiles`); off, such a path gets the "Not in
+ * VibeDocs" page it always did. Nothing is stat'ed before either decision, so this
+ * route says the same thing about an outside path whether or not it exists: it is
+ * not a way to probe the filesystem.
  */
 import type { Hono } from 'hono'
 import path from 'path'
@@ -36,6 +38,8 @@ export interface OpenRouteDeps {
   roots: readonly string[]
   /** The markdown-only resolver the render route uses. */
   docResolver: PathResolver
+  /** Whether `/api/external/*` is on (`SettingsConfig.enabled`). */
+  externalFiles: boolean
 }
 
 type OpenOutcome =
@@ -72,12 +76,12 @@ async function resolveOpen(raw: string | undefined, deps: OpenRouteDeps): Promis
 
   const abs = path.resolve(raw)
   const spelled = spellUnderRoot(abs, deps.roots)
-  if (spelled === null) return outsideProjects(abs)
+  if (spelled === null) return outsideProjects(abs, deps)
 
   // `<project>/<path within project>`, or null for a root itself.
   const wire = toProjectRelativePath(spelled, deps.roots)
   const slash = wire?.indexOf('/') ?? -1
-  if (wire === null || slash === -1) return outsideProjects(abs)
+  if (wire === null || slash === -1) return outsideProjects(abs, deps)
 
   let safePath: string
   try {
@@ -94,7 +98,7 @@ async function resolveOpen(raw: string | undefined, deps: OpenRouteDeps): Promis
         // serves. `traversal` cannot follow a normalised path inside a root; if
         // it ever does, the resolver has the last word and the answer is still
         // "outside".
-        return outsideProjects(abs)
+        return outsideProjects(abs, deps)
     }
   }
 
@@ -153,11 +157,13 @@ function encodeFragment(wire: string): string {
 }
 
 /**
- * A path no project route can serve: open it by absolute path. Only the extension
- * is checked here — existence is the external route's answer, so this route says
- * the same thing about an outside file whether or not it exists.
+ * A path no project route can serve. With external files on, open it by absolute
+ * path; only the extension is checked here, existence being the external route's
+ * answer. Off, say it is not in VibeDocs — before looking at the extension, exactly
+ * as before #223, so nothing about the path leaks. Neither branch touches disk.
  */
-function outsideProjects(abs: string): OpenOutcome {
+function outsideProjects(abs: string, deps: Pick<OpenRouteDeps, 'externalFiles'>): OpenOutcome {
+  if (!deps.externalFiles) return notInVibedocs(abs)
   if (!isMarkdownPath(abs)) return notMarkdown(abs)
   return { kind: 'redirect', location: `/#${EXTERNAL_FILE_HASH_PREFIX}${encodeFragment(abs)}` }
 }
@@ -165,6 +171,8 @@ function outsideProjects(abs: string): OpenOutcome {
 const refused = (status: 400 | 404, title: string, detail: string): OpenOutcome => ({ kind: 'refused', status, title, detail })
 const notMarkdown = (abs: string) => refused(404, 'Not a markdown file', `“${abs}” is not a markdown file. /open opens .md and .markdown files.`)
 const missing = (abs: string) => refused(404, 'No such file', `There is no file at “${abs}”.`)
+const notInVibedocs = (abs: string) =>
+  refused(404, 'Not in VibeDocs', `“${abs}” is not inside any folder VibeDocs indexes. Add its folder as a root, or turn on Settings (VIBEDOCS_SETTINGS_ENABLED) to open markdown files outside your roots from this machine.`)
 
 function refusalPage(title: string, detail: string): string {
   return `<!doctype html>

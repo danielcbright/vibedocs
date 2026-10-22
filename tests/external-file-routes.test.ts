@@ -4,13 +4,19 @@ import path from 'path'
 import os from 'os'
 import { Hono } from 'hono'
 import { registerErrorHandler } from '../src/errors.js'
-import { registerExternalFileRoutes, renderExternalFile, type ExternalFileRoutesDeps } from '../src/external-file-routes.js'
+import {
+  registerExternalFileRoutes,
+  renderExternalFile,
+  EXTERNAL_ASSET_EXTENSIONS,
+  type ExternalFileRoutesDeps,
+} from '../src/external-file-routes.js'
 import { externalPathFromHashPath, EXTERNAL_PROJECT } from '../src/shared/external-file.js'
 
 /**
  * `/api/external/*` — a markdown file by absolute path, outside every project
- * (#223). This machine's browser only; the roots, dot-folder and excluded-folder
- * rules do not apply.
+ * (#223). On the Settings switch and this machine's browser only; the roots,
+ * dot-folder and excluded-folder rules do not apply, so the extension caps are
+ * the only thing between a loopback caller and the filesystem.
  */
 const PORT = 8080
 const LOCAL = { Host: `localhost:${PORT}` }
@@ -27,6 +33,9 @@ beforeEach(async () => {
   await writeFile(path.join(tmp, '.claude', 'img', 'd.png'), 'png')
   await writeFile(path.join(tmp, '.claude', 'memory', 'x.svg'), '<svg/>')
   await writeFile(path.join(tmp, 'plain.txt'), 'txt')
+  await writeFile(path.join(tmp, 'spec.pdf'), '%PDF-1.4')
+  await writeFile(path.join(tmp, '.env'), 'SECRET=1')
+  await writeFile(path.join(tmp, 'id_ed25519'), 'key')
 })
 
 afterEach(async () => {
@@ -36,7 +45,7 @@ afterEach(async () => {
 function appWith(overrides: Partial<ExternalFileRoutesDeps> = {}, peer = '127.0.0.1') {
   const app = new Hono()
   registerErrorHandler(app)
-  registerExternalFileRoutes(app, { port: () => PORT, peerAddress: () => peer, ...overrides })
+  registerExternalFileRoutes(app, { enabled: true, port: () => PORT, peerAddress: () => peer, ...overrides })
   return app
 }
 
@@ -81,20 +90,75 @@ describe('GET /api/external/raw and /file', () => {
     expect((await appWith().request(q('raw', path.join(tmp, 'plain.txt')), { headers: LOCAL })).status).toBe(400)
   })
 
-  it('serves an asset under the /api/file content-type policy: images inline, svg as a download', async () => {
-    const app = appWith()
-    const png = await app.request(q('file', path.join(tmp, '.claude', 'img', 'd.png')), { headers: LOCAL })
+  it('serves a raster image under the /api/file content-type policy: inline, nosniff', async () => {
+    const png = await appWith().request(q('file', path.join(tmp, '.claude', 'img', 'd.png')), { headers: LOCAL })
     expect(png.status).toBe(200)
     expect(png.headers.get('content-type')).toBe('image/png')
     expect(png.headers.get('content-disposition')).toMatch(/^inline/)
-    const svg = await app.request(q('file', path.join(tmp, '.claude', 'memory', 'x.svg')), { headers: LOCAL })
-    expect(svg.headers.get('content-type')).toBe('application/octet-stream')
-    expect(svg.headers.get('content-disposition')).toMatch(/^attachment/)
-    expect(svg.headers.get('x-content-type-options')).toBe('nosniff')
+    expect(png.headers.get('x-content-type-options')).toBe('nosniff')
+  })
+
+  it('refuses an SVG outright — a script-capable format never reaches the content-type policy', async () => {
+    const svg = await appWith().request(q('file', path.join(tmp, '.claude', 'memory', 'x.svg')), { headers: LOCAL })
+    expect(svg.status).toBe(400)
   })
 
   it('400s a directory', async () => {
     expect((await appWith().request(q('file', path.dirname(note)), { headers: LOCAL })).status).toBe(400)
+  })
+
+  it('serves a PDF, as a download', async () => {
+    const res = await appWith().request(q('file', path.join(tmp, 'spec.pdf')), { headers: LOCAL })
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe('application/pdf')
+    expect(res.headers.get('content-disposition')).toMatch(/^attachment/)
+  })
+
+  it('refuses anything that is not an image or PDF before opening it', async () => {
+    // The roots and dot-folder rules do not apply here, so this cap is what keeps
+    // a loopback caller from reading an env file, a key, or /proc/self/environ.
+    const app = appWith()
+    for (const file of ['plain.txt', '.env', 'id_ed25519', 'note.md']) {
+      const res = await app.request(q('file', path.join(tmp, file)), { headers: LOCAL })
+      expect(res.status, file).toBe(400)
+      expect(((await res.json()) as { error: string }).error).toMatch(/not an image or PDF/)
+    }
+    expect((await app.request(q('file', '/proc/self/environ'), { headers: LOCAL })).status).toBe(400)
+  })
+
+  it('answers the cap identically for a missing file, so it is not an existence oracle', async () => {
+    const app = appWith()
+    const exists = await app.request(q('file', path.join(tmp, '.env')), { headers: LOCAL })
+    const missing = await app.request(q('file', path.join(tmp, 'nope.env')), { headers: LOCAL })
+    expect(missing.status).toBe(exists.status)
+  })
+
+  it('caps the asset list to what a note embeds and a browser shows', () => {
+    expect([...EXTERNAL_ASSET_EXTENSIONS].sort()).toEqual(['.gif', '.ico', '.jpeg', '.jpg', '.pdf', '.png', '.webp'])
+  })
+})
+
+describe('off unless Settings is', () => {
+  // Same switch as the roots picker: a caller Settings trusts can already make
+  // /api/file serve any non-dot file by adding a root, so this admits no one new.
+  const off = (peer?: string) => appWith({ enabled: false }, peer)
+
+  it('404s every route for a loopback caller, as if the feature did not exist', async () => {
+    const app = off()
+    for (const url of [q('render', note), q('raw', note), q('file', path.join(tmp, '.claude', 'img', 'd.png'))]) {
+      const res = await app.request(url, { headers: LOCAL })
+      expect(res.status, url).toBe(404)
+      expect(await res.json()).toEqual({ error: 'Not found' })
+    }
+  })
+
+  it('404s a remote caller too — disabled wins over not-local, so the switch is not fingerprintable', async () => {
+    expect((await off('10.0.0.7').request(q('render', note), { headers: LOCAL })).status).toBe(404)
+  })
+
+  it('404s an unknown route under the prefix whether on or off', async () => {
+    expect((await off().request('/api/external/list?path=/', { headers: LOCAL })).status).toBe(404)
+    expect((await appWith().request('/api/external/list?path=/', { headers: LOCAL })).status).toBe(404)
   })
 })
 

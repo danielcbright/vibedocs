@@ -74,10 +74,14 @@ registerUploadRoute(app, assetResolver, state.uploadAuth, () => state.broadcast(
 registerFileRoute(app, assetResolver)
 registerProjectTreeRoute(app, { assetResolver, isHidden: (dir) => state.visibility.isHidden(dir) })
 // Must precede registerStaticRoutes too — see the MUST note below.
-registerOpenRoute(app, { roots: PROJECT_ROOTS, docResolver })
-// A markdown file outside every project, opened by absolute path (#223).
-// This machine's browser only; see src/external-file-routes.ts.
-registerExternalFileRoutes(app, { port: () => PORT, peerAddress: (c) => getConnInfo(c).remote.address })
+registerOpenRoute(app, { roots: PROJECT_ROOTS, docResolver, externalFiles: settings.enabled })
+// A markdown file outside every project, opened by absolute path (#223). On the
+// Settings switch and this machine's browser only; see src/external-file-routes.ts.
+registerExternalFileRoutes(app, {
+  enabled: settings.enabled,
+  port: () => PORT,
+  peerAddress: (c) => getConnInfo(c).remote.address,
+})
 
 // Roots picker (Settings view). A saved change takes effect on restart, because
 // PROJECT_ROOTS is a module-load snapshot: under a supervisor the server exits and
