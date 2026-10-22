@@ -249,6 +249,7 @@ export async function renderSinglePage(
   projectName: string,
   docPath: string,
   mode: RenderMode,
+  rewrite: Pick<RewriteOptions, 'liveAssetUrl'> = {},
 ): Promise<HtmlPage> {
   const posixPath = docPath.split(path.sep).join('/')
   const content = await readFile(absPath, 'utf-8')
@@ -257,6 +258,7 @@ export async function renderSinglePage(
     mode,
     projectName,
     currentDocPath: posixPath,
+    ...rewrite,
   })
   const toc = extractToc(html)
   return {

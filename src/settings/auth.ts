@@ -14,6 +14,10 @@
  * Read-only mode forces the feature off, like uploads. A reverse proxy on this
  * machine that forwards remote requests with a loopback Host header defeats the
  * first two; that is documented rather than detected.
+ *
+ * `/api/external/*` (a markdown file by absolute path, #223) is the same kind of
+ * read and runs on the same switch and the same three checks — one decision,
+ * one place. Don't give it a gate of its own.
  */
 import { isTruthy } from '../upload-auth.js'
 import { isOriginAllowed } from '../ws-auth.js'

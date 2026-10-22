@@ -103,29 +103,38 @@ function dispositionFilename(name: string): string {
   return `filename="${ascii.replace(/[^\x20-\x7e]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(base)}`
 }
 
+/**
+ * Read a file and answer it under the policy above. Shared by `/api/file` and
+ * `/api/external/file` so the two cannot drift on what the browser may render.
+ */
+export async function fileResponse(absPath: string): Promise<Response> {
+  try {
+    const content = await readFile(absPath)
+    const ext = path.extname(absPath).toLowerCase()
+    const contentType = ASSET_CONTENT_TYPES[ext] || 'application/octet-stream'
+    const disposition = SAFE_INLINE_EXTENSIONS.has(ext) ? 'inline' : 'attachment'
+    const filename = dispositionFilename(path.basename(absPath))
+
+    return new Response(content, {
+      headers: {
+        'Content-Type': contentType,
+        'X-Content-Type-Options': 'nosniff',
+        'Content-Disposition': `${disposition}; ${filename}`,
+      },
+    })
+  } catch (err: any) {
+    if (err?.code === 'ENOENT') throw new VibedocsError('not-found', 'File not found', { cause: err })
+    if (err?.code === 'EISDIR') throw new VibedocsError('invalid', 'Not a file', { cause: err })
+    if (err?.code === 'EACCES' || err?.code === 'EPERM') throw new VibedocsError('forbidden', 'Permission denied', { cause: err })
+    throw new VibedocsError('io', 'Failed to read file', { cause: err })
+  }
+}
+
 export function registerFileRoute(app: Hono, assetResolver: PathResolver): void {
   app.get('/api/file/:project/*', async (c) => {
     // Single seam — see src/route-path.ts.
     const { safePath } = resolveProjectPath(c, '/api/file', assetResolver)
-
-    try {
-      const content = await readFile(safePath)
-      const ext = path.extname(safePath).toLowerCase()
-      const contentType = ASSET_CONTENT_TYPES[ext] || 'application/octet-stream'
-      const disposition = SAFE_INLINE_EXTENSIONS.has(ext) ? 'inline' : 'attachment'
-      const filename = dispositionFilename(path.basename(safePath))
-
-      return new Response(content, {
-        headers: {
-          'Content-Type': contentType,
-          'X-Content-Type-Options': 'nosniff',
-          'Content-Disposition': `${disposition}; ${filename}`,
-        },
-      })
-    } catch (err: any) {
-      if (err?.code === 'ENOENT') throw new VibedocsError('not-found', 'File not found', { cause: err })
-      throw new VibedocsError('io', 'Failed to read file', { cause: err })
-    }
+    return fileResponse(safePath)
   })
 }
 

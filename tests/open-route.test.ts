@@ -52,11 +52,11 @@ afterEach(async () => {
   await rm(tmp, { recursive: true, force: true })
 })
 
-function appFor(roots: readonly string[], opts: { withSpaFallback?: string } = {}) {
+function appFor(roots: readonly string[], opts: { withSpaFallback?: string; externalFiles?: boolean } = {}) {
   const app = new Hono()
   registerErrorHandler(app)
   const docResolver = new PathResolver({ roots, requireExtensions: MARKDOWN_EXTENSIONS })
-  registerOpenRoute(app, { roots, docResolver })
+  registerOpenRoute(app, { roots, docResolver, externalFiles: opts.externalFiles ?? true })
   if (opts.withSpaFallback) registerStaticRoutes(app, opts.withSpaFallback)
   return app
 }
@@ -132,6 +132,88 @@ describe('GET /open — paths inside a root redirect to the hash route', () => {
   })
 })
 
+describe('GET /open — a markdown file no project serves opens by absolute path (#223)', () => {
+  const external = (abs: string) => `/#/file${abs}`
+
+  it('redirects a path outside every root to #/file<abs>', async () => {
+    const res = await open(appFor([one, two]), path.join(outside, 'secret.md'))
+    expect(res.status).toBe(302)
+    expect(res.headers.get('location')).toBe(external(path.join(outside, 'secret.md')))
+  })
+
+  it('answers an existing and a missing outside path identically, so it is still not an existence oracle', async () => {
+    const app = appFor([one, two])
+    const exists = await open(app, path.join(outside, 'secret.md'))
+    const missing = await open(app, path.join(outside, 'nope.md'))
+    expect(missing.status).toBe(exists.status)
+    expect(missing.headers.get('location')).toBe(external(path.join(outside, 'nope.md')))
+  })
+
+  it('redirects a .. traversal that escapes every root to the normalised absolute path', async () => {
+    const res = await open(appFor([one, two]), `${one}/alpha/../../outside/secret.md`)
+    expect(res.status).toBe(302)
+    expect(res.headers.get('location')).toBe(external(path.join(outside, 'secret.md')))
+  })
+
+  it('redirects a file under a dot-directory or an excluded directory, which no project route serves', async () => {
+    const app = appFor([one, two])
+    const hidden = path.join(one, 'alpha', '.hidden', 'secret.md')
+    expect((await open(app, hidden)).headers.get('location')).toBe(external(hidden))
+    const dep = path.join(one, 'alpha', 'node_modules', 'pkg', 'README.md')
+    expect((await open(app, dep)).headers.get('location')).toBe(external(dep))
+  })
+
+  it('redirects a file sitting directly in a root, which belongs to no project', async () => {
+    const loose = path.join(one, 'loose.md')
+    expect((await open(appFor([one, two]), loose)).headers.get('location')).toBe(external(loose))
+  })
+
+  it('percent-encodes the absolute path the way a browser stores a fragment', async () => {
+    const spaced = path.join(outside, 'My Notes.md')
+    const res = await open(appFor([one, two]), spaced)
+    expect(res.headers.get('location')).toBe(`/#/file${path.join(outside, 'My%20Notes.md')}`)
+  })
+
+  it('escapes nothing into HTML: a redirect carries the path only in Location', async () => {
+    const res = await open(appFor([one, two]), '/tmp/<script>alert(1)</script>.md')
+    expect(res.status).toBe(302)
+    expect(res.headers.get('location')).toBe('/#/file/tmp/%3Cscript%3Ealert(1)%3C/script%3E.md')
+  })
+})
+
+describe('GET /open — with external files off, an outside path is "Not in VibeDocs" as before #223', () => {
+  const off = () => appFor([one, two], { externalFiles: false })
+  const expectNotInVibedocs = async (res: Response) => {
+    expect(res.status).toBe(404)
+    expect(res.headers.get('location')).toBeNull()
+    expect(await res.text()).toMatch(/Not in VibeDocs/)
+  }
+
+  it('refuses a markdown file outside every root, pointing at the Settings switch', async () => {
+    const res = await open(off(), path.join(outside, 'secret.md'))
+    await expectNotInVibedocs(res)
+  })
+
+  it('says the same for a missing outside path and a non-markdown one, so it leaks nothing about either', async () => {
+    const app = off()
+    await expectNotInVibedocs(await open(app, path.join(outside, 'nope.md')))
+    await expectNotInVibedocs(await open(app, path.join(outside, 'notes.txt')))
+  })
+
+  it('refuses a hidden or excluded file and a loose file in a root the same way', async () => {
+    const app = off()
+    await expectNotInVibedocs(await open(app, path.join(one, 'alpha', '.hidden', 'secret.md')))
+    await expectNotInVibedocs(await open(app, path.join(one, 'alpha', 'node_modules', 'pkg', 'README.md')))
+    await expectNotInVibedocs(await open(app, path.join(one, 'loose.md')))
+  })
+
+  it('still redirects a file inside a project', async () => {
+    const res = await open(off(), path.join(one, 'alpha', 'docs', 'guide.md'))
+    expect(res.status).toBe(302)
+    expect(res.headers.get('location')).toBe('/#alpha/docs/guide.md')
+  })
+})
+
 describe('GET /open — everything else is a readable page that says why', () => {
   const expectPage = async (res: Response, status: number, says: RegExp) => {
     expect(res.status).toBe(status)
@@ -143,24 +225,8 @@ describe('GET /open — everything else is a readable page that says why', () =>
     return body
   }
 
-  it('404s a path outside every root', async () => {
-    await expectPage(await open(appFor([one, two]), path.join(outside, 'secret.md')), 404, /not inside any folder VibeDocs indexes/)
-  })
-
-  it('answers an existing and a missing outside path identically, so it is not an existence oracle', async () => {
-    const app = appFor([one, two])
-    const exists = await (await open(app, path.join(outside, 'secret.md'))).text()
-    const missing = await (await open(app, path.join(outside, 'nope.md'))).text()
-    expect(exists.replace('secret.md', 'X')).toBe(missing.replace('nope.md', 'X'))
-  })
-
-  it('404s a .. traversal that escapes every root', async () => {
-    const body = await expectPage(
-      await open(appFor([one, two]), `${one}/alpha/../../outside/secret.md`),
-      404,
-      /not inside any folder VibeDocs indexes/,
-    )
-    expect(body).not.toContain('# Outside')
+  it('404s a non-markdown path outside every root', async () => {
+    await expectPage(await open(appFor([one, two]), path.join(outside, 'notes.txt')), 404, /not a markdown file/)
   })
 
   it('404s a missing file inside a project', async () => {
@@ -179,19 +245,8 @@ describe('GET /open — everything else is a readable page that says why', () =>
     await expectPage(await open(appFor([one, two]), path.join(one, 'alpha', 'docs')), 404, /not a markdown file/)
   })
 
-  it('404s a file under a dot-directory or an excluded directory, without saying whether it exists', async () => {
-    const app = appFor([one, two])
-    await expectPage(await open(app, path.join(one, 'alpha', '.hidden', 'secret.md')), 404, /hidden or excluded folder/)
-    await expectPage(await open(app, path.join(one, 'alpha', '.hidden', 'nope.md')), 404, /hidden or excluded folder/)
-    await expectPage(await open(app, path.join(one, 'alpha', 'node_modules', 'pkg', 'README.md')), 404, /hidden or excluded folder/)
-  })
-
-  it('404s a file sitting directly in a root, which belongs to no project', async () => {
-    await expectPage(await open(appFor([one, two]), path.join(one, 'loose.md')), 404, /not inside a project folder/)
-  })
-
   it('404s a root itself', async () => {
-    await expectPage(await open(appFor([one, two]), one), 404, /not inside a project folder/)
+    await expectPage(await open(appFor([one, two]), one), 404, /not a markdown file/)
   })
 
   it('400s a missing path parameter', async () => {
@@ -204,9 +259,9 @@ describe('GET /open — everything else is a readable page that says why', () =>
 
   it('escapes the requested path, which is attacker-controlled', async () => {
     const body = await expectPage(
-      await open(appFor([one, two]), '/tmp/<script>alert(1)</script>.md'),
+      await open(appFor([one, two]), '/tmp/<script>alert(1)</script>.png'),
       404,
-      /not inside any folder/,
+      /not a markdown file/,
     )
     expect(body).not.toContain('<script>')
     expect(body).toContain('&lt;script&gt;')
@@ -234,7 +289,7 @@ describe('GET /open — everything else is a readable page that says why', () =>
   })
 
   it('serves the page with a CSP that allows no script, and nosniff', async () => {
-    const res = await open(appFor([one, two]), path.join(outside, 'secret.md'))
+    const res = await open(appFor([one, two]), path.join(one, 'alpha', 'diagram.png'))
     expect(res.headers.get('content-security-policy')).toMatch(/default-src 'none'/)
     expect(res.headers.get('x-content-type-options')).toBe('nosniff')
   })

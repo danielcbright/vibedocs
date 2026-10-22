@@ -2,7 +2,8 @@ import { useEffect, useRef, useCallback } from "react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
-import { Copy, Check, AlertCircle } from "lucide-react"
+import { Copy, Check, AlertCircle, FileText } from "lucide-react"
+import { EXTERNAL_PROJECT } from "@shared/external-file"
 import { useState } from "react"
 import { BreadcrumbNav } from "./breadcrumb-nav"
 import { ConnectionStatus } from "./connection-status"
@@ -142,15 +143,33 @@ export function DocContent({ html, loading, error, project, docPath, connected, 
     )
   }
 
+  // A file outside every project (`#/file<abs>`): no project to crumb through,
+  // so the header shows where on disk it is instead.
+  const isExternal = project === EXTERNAL_PROJECT
+
   return (
     <div className="flex flex-col h-full min-w-0">
       {/* Top bar */}
       <div className="flex items-center gap-2 border-b px-4 py-2 shrink-0">
         <div className="flex-1 min-w-0">
-          <BreadcrumbNav project={project} docPath={docPath} tree={projectTree} onNavigate={onNavigate} />
+          {isExternal ? (
+            <div
+              className="flex items-center gap-1.5 text-sm text-muted-foreground min-w-0"
+              data-testid="external-file-path"
+              title={docPath}
+            >
+              <FileText className="h-3.5 w-3.5 shrink-0" />
+              {/* dir=rtl truncates from the left so the filename stays visible;
+                  <bdi> keeps the path itself left-to-right, or bidi moves its
+                  leading slash to the end. */}
+              <span className="truncate font-mono text-xs" dir="rtl"><bdi>{docPath}</bdi></span>
+            </div>
+          ) : (
+            <BreadcrumbNav project={project} docPath={docPath} tree={projectTree} onNavigate={onNavigate} />
+          )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <StaticPreviewHint project={project} />
+          {!isExternal && <StaticPreviewHint project={project} />}
           <Button
             variant="ghost"
             size="icon"
